@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Apex Duo — UI макеты v1.1 (broadcast F1, строгий)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@400;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0B0D11; --void:#06070A; --panel:#13161B; --panel2:#1A1E25; --row:#14171D; --row2:#10131A;
+  --line:#232932; --line2:#2F3742;
+  --red:#E10600;
+  --text:#E8ECF1; --dim:#868F9D; --faint:#565E6A;
+  --p5:#FFD166; --p6:#66C2FF;
+  --green:#27B16E; --warn:#D99A33; --bad:#E04852; --purple:#9B5DE5;
+  --secgreen:#2BD27A; --secyellow:#E0B83A;
+  --soft:#E8453F; --med:#E4C13A; --hard:#E9ECEF; --inter:#36B24A; --wet:#3B82E0;
+  --ers:#2BC6A6; --overtake:#DD8B2E; --clip:#46606B;
+  --mono:'Roboto Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--void);color:var(--text);font-family:'Titillium Web',system-ui,sans-serif;-webkit-font-smoothing:antialiased;font-size:14px;padding:0 0 50px}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.wrap{max-width:1320px;margin:0 auto;padding:16px 20px}
+.brand{font-weight:700;letter-spacing:.4px;font-size:16px}
+.brand b{color:var(--red)}
+.kicker{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--faint);text-transform:uppercase;margin-top:3px}
+.tabs{display:flex;gap:4px;flex-wrap:wrap;margin:14px 0 12px;position:sticky;top:0;background:var(--void);padding:7px 0;z-index:30;border-bottom:1px solid var(--line)}
+.tabs button{font-family:var(--mono);font-weight:500;font-size:11px;letter-spacing:.08em;color:var(--dim);background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:7px 12px;cursor:pointer;text-transform:uppercase}
+.tabs button.on{color:var(--text);border-color:var(--red);box-shadow:inset 0 -2px 0 var(--red)}
+.screen{display:none}.screen.on{display:block}
+.note{color:var(--faint);font-size:12px;margin:9px 2px 0;line-height:1.55}
+.note code{font-family:var(--mono);color:var(--dim)}
+
+/* stage */
+.stage{width:1280px;max-width:100%;aspect-ratio:16/9;background:var(--bg);border:1px solid var(--line);border-radius:6px;overflow:hidden;position:relative}
+.tag{position:absolute;top:8px;right:10px;font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--faint);text-transform:uppercase;z-index:5}
+
+/* flat header */
+.hbar{display:flex;align-items:center;gap:16px;height:44px;padding:0 16px;background:var(--panel);border-bottom:2px solid var(--red);flex:0 0 auto}
+.hbar .lg{font-weight:700;font-size:15px;letter-spacing:.4px}
+.hbar .lg b{color:var(--red)}
+.hbar .div{width:1px;height:18px;background:var(--line2)}
+.hbar .t{font-weight:600;font-size:14px}
+.hbar .meta{color:var(--dim);font-size:12px}
+.hbar .right{margin-left:auto;display:flex;align-items:center;gap:12px}
+.hbar .lap{font-family:var(--mono);font-weight:500;font-size:18px}
+.hbar .lap small{color:var(--dim);font-size:11px}
+.pill{font-family:var(--mono);font-weight:500;font-size:10px;letter-spacing:.14em;padding:3px 8px;border-radius:3px;text-transform:uppercase;border:1px solid}
+.pill.go{color:var(--green);border-color:rgba(39,177,110,.5);background:rgba(39,177,110,.08)}
+.pill.sc{color:var(--secyellow);border-color:rgba(224,184,58,.5);background:rgba(224,184,58,.1)}
+.pill.co{color:var(--p6);border-color:rgba(102,194,255,.5);background:rgba(102,194,255,.08)}
+
+/* timing tower */
+.tower{background:var(--panel);border-right:1px solid var(--line)}
+.tower .th{display:flex;align-items:center;padding:6px 9px;font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--faint);text-transform:uppercase;border-bottom:1px solid var(--line)}
+.trow{display:flex;align-items:center;height:25px;padding-right:7px;border-bottom:1px solid rgba(35,41,50,.6);position:relative}
+.trow:nth-child(odd){background:var(--row2)}
+.trow .pos{width:26px;text-align:center;font-family:var(--mono);font-weight:500;font-size:12px;color:var(--dim)}
+.trow .tab{width:3px;align-self:stretch;margin:4px 7px 4px 0}
+.trow .tla{flex:1;font-weight:600;font-size:12.5px;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trow .gap{width:54px;text-align:right;font-family:var(--mono);font-size:12px;color:var(--dim)}
+.trow .gap.lead{color:var(--purple)}
+.trow .tyre{width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:500;font-size:9px;margin-left:8px;border:1px solid rgba(0,0,0,.6)}
+.trow .mini{width:30px;text-align:center;margin-left:5px}
+.chip{font-family:var(--mono);font-weight:500;font-size:9px;letter-spacing:.06em;padding:1px 4px;border-radius:2px;border:1px solid}
+.chip.pit{color:#9cc3f0;border-color:rgba(60,120,200,.55);background:rgba(60,120,200,.12)}
+.chip.ot{color:var(--overtake);border-color:rgba(221,139,46,.55);background:rgba(221,139,46,.12)}
+.chip.clip{color:#9fc6d2;border-color:rgba(70,96,107,.7);background:rgba(70,96,107,.18)}
+.trow.p5{background:rgba(255,209,102,.06)} .trow.p5:nth-child(odd){background:rgba(255,209,102,.08)}
+.trow.p6{background:rgba(102,194,255,.06)} .trow.p6:nth-child(odd){background:rgba(102,194,255,.08)}
+.trow.p5 .ident,.trow.p6 .ident{position:absolute;left:0;top:0;bottom:0;width:2px}
+.trow.p5 .ident{background:var(--p5)} .trow.p6 .ident{background:var(--p6)}
+.trow.p5 .tla{color:var(--p5)} .trow.p6 .tla{color:var(--p6)}
+.trow.lead .pos{color:var(--text)}
+.crown{position:absolute;left:21px;top:50%;transform:translateY(-50%);color:var(--dim);font-size:7px}
+
+/* panels */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:5px}
+.phead{font-family:var(--mono);font-weight:500;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);padding:7px 11px;border-bottom:1px solid var(--line)}
+.phead.accent{color:var(--overtake)}
+
+/* segmented control — restrained */
+.seg{display:flex;gap:0;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.seg button{font-family:inherit;font-weight:600;font-size:11.5px;color:var(--dim);background:transparent;border:0;border-right:1px solid var(--line);padding:6px 0;flex:1;text-align:center;cursor:pointer;border-bottom:2px solid transparent}
+.seg button:last-child{border-right:0}
+.seg button.on{color:var(--p5);background:var(--panel2);border-bottom-color:var(--p5)}
+.seg.blue button.on{color:var(--p6);border-bottom-color:var(--p6)}
+.seg.ers button.on{color:var(--ers);border-bottom-color:var(--ers)}
+.seg.neutral button.on{color:var(--text);border-bottom-color:var(--text)}
+
+/* cockpit */
+.cock{border:1px solid var(--line);border-radius:5px;overflow:hidden;background:var(--panel)}
+.cock .ch{display:flex;align-items:center;gap:7px;padding:6px 10px;font-weight:700;font-size:12.5px;border-bottom:1px solid var(--line)}
+.cock.p5 .ch{border-left:2px solid var(--p5)} .cock.p6 .ch{border-left:2px solid var(--p6)}
+.cock.p5 .ch .who{color:var(--p5)} .cock.p6 .ch .who{color:var(--p6)}
+.cock .ch .role{color:var(--faint);font-family:var(--mono);font-size:9.5px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;margin-left:auto}
+.cock .body{padding:8px 10px;display:flex;flex-direction:column;gap:7px}
+.lbl{font-family:var(--mono);font-size:9.5px;color:var(--faint);font-weight:500;letter-spacing:.08em;text-transform:uppercase;display:flex;justify-content:space-between}
+.lbl b{font-family:'Titillium Web';font-size:11px}
+.bar{height:6px;border-radius:2px;background:#0a0d12;border:1px solid var(--line);overflow:hidden}
+.bar i{display:block;height:100%}
+.batt{height:9px;border-radius:2px;background:#0a0d12;border:1px solid var(--line);display:flex;gap:1.5px;padding:1.5px;overflow:hidden}
+.batt span{flex:1;border-radius:1px;background:#1b222b}
+.tyrep{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dim)}
+.tyredot{width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:500;font-size:9px;border:1px solid rgba(0,0,0,.6)}
+.otbtn{font-family:var(--mono);font-weight:500;font-size:10.5px;letter-spacing:.06em;padding:7px;border-radius:4px;border:1px solid var(--line);color:var(--dim);background:transparent;cursor:pointer;text-align:center}
+.otbtn.on{border-color:var(--overtake);color:var(--overtake);background:rgba(221,139,46,.1)}
+.otbtn.dead{color:var(--faint)}
+
+/* radio */
+.radio{display:flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);border-left:2px solid var(--red);border-radius:4px;padding:6px 10px;font-size:12px}
+.radio .who{font-family:var(--mono);font-weight:500;font-size:10px;letter-spacing:.06em;color:var(--red)}
+.radio.warn{border-left-color:var(--warn)} .radio.warn .who{color:var(--warn)}
+
+/* buttons */
+.btn{font-family:inherit;font-weight:600;font-size:12px;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:7px 12px;cursor:pointer}
+.btn.on{color:var(--p6);border-color:rgba(102,194,255,.5)}
+.btn.cta{background:transparent;border-color:var(--red);color:var(--red);font-weight:700}
+.btn.sm{font-family:var(--mono);font-weight:500;font-size:11px;padding:6px 10px}
+
+/* menu */
+.menu{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:0 70px}
+.menu::before{content:"";position:absolute;left:0;top:22%;bottom:22%;width:2px;background:var(--red)}
+.m-kick{font-family:var(--mono);font-size:12px;letter-spacing:.22em;color:var(--faint);text-transform:uppercase;margin-bottom:8px}
+.m-title{font-weight:700;font-size:46px;letter-spacing:.5px;line-height:1}
+.m-title b{color:var(--red)}
+.m-tag{color:var(--dim);font-size:15px;margin-top:8px}
+.m-roles{display:flex;gap:8px;margin-top:12px}
+.m-roles .id{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;letter-spacing:.04em;color:var(--dim);border:1px solid var(--line);border-radius:3px;padding:4px 9px}
+.dot{width:8px;height:8px;border-radius:50%}
+.mbtns{display:flex;flex-direction:column;gap:6px;margin-top:22px;width:380px}
+.mbtn{font-family:inherit;font-weight:600;font-size:13.5px;color:var(--text);background:var(--panel);border:1px solid var(--line);border-left:2px solid var(--line2);border-radius:4px;padding:10px 13px;text-align:left;cursor:pointer}
+.mbtn.primary{border-left-color:var(--red)}
+.mbtn.cont{border-left-color:var(--green)}
+.joinrow{display:flex;gap:6px}
+.joinrow input{flex:1;font-family:var(--mono);font-size:12px;background:#0a0d12;border:1px solid var(--line);border-radius:4px;color:var(--text);padding:0 10px}
+.verchip{position:absolute;bottom:18px;left:72px;font-family:var(--mono);color:var(--faint);font-size:11px;letter-spacing:.12em}
+
+/* setup + paddock */
+.pad{position:absolute;inset:0;display:flex;flex-direction:column;padding:16px 22px;gap:12px;overflow:auto}
+.h2{font-weight:700;font-size:18px;letter-spacing:.4px;text-transform:uppercase}
+.h2 b{color:var(--red)}
+.teamcards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.tcard{background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:12px;position:relative;overflow:hidden}
+.tcard.sel{border-color:var(--red)}
+.tcard .stripe{position:absolute;left:0;top:0;bottom:0;width:3px}
+.tcard .tier{font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--faint);text-transform:uppercase}
+.tcard .tname{font-weight:700;font-size:18px;margin:3px 0 7px}
+.tcard .drv{display:flex;gap:8px;margin:6px 0;font-size:12px;color:var(--dim)}
+.tcard .stat{font-family:var(--mono);font-size:11.5px;color:var(--dim)}
+.tcard .goal{font-size:12px;color:var(--p6);margin-top:3px}
+.tcard .pick{margin-top:9px;font-family:var(--mono);font-weight:500;font-size:11px;letter-spacing:.06em;text-transform:uppercase;text-align:center;padding:7px;border-radius:3px;border:1px solid var(--line);color:var(--dim)}
+.tcard.sel .pick{border-color:var(--red);color:var(--red)}
+.rowlbl{font-family:var(--mono);font-weight:500;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin-top:3px}
+.chips{display:flex;gap:8px}
+.chips .c{flex:1;text-align:center;font-weight:600;font-size:12.5px;padding:9px;border-radius:4px;border:1px solid var(--line);background:var(--panel);color:var(--dim);cursor:pointer}
+.chips .c.on{border-color:var(--red);color:var(--text);box-shadow:inset 0 -2px 0 var(--red)}
+.startcta{margin-top:auto;display:flex;gap:10px;align-items:center}
+
+/* paddock */
+.kpis{display:flex;gap:8px;flex-wrap:wrap}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:7px 13px;min-width:115px}
+.kpi .k{font-family:var(--mono);font-size:9.5px;color:var(--faint);letter-spacing:.1em;text-transform:uppercase}
+.kpi .v{font-family:var(--mono);font-size:16px;font-weight:500;margin-top:2px}
+.kpi .v.money{color:var(--green)} .kpi .v.rp{color:var(--ers)} .kpi .v.next{color:var(--overtake);font-family:'Titillium Web';font-size:13px;font-weight:600}
+.morale{display:flex;gap:18px;flex-wrap:wrap;font-size:12px}
+.morale .m{display:flex;align-items:center;gap:7px;color:var(--dim)}
+.padgrid{display:grid;grid-template-columns:1.1fr .9fr;gap:12px;flex:1;min-height:0}
+.stand .srow{display:flex;align-items:center;height:26px;padding:0 10px;border-bottom:1px solid rgba(35,41,50,.6);position:relative}
+.stand .srow:nth-child(even){background:var(--row2)}
+.stand .srow .sp{width:30px;font-family:var(--mono);font-size:11px;color:var(--dim)}
+.stand .srow .sn{flex:1;font-weight:600;font-size:12.5px}
+.stand .srow .spt{font-family:var(--mono);font-size:12px;color:var(--dim)}
+.stand .srow.p5{background:rgba(255,209,102,.07)} .stand .srow.p6{background:rgba(102,194,255,.07)}
+.stand .srow.p5::before,.stand .srow.p6::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px}
+.stand .srow.p5::before{background:var(--p5)} .stand .srow.p6::before{background:var(--p6)}
+.stand .srow.p5 .sn{color:var(--p5)} .stand .srow.p6 .sn{color:var(--p6)}
+.rnd{display:flex;flex-direction:column}
+.rndcard{padding:9px 11px;border-bottom:1px solid var(--line)}
+.rndcard .rt{font-weight:600;font-size:12.5px;display:flex;align-items:center;gap:7px}
+.rndcard .rd{font-size:11.5px;color:var(--faint);margin:2px 0 6px}
+.rndcard .rb{font-family:var(--mono);font-size:11px;margin-bottom:6px}
+.rndcard .buy{display:flex;align-items:center;gap:8px}
+.rndcard .buy button{font-family:var(--mono);font-weight:500;font-size:11px;background:transparent;border:1px solid var(--line2);border-radius:3px;color:var(--text);padding:6px 11px;cursor:pointer}
+.rndcard .prog{flex:1;height:4px;border-radius:2px;background:#0a0d12;border:1px solid var(--line);overflow:hidden}
+.rndcard .prog i{display:block;height:100%}
+
+/* legend / trackmap */
+.legendgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:7px 18px;margin-top:7px}
+.lg{display:flex;align-items:flex-start;gap:8px;font-size:11.5px;color:var(--dim);line-height:1.35}
+.lg b{color:var(--text);font-weight:600}
+.swatch{width:13px;height:13px;border-radius:50%;flex:0 0 auto;margin-top:1px}
+.callout{font-size:11.5px;line-height:1.6;color:var(--dim)}
+.callout b{color:var(--text);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">APEX <b>DUO</b> · UI</div>
+  <div class="kicker">Broadcast F1 · co-op · черновик v1.1 (строгий)</div>
+
+  <div class="tabs">
+    <button data-s="menu" class="on">Меню</button>
+    <button data-s="setup">Настройка сезона</button>
+    <button data-s="paddock">Паддок</button>
+    <button data-s="race">Гоночный HUD</button>
+    <button data-s="trackmap">Мини-карта</button>
+  </div>
+
+  <!-- MENU -->
+  <section class="screen on" id="menu">
+    <div class="stage">
+      <div class="menu">
+        <div class="m-kick">F1 Management · Co-op</div>
+        <div class="m-title">APEX <b>DUO</b></div>
+        <div class="m-tag">Кооперативный менеджер гонки — два пилота, одна команда</div>
+        <div class="m-roles">
+          <span class="id"><span class="dot" style="background:var(--p5)"></span>P5 · Директор</span>
+          <span class="id"><span class="dot" style="background:var(--p6)"></span>P6 · Инженер</span>
+        </div>
+        <div class="mbtns">
+          <button class="mbtn cont">Продолжить сезон</button>
+          <button class="mbtn primary">Сезон — новый чемпионат</button>
+          <button class="mbtn">Быстрая гонка — соло</button>
+          <button class="mbtn">Быстрая гонка — локальный кооп</button>
+          <button class="mbtn">Создать игру по сети (хост)</button>
+          <div class="joinrow"><input value="127.0.0.1" readonly><button class="mbtn" style="border-left-color:var(--p6);width:auto">Подключиться</button></div>
+        </div>
+      </div>
+      <div class="verchip">ДВИЖОК v0.4 · РЕГЛАМЕНТ 2026</div>
+    </div>
+    <div class="note">Плоская шапка-бренд, тонкая красная вертикаль как единственный «флориш». Веса не выше 700, акценты — мелкие. Роли P5/P6 — компактные моно-чипы.</div>
+  </section>
+
+  <!-- SETUP -->
+  <section class="screen" id="setup">
+    <div class="stage">
+      <div class="pad">
+        <div class="h2">Новый <b>сезон</b></div>
+        <div class="rowlbl">Команда — карьерный старт</div>
+        <div class="teamcards">
+          <div class="tcard sel"><span class="stripe" style="background:#ff8000"></span>
+            <div class="tier">Контендер</div><div class="tname" style="color:#ff8000">McLaren</div>
+            <div class="drv"><span class="dot" style="background:var(--p5)"></span>Норрис <span class="dot" style="background:var(--p6)"></span>Пиастри</div>
+            <div class="stat">Бюджет $180 млн · R&amp;D 40</div><div class="goal">Цель: чемпионский титул</div>
+            <div class="pick">✓ Выбрано</div></div>
+          <div class="tcard"><span class="stripe" style="background:#64c4ff"></span>
+            <div class="tier">Середняк</div><div class="tname" style="color:#64c4ff">Williams</div>
+            <div class="drv"><span class="dot" style="background:var(--p5)"></span>Сайнс <span class="dot" style="background:var(--p6)"></span>Албон</div>
+            <div class="stat">Бюджет $130 млн · R&amp;D 60</div><div class="goal">Цель: очки и рост</div>
+            <div class="pick">Выбрать</div></div>
+          <div class="tcard"><span class="stripe" style="background:#c69d6e"></span>
+            <div class="tier">Аутсайдер</div><div class="tname" style="color:#c69d6e">Cadillac</div>
+            <div class="drv"><span class="dot" style="background:var(--p5)"></span>Перес <span class="dot" style="background:var(--p6)"></span>Боттас</div>
+            <div class="stat">Бюджет $90 млн · R&amp;D 90</div><div class="goal">Цель: прорыв из хвоста</div>
+            <div class="pick">Выбрать</div></div>
+        </div>
+        <div class="rowlbl">Сложность</div>
+        <div class="chips"><div class="c">Лёгкая</div><div class="c on">Обычная</div><div class="c">Сложная</div></div>
+        <div class="rowlbl">Режим</div>
+        <div class="chips"><div class="c">Соло — 1 игрок</div><div class="c on">Локальный кооп — 2 игрока</div></div>
+        <div class="startcta">
+          <button class="btn cta">Начать сезон →</button>
+          <span class="note" style="margin:0">Выбор — красная рамка + красная подсветка снизу. Цвет команды — тонкая полоса слева.</span>
+          <button class="btn" style="margin-left:auto">Назад</button>
+        </div>
+      </div>
+    </div>
+    <div class="note">Карточки тиров из кода (McLaren / Williams / Cadillac). Цвет команды — узкий стрип, не заливка.</div>
+  </section>
+
+  <!-- PADDOCK -->
+  <section class="screen" id="paddock">
+    <div class="stage" style="display:flex;flex-direction:column">
+      <div class="hbar"><span class="lg">APEX <b>DUO</b></span><span class="div"></span>
+        <span class="t" style="color:#ff8000">McLaren</span><span class="meta">Паддок · этап 3 / 5 — Спа-Франкоршам</span>
+        <span class="right"><span class="pill co">Лок. кооп</span></span></div>
+      <div class="pad" style="padding-top:12px">
+        <div class="kpis">
+          <div class="kpi"><div class="k">Бюджет</div><div class="v money">$142 300 000</div></div>
+          <div class="kpi"><div class="k">R&amp;D очки</div><div class="v rp">28</div></div>
+          <div class="kpi"><div class="k">Очки конструкторов</div><div class="v">156</div></div>
+          <div class="kpi"><div class="k">Следующая трасса</div><div class="v next">Спа · скоростная</div></div>
+        </div>
+        <div class="morale">
+          <div class="m"><span class="dot" style="background:var(--p5)"></span>Норрис — настрой <b class="num" style="color:var(--secgreen)">82</b>/100 · развитие <span class="num">+0.012</span></div>
+          <div class="m"><span class="dot" style="background:var(--p6)"></span>Пиастри — настрой <b class="num" style="color:var(--secyellow)">74</b>/100 · развитие <span class="num">+0.007</span></div>
+        </div>
+        <div class="padgrid">
+          <div class="panel stand"><div class="phead">Чемпионат пилотов</div><div id="standrows"></div></div>
+          <div class="panel rnd"><div class="phead accent">R&amp;D — развитие машины · 28 RP</div>
+            <div class="rndcard"><div class="rt"><span class="dot" style="background:var(--p5)"></span>Аэродинамика</div>
+              <div class="rd">Прибавка к темпу обеих машин команды.</div>
+              <div class="rb" style="color:var(--p5)">Бонус: +0.018 к мастерству</div>
+              <div class="buy"><button>Купить · 12 RP</button><span class="prog"><i style="width:45%;background:var(--p5)"></i></span></div></div>
+            <div class="rndcard"><div class="rt"><span class="dot" style="background:var(--p6)"></span>Шинная программа</div>
+              <div class="rd">Снижает износ шин команды.</div>
+              <div class="rb" style="color:var(--p6)">Бонус: −12% износа</div>
+              <div class="buy"><button>Купить · 10 RP</button><span class="prog"><i style="width:33%;background:var(--p6)"></i></span></div></div>
+            <div class="rndcard"><div class="rt"><span class="dot" style="background:var(--ers)"></span>Силовая установка / ERS</div>
+              <div class="rd">Больше заряда батареи и рекуперации (2026).</div>
+              <div class="rb" style="color:var(--ers)">Бонус: +10% ёмкости · +12% рекуперации</div>
+              <div class="buy"><button>Купить · 14 RP</button><span class="prog"><i style="width:33%;background:var(--ers)"></i></span></div></div>
+          </div>
+        </div>
+        <div class="startcta"><button class="btn cta">Старт гонки →  лок. кооп</button>
+          <span class="note" style="margin:0">Автосейв при заходе в паддок.</span>
+          <button class="btn" style="margin-left:auto">Выйти в меню</button></div>
+      </div>
+    </div>
+    <div class="note">Шапка — плоская, с тонкой красной линией снизу. Таблица слева, R&amp;D справа; твои пилоты помечены тонким золотым/голубым стрипом.</div>
+  </section>
+
+  <!-- RACE HUD -->
+  <section class="screen" id="race">
+    <div class="stage" style="display:flex;flex-direction:column">
+      <div class="hbar">
+        <span class="lg">APEX <b>DUO</b></span><span class="div"></span>
+        <span class="t">Спа-Франкоршам</span><span class="meta">скоростная · ×2</span>
+        <span class="right">
+          <span class="lap num">14<small> / 44</small></span>
+          <span class="pill go">Гонка</span>
+        </span>
+      </div>
+      <div style="flex:1;display:flex;min-height:0">
+        <div class="tower" style="width:300px;display:flex;flex-direction:column">
+          <div class="th"><span style="width:26px;text-align:center">P</span><span style="width:10px"></span><span style="flex:1">Пилот</span><span style="width:54px;text-align:right">Отрыв</span><span style="width:26px;text-align:center">Ш</span></div>
+          <div id="towerrows" style="flex:1;overflow:hidden"></div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;padding:9px;gap:8px;min-width:0">
+          <div class="panel" style="flex:1;display:flex;flex-direction:column;min-height:0">
+            <div class="phead">Трасса · Спа-Франкоршам</div>
+            <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:6px"><svg id="minimap" viewBox="0 0 420 300" style="width:100%;height:100%;max-height:300px"></svg></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <div class="radio"><span class="who">P5 ▸</span> Боксы для Норриса: SOFT — заезд на след. круге.</div>
+            <div class="radio warn"><span class="who">Экипаж</span> Не пите обе машины в один круг (+7 c второму).</div>
+          </div>
+        </div>
+        <div style="width:312px;display:flex;flex-direction:column;gap:7px;padding:9px 9px 9px 0;overflow:hidden">
+          <div class="panel">
+            <div class="phead accent">Командная тактика</div>
+            <div style="padding:8px 10px;display:flex;flex-direction:column;gap:7px">
+              <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dim)">
+                <span class="dot" style="background:var(--p5)"></span><span style="color:var(--p5)">Норрис</span> впереди
+                <span class="dot" style="background:var(--p6)"></span><span style="color:var(--p6)">Пиастри</span>
+                <b class="num" style="margin-left:auto;color:var(--text)">5.8 c</b></div>
+              <div class="lbl">Темп обеих машин</div>
+              <div class="seg neutral"><button>Бережно</button><button class="on">Баланс</button><button>Атака</button></div>
+              <button class="btn sm" style="width:100%">Приказ: пропустить вперёд (свап)</button>
+            </div>
+          </div>
+          <div class="cock p5"><div class="ch"><span class="who">P5 · Норрис</span><span class="role">Директор</span></div>
+            <div class="body">
+              <div class="tyrep"><span class="tyredot" style="background:var(--soft);color:#2a0000">S</span> SOFT · износ<span style="flex:1"></span><b class="num" style="color:var(--secgreen)">38%</b></div>
+              <div class="bar"><i style="width:38%;background:var(--secgreen)"></i></div>
+              <div class="lbl">Режим темпа</div>
+              <div class="seg"><button>Бережно</button><button>Баланс</button><button class="on">Атака</button></div>
+              <div class="lbl">Батарея <b class="num" style="color:var(--ers)">64%</b></div>
+              <div class="batt" id="b5"></div>
+              <div class="lbl">Режим ERS</div>
+              <div class="seg ers"><button>Харвест</button><button class="on">Баланс</button><button>Атака</button></div>
+              <button class="otbtn on">⚡ Обгон: ВКЛ — в пределах 1 c</button>
+              <div class="lbl">Пит-стоп</div>
+              <div class="seg neutral"><button>Soft</button><button>Medium</button><button>Hard</button></div>
+            </div></div>
+          <div class="cock p6"><div class="ch"><span class="who">P6 · Пиастри</span><span class="role">Инженер</span></div>
+            <div class="body">
+              <div class="tyrep"><span class="tyredot" style="background:var(--soft);color:#2a0000">S</span> SOFT · износ<span style="flex:1"></span><b class="num" style="color:var(--secyellow)">52%</b></div>
+              <div class="bar"><i style="width:52%;background:var(--secyellow)"></i></div>
+              <div class="lbl">Режим темпа</div>
+              <div class="seg blue"><button>Бережно</button><button class="on">Баланс</button><button>Атака</button></div>
+              <div class="lbl">Батарея <b class="num" style="color:var(--warn)">41%</b></div>
+              <div class="batt" id="b6"></div>
+              <div class="lbl">Режим ERS</div>
+              <div class="seg ers"><button class="on">Харвест</button><button>Баланс</button><button>Атака</button></div>
+              <button class="otbtn">⚡ Обгон — в пределах 1 c</button>
+              <div class="lbl">Пит-стоп</div>
+              <div class="seg neutral"><button>Soft</button><button>Medium</button><button>Hard</button></div>
+            </div></div>
+        </div>
+      </div>
+      <div style="border-top:1px solid var(--line);padding:7px 11px;display:flex;align-items:center;gap:7px;background:var(--panel)">
+        <button class="btn sm">⏸ Пауза</button><button class="btn sm">×1</button><button class="btn sm on">×2</button><button class="btn sm">×5</button>
+        <span style="flex:1"></span><button class="btn sm cta">В паддок →</button><button class="btn sm">Новая гонка</button>
+      </div>
+    </div>
+    <div class="note">Та же раскладка, но плотнее и строже: строки тайминга 25px с зеброй, моноцифры, шины 16px, сегменты — подчёркивание акцентом вместо яркой заливки, цвета команд только узкой плашкой.</div>
+  </section>
+
+  <!-- TRACKMAP -->
+  <section class="screen" id="trackmap">
+    <div class="stage" style="display:flex">
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:18px;border-right:1px solid var(--line)"><svg id="bigmap" viewBox="0 0 460 360" style="width:100%;height:100%"></svg></div>
+      <div style="width:400px;padding:18px;overflow:auto">
+        <div class="h2" style="font-size:15px">Анатомия <b>маркеров</b></div>
+        <div class="legendgrid">
+          <div class="lg"><span class="swatch" style="background:#ff8000;box-shadow:0 0 0 1.5px #0B0D11,0 0 0 3px var(--p5)"></span><div><b>P5 · Директор</b><br>цвет команды + золотое гало, сплошной диск</div></div>
+          <div class="lg"><span class="swatch" style="background:#ff8000;box-shadow:0 0 0 1.5px #0B0D11,0 0 0 3px var(--p6);position:relative"><span style="position:absolute;inset:4px;border-radius:50%;background:var(--bg)"></span></span><div><b>P6 · Инженер</b><br>цвет команды + голубое гало, кольцо (дырка)</div></div>
+          <div class="lg"><span class="swatch" style="background:#3671c6;box-shadow:0 0 0 2px #e8ecf1"></span><div><b>Лидер</b><br>тонкая белая «корона» + пип сверху</div></div>
+          <div class="lg"><span class="swatch" style="background:#e8002d"></span><div><b>Соперник</b><br>цвет команды, тёмный контур</div></div>
+          <div class="lg"><span class="swatch" style="background:#5a606b"></span><div><b>Сошёл</b><br>серый ✕, всегда снизу по z</div></div>
+          <div class="lg"><span class="swatch" style="background:#46606b"></span><div><b>Клиппинг</b><br>обесцвет к стали, короткий трейл</div></div>
+          <div class="lg"><span class="swatch" style="background:transparent;border:1.5px solid #ff8000"></span><div><b>В боксах</b><br>полое кольцо цвета команды</div></div>
+          <div class="lg"><span class="swatch" style="background:#ff8000;box-shadow:0 0 0 1.5px var(--overtake)"></span><div><b>Обгон</b><br>янтарная аура + длинный трейл</div></div>
+        </div>
+        <div class="h2" style="font-size:15px;margin-top:14px">Трасса</div>
+        <div class="callout">
+          <b>Полотно:</b> #23272E (w15) → #3D444E (w9) → гоночная линия #5A6470 (w2).<br>
+          <b>Поребрики:</b> красный/белый, каждый ~7-й сегмент.<br>
+          <b>Старт/финиш:</b> двухрядная «шашка». <b>Стрелка</b> направления на ~12% круга.<br>
+          <b>Сейфти-кар:</b> приглушённая жёлтая лента под пелотоном + чип SC.
+        </div>
+      </div>
+    </div>
+    <div class="note">Спека для <code>track_map.gd</code>. Каждое отличие закодировано формой и цветом (colour-blind-safe). Маркеры уменьшены, аккуратнее. Согласовано с <code>docs/RACE_VISUAL_SPEC.md</code>.</div>
+  </section>
+</div>
+
+<script>
+document.querySelectorAll('.tabs button').forEach(b=>{b.onclick=()=>{
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on'));
+  document.querySelectorAll('.screen').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');document.getElementById(b.dataset.s).classList.add('on');};});
+
+function batt(el,pct,clip){if(!el)return;el.innerHTML='';for(let i=0;i<14;i++){const s=document.createElement('span');const on=(i+1)/14*100<=pct;if(on)s.style.background=clip?'var(--clip)':(pct>60?'var(--ers)':pct>25?'var(--warn)':'var(--bad)');el.appendChild(s);}}
+batt(document.getElementById('b5'),64,false);batt(document.getElementById('b6'),41,false);
+
+const tyre={S:['var(--soft)','#2a0000'],M:['var(--med)','#2a2400'],H:['var(--hard)','#222'],I:['var(--inter)','#052'],W:['var(--wet)','#012']};
+const field=[
+ {p:1,tla:'ФЕРСТАППЕН',col:'#3671c6',gap:'ЛИДЕР',t:'M',lead:1},
+ {p:2,tla:'НОРРИС',col:'#ff8000',gap:'+1.2',t:'S',me:'p5',chip:'ot'},
+ {p:3,tla:'ЛЕКЛЕР',col:'#e8002d',gap:'+3.8',t:'M'},
+ {p:4,tla:'РАССЕЛЛ',col:'#27f4d2',gap:'+6.1',t:'H'},
+ {p:5,tla:'ПИАСТРИ',col:'#ff8000',gap:'+7.0',t:'S',me:'p6'},
+ {p:6,tla:'АНТОНЕЛЛИ',col:'#27f4d2',gap:'+9.4',t:'M'},
+ {p:7,tla:'ХЭМИЛТОН',col:'#e8002d',gap:'+12.1',t:'M',chip:'pit'},
+ {p:8,tla:'САЙНС',col:'#64c4ff',gap:'+15.0',t:'H'},
+ {p:9,tla:'АЛБОН',col:'#64c4ff',gap:'+16.2',t:'M'},
+ {p:10,tla:'АЛОНСО',col:'#229971',gap:'+18.9',t:'S'},
+ {p:11,tla:'ГАСЛИ',col:'#0093cc',gap:'+21.0',t:'H',chip:'clip'},
+ {p:12,tla:'ХЮЛЬКЕНБЕРГ',col:'#00e701',gap:'+24.3',t:'M'},
+ {p:13,tla:'ОКОН',col:'#b6babd',gap:'+26.7',t:'H'},
+ {p:14,tla:'ЛОУСОН',col:'#6692ff',gap:'+29.1',t:'M'},
+];
+const chips={pit:'PIT',clip:'CLIP',ot:'OT',drs:'DRS'};
+const tr=document.getElementById('towerrows');
+field.forEach(d=>{const r=document.createElement('div');r.className='trow'+(d.me?' '+d.me:'')+(d.lead?' lead':'');const[bg,fg]=tyre[d.t];
+ r.innerHTML=`${d.me?'<span class="ident"></span>':''}${d.lead?'<span class="crown">▲</span>':''}`+
+  `<span class="pos">${d.p}</span><span class="tab" style="background:${d.col}"></span><span class="tla">${d.tla}</span>`+
+  `<span class="gap${d.lead?' lead':''}">${d.gap}</span><span class="tyre" style="background:${bg};color:${fg}">${d.t}</span>`+
+  `<span class="mini">${d.chip?`<span class="chip ${d.chip}">${chips[d.chip]}</span>`:''}</span>`;tr.appendChild(r);});
+
+const stand=[{p:1,n:'Ферстаппен',pts:218},{p:2,n:'Норрис',pts:205,me:'p5'},{p:3,n:'Леклер',pts:191},{p:4,n:'Пиастри',pts:178,me:'p6'},{p:5,n:'Расселл',pts:160},{p:6,n:'Хэмилтон',pts:148},{p:7,n:'Антонелли',pts:121},{p:8,n:'Сайнс',pts:96},{p:9,n:'Алонсо',pts:74},{p:10,n:'Албон',pts:69}];
+const sr=document.getElementById('standrows');
+if(sr)stand.forEach(d=>{const r=document.createElement('div');r.className='srow'+(d.me?' '+d.me:'');r.innerHTML=`<span class="sp">P${d.p}</span><span class="sn">${d.n}</span><span class="spt">${d.pts}</span>`;sr.appendChild(r);});
+
+const LOOP="M70,210 C50,150 70,80 140,70 C200,62 230,100 250,90 C285,72 300,40 340,55 C386,72 400,130 380,180 C368,212 330,225 320,255 C312,280 280,300 235,295 C195,290 185,260 150,265 C105,272 84,250 70,210 Z";
+function drawMap(svg,big){if(!svg)return;const NS='http://www.w3.org/2000/svg';const mk=(t,a)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);return e;};
+ [['#23272e',13],['#3d444e',8],['#5a6470',2]].forEach(([c,w])=>svg.appendChild(mk('path',{d:LOOP,fill:'none',stroke:c,'stroke-width':w,'stroke-linejoin':'round'})));
+ const meas=mk('path',{d:LOOP,fill:'none',stroke:'none'});svg.appendChild(meas);const L=meas.getTotalLength();
+ for(let i=0;i<L;i+=14){const a=meas.getPointAtLength(i),b=meas.getPointAtLength(i+5);const dx=b.x-a.x,dy=b.y-a.y,m=Math.hypot(dx,dy)||1;const nx=-dy/m,ny=dx/m;const c=(Math.floor(i/14)%2)?'#e8e8e8':'#d23b3b';svg.appendChild(mk('line',{x1:a.x+nx*6,y1:a.y+ny*6,x2:a.x+nx*9,y2:a.y+ny*9,stroke:c,'stroke-width':2.5}));}
+ const s=meas.getPointAtLength(0),s2=meas.getPointAtLength(6);const dx=s2.x-s.x,dy=s2.y-s.y,m=Math.hypot(dx,dy)||1;const nx=-dy/m,ny=dx/m;
+ for(let row=0;row<2;row++)for(let c=0;c<4;c++){const on=(row+c)%2===0;svg.appendChild(mk('rect',{x:s.x+nx*((c-1.5)*3)+(dx/m)*((row-0.5)*4)-1.5,y:s.y+ny*((c-1.5)*3)+(dy/m)*((row-0.5)*4)-1.5,width:3,height:3,fill:on?'#e8e8e8':'#1b1d22'}));}
+ const cars=[{f:.02,col:'#3671c6',k:'lead'},{f:.06,col:'#ff8000',k:'p5',ot:1},{f:.13,col:'#e8002d',k:'rival'},{f:.19,col:'#27f4d2',k:'rival'},{f:.23,col:'#ff8000',k:'p6'},{f:.31,col:'#27f4d2',k:'rival'},{f:.38,col:'#e8002d',k:'pit'},{f:.46,col:'#64c4ff',k:'rival'},{f:.55,col:'#229971',k:'rival'},{f:.63,col:'#0093cc',k:'clip'},{f:.72,col:'#00e701',k:'rival'},{f:.81,col:'#b6babd',k:'rival'},{f:.9,col:'#6692ff',k:'rival'}];
+ const R=big?7:5;
+ cars.forEach(c=>{const P=meas.getPointAtLength(L*c.f);
+  if(c.ot)svg.appendChild(mk('circle',{cx:P.x,cy:P.y,r:R+2,fill:'none',stroke:'#dd8b2e','stroke-width':1.3}));
+  if(c.k==='out'){svg.appendChild(mk('circle',{cx:P.x,cy:P.y,r:R*0.7,fill:'#5a606b'}));return;}
+  if(c.k==='pit'){svg.appendChild(mk('circle',{cx:P.x,cy:P.y,r:R,fill:'none',stroke:c.col,'stroke-width':1.6}));return;}
+  let col=c.k==='clip'?'#46606b':c.col;
+  svg.appendChild(mk('circle',{cx:P.x,cy:P.y,r:R,fill:col,stroke:'#0B0D11','stroke-width':1.2}));
+  if(c.k==='p6')svg.appendChild(mk('circle',{cx:P.x,cy:P.y,r:R*0.45,fill:'#0B0D11'}));
+  if(c.k==='p5'||c.k==='p6'){svg.appendChild(mk('circle',{cx:P.x,cy:P.y,r:R+2.5,fill:'none',stroke:'#e8ecf1','stroke-width':1.4}));svg.appendChild(mk('circle',{cx:P.x,cy:P.y,r:R+4,fill:'none',stroke:c.k==='p5'?'#ffd166':'#66c2ff','stroke-width':1.3}));}
+  if(c.k==='lead'){svg.appendChild(mk('circle',{cx:P.x,cy:P.y,r:R+3,fill:'none',stroke:'#e8ecf1','stroke-width':2}));svg.appendChild(mk('circle',{cx:P.x,cy:P.y-(R+6),r:1.8,fill:'#ffd166'}));}
+ });}
+drawMap(document.getElementById('minimap'),false);drawMap(document.getElementById('bigmap'),true);
+</script>
+</body>
+</html>
