@@ -692,8 +692,7 @@ func _build_contracts(s: Season) -> Control:
 				bar2.add_child(resign_btn)
 
 			# Upgrade salary button (if not already premium)
-			var tier_idx: int = clampi(s.team_tier, 0, 2)
-			var premium: int = int(s.SALARY_PREMIUM[tier_idx])
+			var premium: int = int(s.SALARY_PREMIUM[s._salary_tier_idx()])
 			if sal < premium:
 				var upgrade_cost_preview: int = (premium - sal) * maxi(1, rem)
 				var upg_btn := _button("Повысить зарплату · $%s" % _money(upgrade_cost_preview), 13)
@@ -741,7 +740,7 @@ func _build_contracts(s: Season) -> Control:
 		var rskill: float = float(gd.get("skill", 0.0))
 		var rname: String = String(gd.get("name", "?"))
 		var fee: int = s.transfer_fee(rskill)
-		var rival_sal: int = int(s.SALARY_DEFAULT[clampi(s.team_tier, 0, 2)])
+		var rival_sal: int = int(s.SALARY_DEFAULT[s._salary_tier_idx()])
 		var trow := HBoxContainer.new()
 		trow.add_theme_constant_override("separation", 8)
 		trow.add_child(_label("%s · темп %.0f%%" % [rname, rskill * 100.0], 13, Palette.CREAM_HEX))

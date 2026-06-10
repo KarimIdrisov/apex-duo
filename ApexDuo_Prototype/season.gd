@@ -272,7 +272,11 @@ const TEAM_NAME := "Apex Duo Racing"
 const SAVE_FILE := "apex_duo_season.json"
 const SAVE_PATH := "user://apex_duo_season.json"
 
-# Starting teams (career identity). skill = pace offset for both team cars.
+# Starting teams — LEGACY preset list (kept for backward compat; load_from_disk
+# still reads team_tier as a raw F1_2026 team index 0-10 saved in the JSON).
+# New code must NOT iterate this to pick a team: use _rank_money()/_rank_rp()
+# with the team index directly. Refs still alive: season_hub.gd upgrade_salary
+# reads SALARY_DEFAULT[_salary_tier_idx()]; resign_cost and _new_contract do too.
 const TEAM_TIERS := [
 	{"name": "Контендер", "team": 0, "money": 8_000_000, "rp": 8,
 		"goal": "Бороться за титул", "desc": "McLaren — топ-команда: быстрая машина, мало бюджета на рост."},
@@ -370,7 +374,7 @@ var car_pwt_steps: int = 0         # 0..RD_PWT_MAX_STEPS   (derived from part_le
 # Keys must match F1_2026.PARTS. Default = all 0 (initialised below).
 var part_levels: Dictionary = {}
 var cal_seed := 0                  # seed for the procedurally generated calendar
-var team_tier := 1                 # index into TEAM_TIERS
+var team_tier := 1                 # F1_2026.TEAMS index (0-10); == player_team after configure()
 var difficulty := 1                # index into DIFFICULTY
 var team_name := TEAM_NAME
 var goal := ""
@@ -710,8 +714,7 @@ func transfer_fee(rival_skill: float) -> int:
 
 # Re-sign cost for a player driver at contract expiry.
 func resign_cost(_driver_id: int) -> int:
-	var tier_idx: int = clampi(team_tier, 0, 2)
-	return RESIGN_COST_BASE + int(SALARY_PREMIUM[tier_idx]) / 2
+	return RESIGN_COST_BASE + int(SALARY_PREMIUM[_salary_tier_idx()]) / 2
 
 # Returns the contract dict for a given driver id (by TEAM_IDS index).
 # Returns an empty dict if not found.
@@ -806,8 +809,7 @@ func sign_rival(driver_id: int, rival_skill: float, rival_salary: int) -> bool:
 # Upgrade salary for a driver (promotes default -> premium).
 # Returns true if money was sufficient.
 func upgrade_salary(driver_id: int) -> bool:
-	var tier_idx: int = clampi(team_tier, 0, 2)
-	var premium: int = int(SALARY_PREMIUM[tier_idx])
+	var premium: int = int(SALARY_PREMIUM[_salary_tier_idx()])
 	for i in contracts.size():
 		var c: Dictionary = contracts[i]
 		if int(c.get("driver_id", -1)) == driver_id:
@@ -2137,19 +2139,50 @@ func _format_money(v: int) -> String:
 			out = " " + out
 	return out
 
-# Apply the chosen team tier + difficulty (called from the setup screen).
+# Starting money for a given team rank (0 = top, 10 = back). Linear interpolation
+# between the old "top" ($8M) and "back" ($3M) endpoints, rounded to $500k steps.
+# Formula: 8_000_000 - rank * 500_000
+static func _rank_money(rank: int) -> int:
+	return 8_000_000 - clampi(rank, 0, 10) * 500_000
+
+# Starting R&D points for a given team rank. Linear interpolation 8 (top) -> 22 (back),
+# rounded to nearest integer: rp = 8 + round(14 * rank / 10).
+static func _rank_rp(rank: int) -> int:
+	return 8 + int(round(14.0 * float(clampi(rank, 0, 10)) / 10.0))
+
+# Maps team rank (0-10) to the nearest 3-tier salary-table index (0/1/2) used by
+# SALARY_DEFAULT and SALARY_PREMIUM. rank 0-3 -> 0 (contender), 4-6 -> 1 (mid),
+# 7-10 -> 2 (back). Keeps contract salaries sensible without duplicating 11 values.
+func _salary_tier_idx() -> int:
+	if player_team <= 3:
+		return 0
+	if player_team <= 6:
+		return 1
+	return 2
+
+# Goal string for a team rank (for UI display during setup and save/load).
+static func _rank_goal(rank: int) -> String:
+	if rank <= 1:
+		return "Бороться за титул"
+	if rank <= 4:
+		return "Очки и подиумы"
+	if rank <= 7:
+		return "Середина таблицы"
+	return "Прогресс сезона"
+
+# Apply the chosen team (0-10 index into F1_2026.TEAMS) + difficulty (called from
+# the setup screen). team_tier stores the raw F1_2026 team index — NOT a 0-2 preset.
 func configure(tier: int, diff: int, is_coop: bool) -> void:
-	team_tier = clampi(tier, 0, TEAM_TIERS.size() - 1)
+	team_tier = clampi(tier, 0, F1_2026.team_count() - 1)
 	difficulty = clampi(diff, 0, DIFFICULTY.size() - 1)
 	coop = is_coop
-	var t: Dictionary = TEAM_TIERS[team_tier]
-	player_team = int(t["team"])
+	player_team = team_tier   # team_tier IS the F1_2026 team index
 	team_name = F1_2026.team_name(player_team)
 	team_base_skill = 0.0          # competitiveness comes from the real drivers
 	grid_names = F1_2026.grid_names(player_team)
-	money = int(t["money"])
-	rp = int(t["rp"])
-	goal = t["goal"]
+	money = _rank_money(player_team)
+	rp = _rank_rp(player_team)
+	goal = _rank_goal(player_team)
 	rival_skill_offset = DIFFICULTY[difficulty]["rival"]
 	# CAR-1: initialise part_levels if not yet set (fresh season or called before _init)
 	if part_levels.is_empty():
@@ -2158,7 +2191,7 @@ func configure(tier: int, diff: int, is_coop: bool) -> void:
 	# META-3: set default contracts for the chosen tier (only if contracts are empty
 	# so that load_from_disk() calling configure() doesn't overwrite loaded contracts)
 	if contracts.is_empty():
-		_init_default_contracts(team_tier)
+		_init_default_contracts(_salary_tier_idx())
 	# M1: generate sponsor market offers deterministically from cal_seed (only if not
 	# already loaded from a save — _apply_dict restores sponsor_offers directly).
 	if sponsor_offers.is_empty() and active_sponsors.is_empty():
@@ -2615,6 +2648,7 @@ static func _apply_dict(s: Season, data: Dictionary) -> void:
 	s.cal_seed = int(data.get("cal_seed", s.cal_seed))
 	s._rebuild_calendar()
 	s.player_team = int(data.get("player_team", s.player_team))
+	s.team_tier = s.player_team   # keep in sync: team_tier == player_team == F1_2026 index
 	s.grid_names = F1_2026.grid_names(s.player_team)
 	# configure() resets money/rp to tier defaults — restore saved values after
 	s.money = int(data.get("money", 5_000_000))
@@ -2700,12 +2734,20 @@ static func _apply_dict(s: Season, data: Dictionary) -> void:
 	var contracts_raw: Variant = data.get("contracts", null)
 	if typeof(contracts_raw) == TYPE_ARRAY and (contracts_raw as Array).size() > 0:
 		# Path A: new save
+		# Compute salary tier from the saved player_team (already in the data dict)
+		# because s.player_team may not be restored yet (it happens after configure()).
+		var saved_pt: int = int(data.get("player_team", s.player_team))
+		var load_sal_tier: int = 0
+		if saved_pt > 6:
+			load_sal_tier = 2
+		elif saved_pt > 3:
+			load_sal_tier = 1
 		s.contracts = []
 		for cr in (contracts_raw as Array):
 			if typeof(cr) == TYPE_DICTIONARY:
 				var cd: Dictionary = cr as Dictionary
 				var fallback_id: int = TEAM_IDS[clampi(s.contracts.size(), 0, TEAM_IDS.size() - 1)]
-				var fallback_sal: int = int(SALARY_DEFAULT[clampi(s.team_tier, 0, 2)])
+				var fallback_sal: int = int(SALARY_DEFAULT[load_sal_tier])
 				s.contracts.append({
 					"driver_id":         int(float(cd.get("driver_id", fallback_id))),
 					"salary_per_round":  int(float(cd.get("salary_per_round", fallback_sal))),
@@ -2718,10 +2760,16 @@ static func _apply_dict(s: Season, data: Dictionary) -> void:
 		# If fewer contracts than expected (e.g. partially corrupt), pad with defaults
 		var padded: int = s.contracts.size()
 		for i in (TEAM_IDS.size() - padded):
-			s.contracts.append(s._new_contract(TEAM_IDS[padded + i], s.team_tier))
+			s.contracts.append(s._new_contract(TEAM_IDS[padded + i], load_sal_tier))
 	else:
 		# Path B: old save (no contracts key) -> default contracts for the loaded tier
-		s._init_default_contracts(s.team_tier)
+		var saved_pt2: int = int(data.get("player_team", s.player_team))
+		var load_sal_tier2: int = 0
+		if saved_pt2 > 6:
+			load_sal_tier2 = 2
+		elif saved_pt2 > 3:
+			load_sal_tier2 = 1
+		s._init_default_contracts(load_sal_tier2)
 	# Restore cap state (default 0 for old saves)
 	s.cumulative_salary_spend = int(float(data.get("cumulative_salary_spend", 0)))
 	s.cap_penalty_pending = int(float(data.get("cap_penalty_pending", 0)))

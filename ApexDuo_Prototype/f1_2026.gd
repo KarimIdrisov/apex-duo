@@ -16,29 +16,34 @@ extends RefCounted
 # ============================================================================
 
 # Teams ordered strongest -> weakest (2026 form). Each has two drivers.
+# Skill ladder (graded, 2026-06-10): team averages are strictly monotone top->weak
+# with a step of ~0.02-0.035 per rank; "star flavour" is allowed within a pair
+# (e.g. Verstappen world-#2 in a #3 team, Alonso carrying Aston Martin).
+# SKILL_K = 3.0 in race_sim.gd, so 0.01 skill ≈ 0.03 s/lap at race pace.
+# Team averages: .946 .931 .896 .892 .857 .823 .802 .783 .773 .751 .734
 const TEAMS := [
 	{"name": "McLaren", "pu": "Mercedes", "principal": "Андреа Стелла", "color": "#ff8000",
-		"drivers": [{"name": "Норрис", "skill": 0.950}, {"name": "Пиастри", "skill": 0.945}]},
+		"drivers": [{"name": "Норрис", "skill": 0.950}, {"name": "Пиастри", "skill": 0.942}]},
 	{"name": "Mercedes", "pu": "Mercedes", "principal": "Тото Вольфф", "color": "#27f4d2",
-		"drivers": [{"name": "Антонелли", "skill": 0.940}, {"name": "Расселл", "skill": 0.935}]},
+		"drivers": [{"name": "Антонелли", "skill": 0.934}, {"name": "Расселл", "skill": 0.928}]},
 	{"name": "Red Bull Racing", "pu": "Red Bull Ford", "principal": "Лоран Мекис", "color": "#3671c6",
-		"drivers": [{"name": "Ферстаппен", "skill": 0.930}, {"name": "Аджар", "skill": 0.800}]},
+		"drivers": [{"name": "Ферстаппен", "skill": 0.944}, {"name": "Аджар", "skill": 0.848}]},
 	{"name": "Ferrari", "pu": "Ferrari", "principal": "Фредерик Вассёр", "color": "#e8002d",
-		"drivers": [{"name": "Леклер", "skill": 0.925}, {"name": "Хэмилтон", "skill": 0.915}]},
+		"drivers": [{"name": "Леклер", "skill": 0.898}, {"name": "Хэмилтон", "skill": 0.886}]},
 	{"name": "Williams", "pu": "Mercedes", "principal": "Джеймс Воулз", "color": "#64c4ff",
-		"drivers": [{"name": "Сайнс", "skill": 0.830}, {"name": "Албон", "skill": 0.825}]},
+		"drivers": [{"name": "Сайнс", "skill": 0.862}, {"name": "Албон", "skill": 0.852}]},
 	{"name": "Aston Martin", "pu": "Honda", "principal": "Эдриан Ньюи", "color": "#229971",
-		"drivers": [{"name": "Алонсо", "skill": 0.815}, {"name": "Стролл", "skill": 0.755}]},
+		"drivers": [{"name": "Алонсо", "skill": 0.846}, {"name": "Стролл", "skill": 0.800}]},
 	{"name": "Alpine", "pu": "Mercedes", "principal": "Флавио Бриаторе", "color": "#0093cc",
-		"drivers": [{"name": "Гасли", "skill": 0.800}, {"name": "Колапинто", "skill": 0.745}]},
+		"drivers": [{"name": "Гасли", "skill": 0.816}, {"name": "Колапинто", "skill": 0.788}]},
 	{"name": "Racing Bulls", "pu": "Red Bull Ford", "principal": "Алан Перман", "color": "#6692ff",
-		"drivers": [{"name": "Лоусон", "skill": 0.785}, {"name": "Линдблад", "skill": 0.720}]},
+		"drivers": [{"name": "Лоусон", "skill": 0.798}, {"name": "Линдблад", "skill": 0.768}]},
 	{"name": "Haas", "pu": "Ferrari", "principal": "Аяо Комацу", "color": "#b6babd",
-		"drivers": [{"name": "Окон", "skill": 0.790}, {"name": "Бирман", "skill": 0.760}]},
+		"drivers": [{"name": "Окон", "skill": 0.786}, {"name": "Бирман", "skill": 0.760}]},
 	{"name": "Audi", "pu": "Audi", "principal": "Маттиа Бинотто", "color": "#00e701",
-		"drivers": [{"name": "Хюлькенберг", "skill": 0.780}, {"name": "Бортолето", "skill": 0.730}]},
+		"drivers": [{"name": "Хюлькенберг", "skill": 0.764}, {"name": "Бортолето", "skill": 0.738}]},
 	{"name": "Cadillac", "pu": "Ferrari", "principal": "Грэм Лаудон", "color": "#c69d6e",
-		"drivers": [{"name": "Перес", "skill": 0.760}, {"name": "Боттас", "skill": 0.755}]},
+		"drivers": [{"name": "Перес", "skill": 0.742}, {"name": "Боттас", "skill": 0.726}]},
 ]
 
 # Personnel roles the game models (per team). In Mode A the two race engineers
