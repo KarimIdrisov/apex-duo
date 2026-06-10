@@ -76,7 +76,7 @@ Single `HBoxContainer` row, height 36 px, background `#0e0e1a`.
 | 5 | delta | 32 | `▲3` / `▼1` / `—` | Green ▲, red ▼, muted — |
 | 6 | lap | 26 | Current lap int | Muted grey |
 | 7 | pit | 52 | "В ПИТ" blue badge OR pit count | Badge when `car.pitting`; else count |
-| 8 | tyre | 64 | Compound circle icon + age laps | S=red, M=yellow, H=white, I=blue |
+| 8 | tyre | 64 | `TextureRect` 22×22 from `assets/tyres/{compound}.png` + age laps label | PNG icons generated (128px, tread+letter); Godot scales to 22px |
 | 9 | best_lap | 72 | Best lap `M:SS.mmm` | Purple `#b15de8` if session fastest; yellow if personal best |
 | 10 | gap | 58 | `+5.209` / `ЛИДЕР` / `СХОД` | White; red for СХОД |
 | 11 | interval | 52 | `+1.386` / `—` | White |
@@ -181,6 +181,12 @@ else:                         → #888888  (grey — normal)
 ```
 ApexDuo_Prototype/
 └── assets/
+    ├── tyres/
+    │   ├── soft.png       # red,   128×128, tread+letter S
+    │   ├── medium.png     # yellow, 128×128, tread+letter M
+    │   ├── hard.png       # white,  128×128, tread+letter H
+    │   ├── inter.png      # green,  128×128, tread+letter I
+    │   └── wet.png        # blue,   128×128, tread+letter W
     ├── teams/
     │   ├── mercedes.png
     │   ├── ferrari.png
