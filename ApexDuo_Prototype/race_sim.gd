@@ -536,7 +536,7 @@ func _check_sector_crossing(d: Driver, prev_frac: float) -> void:
 	if track.sector_bounds.size() >= 2:
 		for si in 2:
 			var bound: float = float(track.sector_bounds[si])
-			if prev_frac < bound and new_frac >= bound:
+			if d.cur_sector == si and prev_frac < bound and new_frac >= bound:
 				# Record time for sector si (just completed)
 				if d.sector_entry_time >= 0.0:
 					var t: float = elapsed - d.sector_entry_time
