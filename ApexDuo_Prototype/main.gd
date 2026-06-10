@@ -325,6 +325,21 @@ func net_set_overtake(car_id: int, on: bool) -> void:
 	if multiplayer.is_server() and sim != null:
 		sim.set_overtake(car_id, on)
 
+# Co-op cockpit: team orders from the online partner. The client's team panel
+# routes here; the host applies them to the authoritative sim (both players
+# are co-directors — team tactics belong to both, not just the host).
+@rpc("any_peer", "call_remote", "reliable")
+func net_set_team_pace(pmode: String) -> void:
+	if multiplayer.is_server() and sim != null:
+		sim.set_team_pace(pmode)
+
+@rpc("any_peer", "call_remote", "reliable")
+func net_team_swap() -> void:
+	if multiplayer.is_server() and sim != null and not sim.finished:
+		sim.team_order_swap()
+		_set_msg(sim.last_event)
+		sim.last_event = ""
+
 # Client sends its chosen starting compound to the host.
 @rpc("any_peer", "call_remote", "reliable")
 func net_set_start_compound(car_id: int, comp: String) -> void:
@@ -802,10 +817,15 @@ func _on_overtake(car_id: int, on: bool) -> void:
 		sim.set_overtake(car_id, on)
 
 func _on_team_pace(pmode: String) -> void:
-	if sim != null:
+	if game_mode == "client":
+		net_set_team_pace.rpc_id(1, pmode)   # co-op cockpit: order via host
+	elif sim != null:
 		sim.set_team_pace(pmode)
 
 func _on_team_swap() -> void:
+	if game_mode == "client":
+		net_team_swap.rpc_id(1)              # co-op cockpit: order via host
+		return
 	if sim != null and not sim.finished:
 		sim.team_order_swap()
 		_set_msg(sim.last_event)
@@ -1299,9 +1319,10 @@ func _build_panels() -> void:
 		"client":
 			specs = [{"id": my_car_id, "role": "Инженер", "name": _driver_name(my_car_id)}]
 
-	# Shared team-tactics panel (the sim-authoritative side issues team orders).
-	if game_mode != "client":
-		holder.add_child(_make_team_panel())
+	# Shared team-tactics panel. Both co-directors issue team orders: the host
+	# applies them directly, the client routes via net_set_team_pace/net_team_swap
+	# (the gap label is snapshot-fed, so it works on the client mirror too).
+	holder.add_child(_make_team_panel())
 
 	for s in specs:
 		holder.add_child(_make_panel(int(s["id"]), String(s["role"]), String(s["name"])))
