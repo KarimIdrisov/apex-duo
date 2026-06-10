@@ -14,31 +14,14 @@ extends Control
 
 const PAD := 26.0
 const EASE := 9.0        # position interpolation speed (higher = snappier)
+const VIS_N := 200
+const VIS_STRAIGHT_K := 1.6
+const VIS_CORNER_K   := 0.7
 
-# Hand-authored circuit outlines (normalized; re-fitted to the view). A few
-# iconic layouts to start; everything else uses the procedural fallback.
-# static var (not const): constructed Vector2/PackedVector2Array aren't constant
-# expressions, so Godot rejects them in a const.
-static var TRACK_SHAPES := {
-	"Монца": PackedVector2Array([
-		Vector2(0.42, 0.98), Vector2(0.42, 0.62), Vector2(0.36, 0.55), Vector2(0.40, 0.50),
-		Vector2(0.34, 0.40), Vector2(0.40, 0.22), Vector2(0.52, 0.10), Vector2(0.60, 0.12),
-		Vector2(0.62, 0.22), Vector2(0.56, 0.30), Vector2(0.66, 0.40), Vector2(0.80, 0.44),
-		Vector2(0.86, 0.56), Vector2(0.80, 0.64), Vector2(0.86, 0.74), Vector2(0.82, 0.90),
-		Vector2(0.70, 0.96), Vector2(0.55, 0.92)]),
-	"Монако": PackedVector2Array([
-		Vector2(0.18, 0.86), Vector2(0.16, 0.60), Vector2(0.24, 0.48), Vector2(0.20, 0.40),
-		Vector2(0.30, 0.30), Vector2(0.30, 0.20), Vector2(0.42, 0.14), Vector2(0.52, 0.20),
-		Vector2(0.50, 0.32), Vector2(0.62, 0.34), Vector2(0.72, 0.26), Vector2(0.82, 0.34),
-		Vector2(0.78, 0.48), Vector2(0.86, 0.58), Vector2(0.80, 0.72), Vector2(0.64, 0.74),
-		Vector2(0.58, 0.66), Vector2(0.46, 0.72), Vector2(0.40, 0.86), Vector2(0.28, 0.90)]),
-	"Сильверстоун": PackedVector2Array([
-		Vector2(0.30, 0.90), Vector2(0.20, 0.74), Vector2(0.26, 0.60), Vector2(0.16, 0.48),
-		Vector2(0.24, 0.34), Vector2(0.40, 0.30), Vector2(0.46, 0.18), Vector2(0.58, 0.14),
-		Vector2(0.66, 0.22), Vector2(0.60, 0.34), Vector2(0.74, 0.36), Vector2(0.86, 0.30),
-		Vector2(0.90, 0.44), Vector2(0.78, 0.54), Vector2(0.84, 0.66), Vector2(0.72, 0.78),
-		Vector2(0.56, 0.74), Vector2(0.48, 0.86), Vector2(0.40, 0.94)]),
-}
+# Circuit outlines now live in TrackShapes.TRACK_SHAPES (shared source of truth with
+# the 3D race view), derived from real F1 layouts (f1-circuits-svg, CC BY 4.0). The
+# 2D minimap reads them via TrackShapes below and smooths/rotates them as before;
+# unknown track names fall back to the procedural generator.
 
 var loop: PackedVector2Array = PackedVector2Array()   # circuit outline, normalized 0..1
 var cum: PackedFloat32Array = PackedFloat32Array()    # cumulative arc-length per point
@@ -48,6 +31,8 @@ var sc_active := false
 var pit_lane := 0.05      # current track's pit-lane length (fraction of lap)
 var aero_zones := 0       # active-aero / Overtake zones, drawn on the longest straights
 var _key := ""
+var _segments: Array = []
+var _vis_map: PackedFloat32Array = PackedFloat32Array()
 
 func _ready() -> void:
 	resized.connect(queue_redraw)
@@ -58,15 +43,60 @@ func ensure_built(track_name: String, seed_value: int) -> void:
 		return
 	_key = track_name
 	disp.clear()
-	if TRACK_SHAPES.has(track_name):
-		_fit_points(TRACK_SHAPES[track_name])
+	if TrackShapes.TRACK_SHAPES.has(track_name):
+		_fit_points(TrackShapes.TRACK_SHAPES[track_name])
 	else:
 		_generate(seed_value)
+	if not _segments.is_empty():
+		_build_visual_remap()
 	queue_redraw()
 
 func set_cars(arr: Array, sc: bool) -> void:
 	cars = arr
 	sc_active = sc
+
+func set_segments(segs: Array, _straight_frac: float) -> void:
+	_segments = segs
+	_build_visual_remap()
+
+func _build_visual_remap() -> void:
+	_vis_map = PackedFloat32Array()
+	if _segments.is_empty():
+		return
+	var weights: Array = []
+	var total_w := 0.0
+	for i in VIS_N:
+		var frac: float = float(i) / float(VIS_N)
+		var seg: Dictionary = _seg_at_frac(frac)
+		var kind: String = str(seg.get("kind", "straight"))
+		var w: float = VIS_STRAIGHT_K if kind == "straight" else VIS_CORNER_K
+		weights.append(w)
+		total_w += w
+	var acc := 0.0
+	for i in VIS_N:
+		_vis_map.append(acc / total_w)
+		acc += float(weights[i])
+
+func _seg_at_frac(frac: float) -> Dictionary:
+	var ff: float = fposmod(frac, 1.0)
+	for s in _segments:
+		var s_start: float = float(s.get("start", 0.0))
+		var s_frac: float  = float(s.get("frac",  1.0))
+		if ff >= s_start and ff < s_start + s_frac:
+			return s
+	return _segments[0] if not _segments.is_empty() else {}
+
+func _visual_frac(frac: float) -> float:
+	if _vis_map.is_empty():
+		return frac
+	var ff: float = fposmod(frac, 1.0)
+	var idx_f: float = ff * float(VIS_N)
+	var idx0: int = int(idx_f) % VIS_N
+	var idx1: int = (idx0 + 1) % VIS_N
+	var t: float = idx_f - float(idx0)
+	var v0: float = _vis_map[idx0]
+	var v1: float = _vis_map[idx1] if idx1 > 0 else 1.0
+	return v0 + (v1 - v0) * t
 
 func _process(delta: float) -> void:
 	if cars.is_empty() or loop.size() < 2:
@@ -93,9 +123,12 @@ func _fit_points(src: PackedVector2Array) -> void:
 		maxx = maxf(maxx, p.x); maxy = maxf(maxy, p.y)
 	var w := maxf(maxx - minx, 0.001)
 	var h := maxf(maxy - miny, 0.001)
+	var sca := maxf(w, h)                      # uniform scale: keep real circuit aspect
+	var ox := (1.0 - w / sca) * 0.5            # centre the shorter axis in the unit box
+	var oy := (1.0 - h / sca) * 0.5
 	var ctrl := PackedVector2Array()
 	for p in src:
-		ctrl.append(Vector2((p.x - minx) / w, (p.y - miny) / h))
+		ctrl.append(Vector2((p.x - minx) / sca + ox, (p.y - miny) / sca + oy))
 	# Smooth the control polygon into a dense Catmull-Rom loop so corners are
 	# curved (not faceted) — fixes both the drawn outline AND car motion (which
 	# follows `loop`). Sparse authored shapes get many subdivisions; the already
@@ -417,7 +450,7 @@ func _draw_pos_labels(area: Vector2, off: Vector2, l: float) -> void:
 		if state == "out":
 			continue
 		var fr: float = disp.get(int(c["id"]), float(c["frac"]))
-		var pos := _to_px(_norm_pos(fr), area, off)
+		var pos := _to_px(_norm_pos(_visual_frac(fr)), area, off)
 		if state == "pit":
 			var pp := _pit_path()
 			pos = _to_px(_pit_pos(pp, float(c.get("pit_phase", 0.0))), area, off)
@@ -494,8 +527,9 @@ func _poly(src: PackedVector2Array, l: float, pos: Vector2, ang: float) -> Packe
 
 func _draw_car(c: Dictionary, area: Vector2, off: Vector2, l: float) -> void:
 	var fr: float = disp.get(int(c["id"]), float(c["frac"]))
-	var pos := _to_px(_norm_pos(fr), area, off)
-	var ang := (_to_px(_norm_pos(fr + 0.004), area, off) - pos).angle()
+	var vfr: float = _visual_frac(fr)
+	var pos := _to_px(_norm_pos(vfr), area, off)
+	var ang := (_to_px(_norm_pos(_visual_frac(fr + 0.004)), area, off) - pos).angle()
 	var state := String(c["state"])
 	var is_team := bool(c["team"])
 	if state == "pit":
