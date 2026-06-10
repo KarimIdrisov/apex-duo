@@ -233,8 +233,10 @@ func _make_sim(coop: bool) -> void:
 	# team_car() guard keeps opponents unaffected either way).
 	if season_race and Season.active != null:
 		Season.active.apply_car_rd()
+		Season.active.apply_ai_dev()        # rivals' accumulated development
 	else:
 		F1_2026.apply_rd_upgrades(-1, 0.0, 0.0, 0.0, 0.0, 0.0)
+		F1_2026.apply_ai_dev({})            # exhibition race: no AI development
 	# M2: the season's persistent staff (the people the players manage) replaces
 	# per-race regeneration for the player team's strategist/pit-crew scalars.
 	var pstaff: Dictionary = {}
