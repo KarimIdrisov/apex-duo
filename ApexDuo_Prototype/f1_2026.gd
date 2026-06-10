@@ -203,6 +203,17 @@ static var _rd_delta_energy: float = 0.0
 static var _rd_delta_ch_rel: float = 0.0
 static var _rd_delta_eng_rel: float = 0.0
 
+# AI car development (per RIVAL team). Season.gd accumulates per-round deltas on
+# the ATR curve and primes this before each race via apply_ai_dev(). Keyed by
+# team_idx; the player's team is NEVER inserted (it develops via _rd_* above), so
+# there is no double-count. Empty dict = no AI development (exhibition races).
+static var _dev_deltas: Dictionary = {}
+
+# Primes the per-team AI-development state. `deltas` maps team_idx (int) ->
+# {d_aero, d_power, d_energy, d_ch_rel, d_eng_rel}. Pass {} to disable.
+static func apply_ai_dev(deltas: Dictionary) -> void:
+	_dev_deltas = deltas
+
 # Primes the static R&D upgrade state. Called by Season.apply_car_rd() before
 # _make_sim so that team_car() for the player team returns the upgraded car.
 static func apply_rd_upgrades(
@@ -335,6 +346,14 @@ static func team_car(team_idx: int) -> Dictionary:
 		eng_rel     = minf(0.99, eng_rel + _rd_delta_eng_rel)
 		ch_aero    += _rd_delta_aero
 		ch_rel      = minf(0.99, ch_rel + _rd_delta_ch_rel)
+	# AI development for rival teams (never overlaps the player's _rd_* path).
+	if _dev_deltas.has(ti):
+		var dv: Dictionary = _dev_deltas[ti]
+		eng_power  += float(dv.get("d_power", 0.0))
+		eng_energy += float(dv.get("d_energy", 0.0))
+		eng_rel     = minf(0.99, eng_rel + float(dv.get("d_eng_rel", 0.0)))
+		ch_aero    += float(dv.get("d_aero", 0.0))
+		ch_rel      = minf(0.99, ch_rel + float(dv.get("d_ch_rel", 0.0)))
 	return {
 		"power": eng_power, "aero": ch_aero,
 		"energy": eng_energy, "rel": eng_rel * ch_rel,
