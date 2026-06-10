@@ -14,7 +14,6 @@ extends Control
 
 const PAD := 26.0
 const EASE := 9.0        # position interpolation speed (higher = snappier)
-const TRAIL_LEN := 10
 
 # Hand-authored circuit outlines (normalized; re-fitted to the view). A few
 # iconic layouts to start; everything else uses the procedural fallback.
@@ -45,7 +44,6 @@ var loop: PackedVector2Array = PackedVector2Array()   # circuit outline, normali
 var cum: PackedFloat32Array = PackedFloat32Array()    # cumulative arc-length per point
 var cars: Array = []
 var disp: Dictionary = {}                             # id -> interpolated display frac
-var trails: Dictionary = {}                           # id -> Array[float] display fracs
 var sc_active := false
 var pit_lane := 0.05      # current track's pit-lane length (fraction of lap)
 var aero_zones := 0       # active-aero / Overtake zones, drawn on the longest straights
@@ -60,7 +58,6 @@ func ensure_built(track_name: String, seed_value: int) -> void:
 		return
 	_key = track_name
 	disp.clear()
-	trails.clear()
 	if TRACK_SHAPES.has(track_name):
 		_fit_points(TRACK_SHAPES[track_name])
 	else:
@@ -83,11 +80,6 @@ func _process(delta: float) -> void:
 			tgt += 1.0
 		d = fposmod(lerp(d, tgt, f), 1.0)
 		disp[id] = d
-		var tr: Array = trails.get(id, [])
-		tr.append(d)
-		while tr.size() > TRAIL_LEN:
-			tr.pop_front()
-		trails[id] = tr
 	queue_redraw()
 
 # ---------------------------------------------------------------- geometry
@@ -295,18 +287,17 @@ func _draw() -> void:
 	var tw := maxf(s * 0.05, 14.0)        # track width scales with the view
 	# subtle infield fill — the land enclosed by the lap, for depth vs the black outside
 	if pts.size() >= 3:
-		draw_colored_polygon(pts, Color("#131811"))
+		draw_colored_polygon(pts, Color("#121110"))           # neutral dark infield
 	if sc_active:
-		draw_polyline(closed, Color(0.82, 0.66, 0.24, 0.20), tw + 2.0, true)
-	draw_polyline(closed, Color("#05070a"), tw + 6.0, true)   # outer shadow for depth
-	draw_polyline(closed, Color("#10131a"), tw + 4.0, true)   # run-off / edge
-	draw_polyline(closed, Color("#363d48"), tw, true)         # tarmac (a touch lighter so it reads)
-	draw_polyline(closed, Color("#586679"), tw * 0.30, true)  # racing line (rubbered-in centre)
+		draw_polyline(closed, Color(0.74, 0.59, 0.22, 0.18), tw + 2.0, true)  # SC amber (subdued)
+	draw_polyline(closed, Color("#05050a"), tw + 6.0, true)   # outer shadow for depth
+	draw_polyline(closed, Color("#14120E"), tw + 4.0, true)   # run-off / edge
+	draw_polyline(closed, Color("#34322C"), tw, true)         # tarmac (warm muted grey)
+	draw_polyline(closed, Color("#4A453A"), tw * 0.30, true)  # racing line (rubbered-in centre)
 	_draw_zones(pts, tw)
 	_draw_kerbs(pts, tw)
 	_draw_startline(pts, tw)
 	_draw_pit(area, off, tw)
-	_draw_trails(area, off, carlen)
 	_draw_cars(area, off, carlen)
 	_draw_pos_labels(area, off, carlen)
 	_draw_label()
@@ -360,8 +351,8 @@ func _draw_pit(area: Vector2, off: Vector2, tw: float) -> void:
 			continue
 		var pn := (px[i + 1] - px[i - 1]).normalized().orthogonal()
 		draw_line(px[i] - pn * lw * 0.42, px[i] + pn * lw * 0.42, Color("#aab3c0"), 1.5)
-	draw_circle(px[0], maxf(tw * 0.11, 2.5), Color("#2f6fb0"))                 # entry blip (blue)
-	draw_circle(px[px.size() - 1], maxf(tw * 0.11, 2.5), Color("#5dd17a"))    # exit blip (green)
+	draw_circle(px[0], maxf(tw * 0.11, 2.5), Palette.INFO)                 # entry blip
+	draw_circle(px[px.size() - 1], maxf(tw * 0.11, 2.5), Palette.GOOD)     # exit blip
 
 # Segment zones: visualises the energy model on the track. Every straight is a
 # DEPLOY zone (faint amber); the `aero_zones` longest are the OVERTAKE / active-aero
@@ -405,14 +396,15 @@ func _draw_zones(pts: PackedVector2Array, tw: float) -> void:
 		for k in rl + 1:
 			seg.append(pts[(rs + k) % n])
 		if z < ot_take:
-			draw_polyline(seg, Color(0.30, 0.66, 1.0, 0.42), tw * 0.72, true)   # Overtake / active-aero zone
+			var iz := Palette.INFO
+			draw_polyline(seg, Color(iz.r, iz.g, iz.b, 0.30), tw * 0.72, true)   # Overtake / active-aero zone (subdued)
 		# braking / harvest marker at the END of the longer straights (corner entry)
 		if rl >= 5:
 			var e: Vector2 = pts[(rs + rl) % n]
 			var ep: Vector2 = pts[(rs + rl - 1) % n]
 			var bn: Vector2 = (e - ep).normalized().orthogonal()
-			draw_line(e - bn * tw * 0.66, e + bn * tw * 0.66, Color(0.36, 0.86, 0.50, 0.95), 3.5)
-			draw_circle(e, maxf(tw * 0.12, 2.5), Color(0.36, 0.86, 0.50, 0.95))
+			draw_line(e - bn * tw * 0.66, e + bn * tw * 0.66, Palette.GOOD, 3.0)
+			draw_circle(e, maxf(tw * 0.12, 2.5), Palette.GOOD)
 
 # Position numbers over the cars (drawn last so they sit on top). Team cars and
 # the leader get a bigger, colour-coded number; everyone else a small white one.
@@ -454,14 +446,14 @@ func _draw_legend() -> void:
 	var x := PAD + 4.0
 	var y := size.y - PAD - 52.0
 	var items := [
-		[Color(0.30, 0.66, 1.0, 0.92), "Обгон-зона"],
-		[Color(0.36, 0.86, 0.50, 0.95), "Рекуперация (торможение)"],
+		[Palette.INFO, "Обгон-зона"],
+		[Palette.GOOD, "Рекуперация (торможение)"],
 	]
 	for it in items:
 		var col: Color = it[0]
-		draw_rect(Rect2(Vector2(x, y - 9.0), Vector2(14.0, 12.0)), col)
+		draw_rect(Rect2(Vector2(x, y - 9.0), Vector2(12.0, 12.0)), col)
 		draw_string(font, Vector2(x + 21.0, y + 2.0), String(it[1]),
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("#aeb6c2"))
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.MUTED)
 		y += 18.0
 
 # Track name in the corner of the view.
@@ -471,20 +463,6 @@ func _draw_label() -> void:
 	var font: Font = Palette.display_font(600, 2)
 	draw_string(font, Vector2(PAD + 4.0, PAD + 22.0), _key.to_upper(),
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Palette.CREAM)
-
-func _draw_trails(area: Vector2, off: Vector2, carlen: float) -> void:
-	for c in cars:
-		var id: int = int(c["id"])
-		if not trails.has(id):
-			continue
-		var tr: Array = trails[id]
-		var col: Color = c["team_color"]
-		if String(c["state"]) == "attack":
-			col = col.lerp(Color("#ff7a1a"), 0.5)
-		var n := tr.size()
-		for k in n - 1:
-			var p := _to_px(_norm_pos(float(tr[k])), area, off)
-			draw_circle(p, carlen * (0.12 + 0.02 * float(k)), Color(col.r, col.g, col.b, 0.05 * float(k + 1)))
 
 func _draw_cars(area: Vector2, off: Vector2, carlen: float) -> void:
 	for c in cars:
@@ -529,12 +507,7 @@ func _draw_car(c: Dictionary, area: Vector2, off: Vector2, l: float) -> void:
 		draw_circle(pos, l * 0.25, Color("#555b66"))
 		return
 	# soft drop shadow for depth (offset down-right)
-	draw_circle(pos + Vector2(l * 0.12, l * 0.16), l * 0.46, Color(0.0, 0.0, 0.0, 0.25))
-	# soft team glow behind the car (P5 gold / P6 steel-blue)
-	if is_team:
-		var gc: Color = Palette.P5 if int(c["slot"]) == 0 else Palette.P6
-		draw_circle(pos, l * 1.10, Color(gc.r, gc.g, gc.b, 0.09))
-		draw_circle(pos, l * 0.82, Color(gc.r, gc.g, gc.b, 0.13))
+	draw_circle(pos + Vector2(l * 0.12, l * 0.16), l * 0.46, Color(0.0, 0.0, 0.0, 0.22))
 	var col: Color = c["team_color"]
 	if state == "clip":
 		col = col.lerp(Color("#3a4049"), 0.45)
@@ -558,13 +531,11 @@ func _draw_car(c: Dictionary, area: Vector2, off: Vector2, l: float) -> void:
 		var ob2 := _poly(BODY, l, pos, ang)        # crisp dark outline so the car pops off the tarmac
 		ob2.append(ob2[0])
 		draw_polyline(ob2, Color("#05070a"), maxf(l * 0.045, 1.0), true)
-		if state == "attack":
-			draw_arc(pos, l * 0.6, 0.0, TAU, 24, Color("#ff7a1a"), 2.0, true)
 	draw_circle(_xf(Vector2(-0.02, 0.0), l, pos, ang), l * 0.07, Color("#0e1014"))  # cockpit
-	# highlights
+	# thin team-colour ring identifies the player's two cars (P5 gold / P6 steel-blue)
 	if is_team:
 		var hc: Color = Palette.P5 if int(c["slot"]) == 0 else Palette.P6
-		draw_arc(pos, l * 0.74, 0.0, TAU, 32, hc, 2.0, true)
+		draw_arc(pos, l * 0.74, 0.0, TAU, 32, hc, 1.6, true)
 	if bool(c["lead"]):
 		var up := pos - Vector2(0.0, l * 0.95)
 		draw_colored_polygon(PackedVector2Array([up + Vector2(-l * 0.18, -l * 0.18),
