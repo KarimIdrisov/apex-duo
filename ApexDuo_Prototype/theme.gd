@@ -72,6 +72,36 @@ const TYRE_INTER_HEX  := "#4E9560"
 const TYRE_WET_HEX    := "#3F6FA8"
 
 # ============================================================================
+# Шрифты §3 — Oswald (дисплей/капс/числа) + Jost (тело). Оба с кириллицей.
+# Variable-fonts: вес пиним через FontVariation, чтобы не зависеть от дефолта.
+# ============================================================================
+const _OSWALD := preload("res://fonts/Oswald.ttf")
+const _JOST   := preload("res://fonts/Jost.ttf")
+
+# Тело/данные — Jost (по умолчанию Regular).
+static func body_font(weight: int = 400) -> FontVariation:
+	var fv := FontVariation.new()
+	fv.base_font = _JOST
+	fv.variation_opentype = {"wght": float(weight)}
+	return fv
+
+# Дисплей/заголовки/числа — Oswald, капс-вид. tracking = межбуквенный интервал (px).
+static func display_font(weight: int = 600, tracking: int = 0) -> FontVariation:
+	var fv := FontVariation.new()
+	fv.base_font = _OSWALD
+	fv.variation_opentype = {"wght": float(weight)}
+	if tracking != 0:
+		fv.set_spacing(TextServer.SPACING_GLYPH, tracking)
+	return fv
+
+# Базовая тема: Jost как дефолтный шрифт всего дерева Control. Назначать на корень.
+static func base_theme() -> Theme:
+	var t := Theme.new()
+	t.default_font = body_font(400)
+	t.default_font_size = 14
+	return t
+
+# ============================================================================
 # Хелперы
 # ============================================================================
 
