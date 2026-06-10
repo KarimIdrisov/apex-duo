@@ -50,6 +50,26 @@ const OT_PACE := -0.55         # s/lap Overtake boost           (× 0.6 + 0.8·p
 const SETUP_PEN := 0.45        # s/lap at setup_q=0 — car-setup miss penalty
                                # (max < CAR_K track-character swing: setup matters,
                                # never dominates; perfect setup = 0)
+# --- Unified setup model (6 grouped axes, dual ideal) — spec 2026-06-11 -------
+# 6 axes: 0 aero_balance · 1 ride_rake · 2 mech_balance · 3 diff · 4 brakes_cool
+# · 5 gears. Two hidden ideals (opt_quali / opt_race) diverge on axes 0,1,4 so a
+# one-lap setup can't also be the best race setup — the player picks a point on
+# the line. setup_q_race additionally drives tyre wear/temp (the fork "bites").
+const SETUP_AXES := 6
+const SETUP_FORK := 0.12       # opt_quali vs opt_race divergence on axes 0,1,4
+const SETUP_NORM := 2.4        # setup_quality normalizer (6 axes × 0.40 noticeable)
+const SETUP_WEAR_K := 0.30     # extra tyre-wear mult at full race-setup miss
+const SETUP_TEMP_K := 0.06     # extra tyre-temp target at full race-setup miss
+# Blistering: the lasting cost of an over-aggressive (quali-trim) setup on a hot
+# track — builds above the tyre's thermal window, never decays in-stint (only a
+# pit clears it), mirror of graining with the sign flipped.
+const BLISTER_BUILD := 0.9     # build rate above the window (× over-temp × load)
+const BLISTER_PACE := 1.2      # s/lap at full blister (kept modest per review)
+const BLISTER_WEAR := 0.6      # extra wear mult at full blister
+# Weekend conditions (deterministic per seed, own stream — the "fresh puzzle").
+const COND_TEMP_LO := 22.0     # cool weekend track temp (°C-ish)
+const COND_TEMP_HI := 40.0     # hot weekend track temp
+const COND_WIND_MAX := 0.12    # max optimum displacement from wind (axes 0,1)
 # --- 2026 store dynamics (energy rework v0.6) --------------------------------
 # ONE cycling store (the v0.4 deploy_budget counter was DELETED — it double-
 # counted deploy and disagreed with soc, the diagnosed root cause). The 4 MJ
@@ -221,50 +241,117 @@ static func mix32(x: int) -> int:
 
 # ============================================================================
 #  CAR SETUP (practice weekend phase) — verified in car_setup_check.py
-#  Each track hides an ideal [aero, susp, gear]; closeness → setup_q → pace.
-#  Engineers build every car a baseline (same formula for AI and player crews);
-#  the practice screen lets a human out-tune (or under-tune) his engineers.
+#  6 grouped axes, each with a hidden ideal that shifts with track character +
+#  a name-hash jitter (+ weekend conditions). Two ideals (quali / race) diverge
+#  so one setup can't win both — the player converges a point on the line via
+#  practice feedback; engineers build every car a fair baseline (same code for
+#  AI and player), so skipping practice is never a punishment.
 # ============================================================================
 
-# Hidden ideal setup: track character sets the centre, a name-hash jitter
-# keeps it from being readable straight off the track card. Deterministic.
-static func track_ideal_setup(t: Track) -> Array:
+# Hidden ideal setup vector (6 axes). bias: "base" (midpoint), "quali" (one-lap
+# trim), or "race" (stint trim) — quali/race diverge by SETUP_FORK on axes 0,1,4.
+# cond_off is an optional per-weekend displacement (wind, from weekend_conditions).
+static func track_ideal_setup(t: Track, bias: String = "base", cond_off: Array = []) -> Array:
 	var h := mix32(int(t.name.hash()))
-	var j1 := float((h >> 3) & 1023) / 1023.0 * 0.16 - 0.08
-	var j2 := float((h >> 13) & 1023) / 1023.0 * 0.16 - 0.08
-	var j3 := float((h >> 23) & 255) / 255.0 * 0.16 - 0.08
-	return [
-		clampf(0.10 + t.downforce * 0.80 + j1, 0.05, 0.95),
-		clampf(0.18 + t.abrasion * 0.35 + j2, 0.05, 0.95),
-		clampf(0.10 + t.power * 0.80 + j3, 0.05, 0.95),
+	var jit: Array = []
+	for i in SETUP_AXES:
+		jit.append(float((h >> (3 + i * 5)) & 1023) / 1023.0 * 0.16 - 0.08)
+	var base: Array = [
+		0.10 + t.downforce * 0.80,                       # 0 aero_balance
+		0.20 + t.downforce * 0.55 - t.abrasion * 0.20,   # 1 ride_rake
+		0.18 + t.abrasion * 0.35,                        # 2 mech_balance
+		0.25 + (1.0 - t.overtaking) * 0.40,              # 3 diff
+		0.20 + t.abrasion * 0.45,                        # 4 brakes_cool
+		0.10 + t.power * 0.80,                            # 5 gears
 	]
+	# fork on axes 0,1,4: quali trims them low (aggressive, runs hot), race high.
+	var fork := 0.0
+	if bias == "quali":
+		fork = -SETUP_FORK
+	elif bias == "race":
+		fork = SETUP_FORK
+	var out: Array = []
+	for i in SETUP_AXES:
+		var v: float = float(base[i]) + jit[i]
+		if i == 0 or i == 1 or i == 4:
+			v += fork
+		if i < cond_off.size():
+			v += float(cond_off[i])
+		out.append(clampf(v, 0.05, 0.95))
+	return out
 
 
+# Setup quality 0..1 from L1 distance to an ideal vector over SETUP_AXES (missing
+# axes treated as neutral 0.5 so legacy/short vectors degrade gracefully).
 static func setup_quality(setup: Array, ideal: Array) -> float:
 	var dist := 0.0
-	for i in 3:
-		dist += absf(float(setup[i]) - float(ideal[i]))
-	return clampf(1.0 - dist / 1.2, 0.0, 1.0)
+	for i in SETUP_AXES:
+		var s: float = float(setup[i]) if i < setup.size() else 0.5
+		dist += absf(s - float(ideal[i]))
+	return clampf(1.0 - dist / SETUP_NORM, 0.0, 1.0)
 
 
-# Apply a player-tuned setup (sliders 0..1) to a car. Pre-race only — the
-# race itself never re-reads the sliders, only the resulting setup_q.
+# Score a setup vector against BOTH ideals and write the two quality fields.
+func _apply_setup_vector(d: Driver, setup: Array) -> void:
+	d.setup_q_quali = setup_quality(setup, track_ideal_setup(track, "quali", cond_setup_off))
+	d.setup_q_race = setup_quality(setup, track_ideal_setup(track, "race", cond_setup_off))
+
+
+# The engineers build a fair baseline: a vector converged from neutral toward the
+# crew's favoured ideal by engineer skill × sessions. SAME code for every car —
+# AI teams and a player who skips practice both land here (no side has an edge
+# beyond staff quality). A practicing human overrides this via set_setup().
+func apply_engineer_setup(d: Driver, sessions: int = 3) -> void:
+	var favor_race: bool = d.pit_plan >= 2 or d.strat_skill > 0.6
+	var ideal := track_ideal_setup(track, "race" if favor_race else "quali", cond_setup_off)
+	var conv: float = clampf((0.35 + 0.55 * d.eng_skill) * (float(sessions) / 3.0 * 0.6 + 0.4), 0.0, 0.97)
+	var sk := mix32(int(track.name.hash()) ^ (d.id * 7919))
+	var v: Array = []
+	for i in SETUP_AXES:
+		var noise := float((sk >> (i * 4)) & 15) / 15.0 * 0.06 - 0.03
+		v.append(clampf(lerp(0.5, float(ideal[i]), conv) + noise, 0.05, 0.95))
+	_apply_setup_vector(d, v)
+
+
+# Apply a player-tuned setup (sliders 0..1). Pre-race only and never under parc
+# fermé (locked at qualifying start) — the race reads only the resulting setup_q.
 func set_setup(car_id: int, setup: Array) -> void:
 	var d := get_driver_by_id(car_id)
-	if d != null and not _started:
-		d.setup_q = setup_quality(setup, track_ideal_setup(track))
+	if d != null and not _started and not parc_ferme:
+		_apply_setup_vector(d, setup)
+
+
+# Deterministic per-weekend conditions (own seed stream; never touches rng/erng/
+# qrng so practice/skip can't desync the race). race_temp drives the tyre loop;
+# cond_setup_off displaces the optimum (wind) so each weekend is a fresh puzzle.
+func weekend_conditions() -> Dictionary:
+	var cs := mix32(mix32(race_seed) ^ 0xC04D)
+	var temp_u := float(cs & 0xFFFF) / 65535.0
+	var wind0 := float((cs >> 8) & 1023) / 1023.0 * 2.0 - 1.0
+	var wind1 := float((cs >> 18) & 1023) / 1023.0 * 2.0 - 1.0
+	return {
+		"race_temp": COND_TEMP_LO + (COND_TEMP_HI - COND_TEMP_LO) * temp_u,
+		"wind_off": [wind0 * COND_WIND_MAX, wind1 * COND_WIND_MAX, 0.0, 0.0, 0.0, 0.0],
+	}
 
 # One practice run: lap time on the given setup + the driver's per-axis read.
 # Deterministic from (track, driver, setup, run_idx) via its own hash — does
 # NOT touch the sim's rng streams, so practice cannot desync the race.
 # fb codes per axis: 0 sweet spot · ±1 a bit high/low · ±2 way high/low ·
 # 9 driver can't read it. Precision = race_iq + engineer telemetry.
-static func practice_run(t: Track, d: Driver, setup: Array, run_idx: int) -> Dictionary:
-	var ideal := track_ideal_setup(t)
+# run_type: "short" (quali-sim, reveals axes 0,3,5 vs the QUALI ideal), "long"
+# (race-sim, reveals axes 1,2,4 vs the RACE ideal), "install"/"" (all axes vs race
+# ideal). cond_off = the weekend wind displacement (pass sim.cond_setup_off).
+static func practice_run(t: Track, d: Driver, setup: Array, run_idx: int,
+		run_type: String = "", cond_off: Array = []) -> Dictionary:
+	var bias := "quali" if run_type == "short" else "race"
+	var ideal := track_ideal_setup(t, bias, cond_off)
 	var q := setup_quality(setup, ideal)
-	var h := mix32(int(t.name.hash()) ^ (d.id * 7919) ^ (run_idx * 104729) \
-		^ int(float(setup[0]) * 997.0) ^ (int(float(setup[1]) * 991.0) << 8) \
-		^ (int(float(setup[2]) * 983.0) << 16))
+	var hk := 0
+	for i in SETUP_AXES:
+		var sv: float = float(setup[i]) if i < setup.size() else 0.5
+		hk ^= (int(sv * 977.0) << (i * 3))
+	var h := mix32(int(t.name.hash()) ^ (d.id * 7919) ^ (run_idx * 104729) ^ hk)
 	var consist := float(d.attrs.get("consistency", 13)) / 20.0
 	var noise := (float(h & 0xFFFF) / 65535.0 * 2.0 - 1.0) \
 		* (0.10 + (1.0 - consist) * 0.25)
@@ -274,17 +361,29 @@ static func practice_run(t: Track, d: Driver, setup: Array, run_idx: int) -> Dic
 		+ (1.0 - q) * SETUP_PEN * 2.0 + 1.2 + noise
 	var iq := float(d.attrs.get("race_iq", 13)) / 20.0
 	var acc := clampf(0.45 + iq * 0.35 + d.eng_skill * 0.20, 0.0, 0.97)
+	var band := lerpf(0.18, 0.03, acc)        # telemetry numeric precision (±band)
+	# which axes this run type lets the driver read (others return 9 "can't tell")
+	var reveal: Array
+	if run_type == "short":
+		reveal = [0, 3, 5]
+	elif run_type == "long":
+		reveal = [1, 2, 4]
+	else:
+		reveal = [0, 1, 2, 3, 4, 5]
 	var fb: Array = []
-	for i in 3:
-		var err := float(setup[i]) - float(ideal[i])
-		var sense_u := float((h >> (8 + i * 7)) & 127) / 127.0
-		if absf(err) < 0.06:
+	for i in SETUP_AXES:
+		var s: float = float(setup[i]) if i < setup.size() else 0.5
+		var err := s - float(ideal[i])
+		var sense_u := float((h >> (8 + i * 4)) & 127) / 127.0
+		if not (i in reveal):
+			fb.append(9)
+		elif absf(err) < 0.06:
 			fb.append(0)
 		elif sense_u < acc:
 			fb.append((2 if absf(err) > 0.20 else 1) * (1 if err > 0.0 else -1))
 		else:
 			fb.append(9)
-	return {"time": time, "fb": fb}
+	return {"time": time, "fb": fb, "band": band, "q": q}
 
 # -------------------- driver --------------------
 class Driver:
@@ -381,9 +480,11 @@ class Driver:
 	                               # threat behind, decays by composure; raises error risk
 	var cover_pit: bool = false    # M-S1: strategist calls a stop to cover a rival's pit
 	var pit_plan: int = 1          # M-S2: planned stops (2 where wear maths demand it)
-	# --- car setup (practice weekend phase) ---
-	var setup_q: float = 0.6       # 0..1 setup quality → laptime += (1-q)·SETUP_PEN;
-	                               # engineers build a baseline, practice overrides it
+	# --- car setup (practice weekend phase) — dual ideal (quali vs race) ---
+	var setup_q_quali: float = 0.6 # 0..1 vs opt_quali → drives QUALIFYING pace
+	var setup_q_race: float = 0.6  # 0..1 vs opt_race → drives RACE pace + tyre wear/temp
+	var blister: float = 0.0       # 0..1 thermal blistering (over-aggressive setup on a hot
+	                               # track); permanent in-stint, clears on a pit stop
 	var eng_skill: float = 0.5     # race engineer telemetry (per car slot) — baseline
 	                               # setup quality + sharper practice feedback
 	var follow_pen: float = 0.0    # this tick's net following term (dirty air − slipstream)
@@ -522,6 +623,10 @@ var sc_deploy_lap: int = -1          # leader lap at which the SC comes out (-1 
 var sc_until_lap: int = -1           # leader lap at which the SC comes back in
 var sc_reason: String = ""           # why the SC came out — every SC must name a cause
 var _started: bool = false           # race-start launch applied yet?
+var race_seed: int = 0               # the seed this race was built from (for weekend_conditions)
+var parc_ferme: bool = false         # setup locked (set at qualifying start) — set_setup refused
+var conditions: Dictionary = {}      # per-weekend conditions (race_temp, wind) from the seed
+var cond_setup_off: Array = []       # wind displacement of the ideal-setup optimum (6 axes)
 # qualifying results (populated in _init before the race starts)
 var qrng: RNG                        # qualifying RNG (seeded from mix32(mix32(seed)))
 var quali_times: Dictionary = {}     # driver_id -> qualifying time (lower = faster)
@@ -530,7 +635,15 @@ var quali_grid: Array = []           # driver ids sorted pole-first (index 0 = p
 func _init(track_in: Track, drivers_in: Array, seed_value: int = 12345) -> void:
 	track = track_in
 	drivers = drivers_in
+	race_seed = seed_value
 	rng = RNG.new(seed_value)
+	# Per-weekend conditions (deterministic, own hash stream — no rng/erng/qrng use):
+	# a track temperature and a wind displacement of the setup optimum. race_temp
+	# overwrites the track's nominal temp so each weekend's tyre behaviour + ideal
+	# setup are a fresh puzzle.
+	conditions = weekend_conditions()
+	cond_setup_off = conditions["wind_off"]
+	track.track_temp = float(conditions["race_temp"])
 	# events RNG seeded from a hashed seed so the SC roll is well-distributed.
 	erng = RNG.new(mix32(seed_value))
 	if erng.unit() < track.sc_prob:
@@ -548,11 +661,6 @@ func _init(track_in: Track, drivers_in: Array, seed_value: int = 12345) -> void:
 	for d in drivers:
 		d.fuel_laps = float(track.laps)
 		d.ai_pit_wear = _strat_pit_wear(d)
-		# Car setup baseline: the engineers + driver feedback build it — the
-		# SAME formula for every crew (player teams included), so skipping
-		# practice costs nothing vs your own engineers; practicing is the edge.
-		d.setup_q = clampf(0.45 + 0.35 * d.eng_skill + 0.15 * _attr(d, "race_iq") \
-			+ rng.rangef(-0.06, 0.06), 0.35, 0.97)
 		# M-S2: plan two stops where the wear maths demand it (abrasive track
 		# identity); only a competent strategist commits to the aggressive plan.
 		# The 2-stop target splits the race into ~3 stints (flat -12 was not
@@ -561,6 +669,11 @@ func _init(track_in: Track, drivers_in: Array, seed_value: int = 12345) -> void:
 		if float(track.laps) * wpl / 62.0 > 1.6 and d.strat_skill > 0.55:
 			d.pit_plan = 2
 			d.ai_pit_wear = clampf(float(track.laps) * wpl / 3.0 * 1.15, 36.0, d.ai_pit_wear)
+		# Car setup baseline: engineers converge a fair setup (same code for AI and
+		# a player who skips practice). Needs pit_plan first (a 2-stop favours race
+		# trim). A practicing human overrides this via set_setup(). Deterministic
+		# (hash-based, consumes no rng), so skipping costs zero RNG divergence.
+		apply_engineer_setup(d, 3)
 	# Run qualifying (populates quali_times, quali_grid, grid_pos, lap_frac, tyre_temp).
 	_run_qualifying()
 	# Global best arrays sized to match mini_sector_bounds
@@ -585,7 +698,7 @@ func _run_qualifying() -> void:
 	for d in drivers:
 		var qt: float = -d.skill * SKILL_K
 		qt -= (d.car_power - d.car_aero) * (track.power - track.downforce) * CAR_K
-		qt += (1.0 - d.setup_q) * SETUP_PEN
+		qt += (1.0 - d.setup_q_quali) * SETUP_PEN   # qualifying reads the one-lap ideal
 		qt += COMPOUNDS["soft"]["pace"]
 		var qnoise: float = QUALI_NOISE_BASE * (1.3 - _attr(d, "consistency") * 0.6)
 		qt += qrng.rangef(-qnoise, qnoise)
@@ -813,7 +926,8 @@ func current_laptime(d: Driver, ahead_gap: float = -1.0) -> float:
 	# car character: a power-biased car gains on power circuits and loses on
 	# downforce ones (and vice-versa) — net zero on an average track.
 	lt -= (d.car_power - d.car_aero) * (track.power - track.downforce) * CAR_K
-	lt += (1.0 - d.setup_q) * SETUP_PEN
+	lt += (1.0 - d.setup_q_race) * SETUP_PEN     # race reads the stint ideal
+	lt += d.blister * BLISTER_PACE               # thermal blistering (aggressive setup, hot track)
 	d.follow_pen = _m_following(d, ahead_gap)
 	lt += d.follow_pen
 	lt += d.aero_damage * DMG_K        # floor/wing damage until repaired in the pits
@@ -925,7 +1039,9 @@ func _update_tyre_temp(d: Driver, dt: float, lt: float, ahead_gap: float) -> voi
 	elif d.compound == "hard":
 		comp = -0.05           # hards run cooler (need a hot track to switch on)
 	var daheat := 0.10 if (ahead_gap >= 0.0 and ahead_gap < DA_THRESH) else 0.0
-	var target := clampf(trackf + paceh + comp + daheat, 0.0, 1.2)
+	# a setup far from the race ideal (e.g. a quali-trim setup) runs the tyre hotter
+	var setuph := (1.0 - d.setup_q_race) * SETUP_TEMP_K
+	var target := clampf(trackf + paceh + comp + daheat + setuph, 0.0, 1.2)
 	# warm-up RATE is per compound (#4): softs heat fast, hards slowly.
 	var warm: float = COMPOUNDS[d.compound]["warm"]
 	d.tyre_temp += (target - d.tyre_temp) * TYRE_EASE * warm * (dt / lt)
@@ -942,6 +1058,17 @@ func _update_graining(d: Driver, dt: float, lt: float) -> void:
 		d.graining = minf(1.0, d.graining + build * (dt / lt))
 	else:
 		d.graining = maxf(0.0, d.graining - GRAIN_DECAY * (dt / lt))
+
+# Blistering: the mirror of graining above the window. Builds when the tyre runs
+# ABOVE its high window under load (an over-aggressive / quali-trim setup on a hot
+# track) and — unlike graining — NEVER decays in-stint: only a pit clears it. This
+# is the lasting cost a player who chased one-lap pace pays over the race.
+func _update_blister(d: Driver, dt: float, lt: float) -> void:
+	var thi: float = COMPOUNDS[d.compound]["thi"]
+	if d.tyre_temp > thi:
+		var load: float = PACE_MODES[d.pace_mode]["wear"]
+		var build: float = BLISTER_BUILD * (d.tyre_temp - thi) * load * (1.3 - _attr(d, "tyre") * 0.6)
+		d.blister = minf(1.0, d.blister + build * (dt / lt))
 
 # Deterministic AI driver brain: chooses pace mode + energy strategy from the
 # car's attributes and the race situation (the player keeps direct control).
@@ -1435,8 +1562,11 @@ func step(dt: float) -> void:
 				* (0.7 + 0.6 * track.downforce) \
 				* (1.25 - _attr(d, "tyre") * 0.5) \
 				* (1.0 + maxf(0.0, d.tyre_temp - float(COMPOUNDS[d.compound]["thi"])) * OVERHEAT_WEAR) \
-				* (1.0 + d.graining * GRAIN_WEAR)
+				* (1.0 + d.graining * GRAIN_WEAR) \
+				* (1.0 + (1.0 - d.setup_q_race) * SETUP_WEAR_K) \
+				* (1.0 + d.blister * BLISTER_WEAR)
 			d.tire_wear = min(120.0, d.tire_wear + wear_rate * (dt / lt))
+			_update_blister(d, dt, lt)
 		_update_soc(d, dt, lt, ahead_gap)
 		_update_tyre_temp(d, dt, lt, ahead_gap)
 	# phase 2 — wheel-to-wheel: hold a follower behind until it earns the pass
@@ -1846,6 +1976,7 @@ func _on_lap_complete(d: Driver) -> void:
 		d.tyre_laps = 0                   # new set: reset tyre age
 		d.tyre_temp = TYRE_TEMP_START     # fresh tyres come out cold → out-lap deficit
 		d.graining = 0.0                  # fresh rubber: no graining
+		d.blister = 0.0                   # fresh rubber: blistering cleared
 		d.aero_damage = 0.0               # the stop also repairs floor/wing damage
 		d.compound = new_comp
 		if not (new_comp in d.compounds_used):

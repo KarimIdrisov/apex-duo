@@ -1714,7 +1714,7 @@ func _start_practice_phase() -> void:
 	_practice_run_btns = {}
 	_practice_best_lbls = {}
 	for cid in _practice_car_ids():
-		_practice_setup[cid] = [0.5, 0.5, 0.5]
+		_practice_setup[cid] = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
 		_practice_runs[cid] = 0
 		_practice_best[cid] = 0.0
 	_build_practice_overlay()
@@ -1801,8 +1801,10 @@ func _build_practice_card(cid: int) -> Control:
 	head.add_theme_font_override("font", Palette.display_font(600, 1))
 	v.add_child(head)
 
-	var axis_names := ["Антикрылья (прижим)", "Подвеска (жёсткость)", "Передачи (скорость)"]
-	for ax in 3:
+	var axis_names := ["Аэробаланс (перед/зад)", "Просвет / развал кузова",
+		"Механический баланс", "Дифференциал (вход/выход)",
+		"Тормоза / охлаждение", "Передаточные числа"]
+	for ax in 6:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
 		var lbl := Label.new()
@@ -1870,9 +1872,18 @@ func _practice_fb_phrase(axis: int, code: int) -> String:
 			txt = "убери крыло — теряем на прямых" if code > 0 \
 				else "добавь прижим — носит в поворотах"
 		1:
-			txt = "слишком жёстко — прыгаю на кочках" if code > 0 \
-				else "слишком мягко — валится в связках"
+			txt = "слишком высоко — нет прижима от днища" if code > 0 \
+				else "слишком низко — пробои на поребриках"
 		2:
+			txt = "перед слишком жёсткий — недостаточная" if code > 0 \
+				else "зад слишком мягкий — нет тяги на выходе"
+		3:
+			txt = "дифф зажат — не поворачивает на входе" if code > 0 \
+				else "дифф открыт — буксует на выходе"
+		4:
+			txt = "много охлаждения — лишнее сопротивление" if code > 0 \
+				else "мало охлаждения — перегрев тормозов и шин"
+		5:
 			txt = "передачи длинные — нет разгона" if code > 0 \
 				else "передачи короткие — упираюсь в отсечку"
 	return ("СИЛЬНО: " + txt) if strong else txt
@@ -1887,7 +1898,7 @@ func _on_practice_run(cid: int) -> void:
 	_practice_runs[cid] = int(_practice_runs[cid]) + 1
 	var run_n: int = int(_practice_runs[cid])
 	var setup: Array = _practice_setup[cid]
-	var r: Dictionary = RaceSim.practice_run(sim.track, d, setup, run_n)
+	var r: Dictionary = RaceSim.practice_run(sim.track, d, setup, run_n, "", sim.cond_setup_off)
 	var t: float = float(r["time"])
 	var best: float = float(_practice_best[cid])
 	var delta_txt := ""
@@ -1899,7 +1910,7 @@ func _on_practice_run(cid: int) -> void:
 	var phrases: Array = []
 	var unread := 0
 	var fb: Array = r["fb"]
-	for ax in 3:
+	for ax in 6:
 		var code: int = int(fb[ax])
 		if code == 9:
 			unread += 1
@@ -1932,10 +1943,10 @@ func _finish_practice_phase() -> void:
 			# slider or drove a lap): untouched cars keep the engineer-built
 			# baseline — finishing instantly is never a punishment.
 			var s: Array = _practice_setup[cid]
-			var touched: bool = int(_practice_runs.get(cid, 0)) > 0 \
-				or absf(float(s[0]) - 0.5) > 0.001 \
-				or absf(float(s[1]) - 0.5) > 0.001 \
-				or absf(float(s[2]) - 0.5) > 0.001
+			var touched: bool = int(_practice_runs.get(cid, 0)) > 0
+			for ax in s.size():
+				if absf(float(s[ax]) - 0.5) > 0.001:
+					touched = true
 			if touched:
 				sim.set_setup(int(cid), s)
 	if _practice_overlay != null:

@@ -38,8 +38,8 @@ func _run_race(ti: int, seed_v: int) -> Dictionary:
 	var sq_min := 1.0
 	var sq_max := 0.0
 	for d in sim.drivers:
-		sq_min = minf(sq_min, d.setup_q)
-		sq_max = maxf(sq_max, d.setup_q)
+		sq_min = minf(sq_min, d.setup_q_race)
+		sq_max = maxf(sq_max, d.setup_q_race)
 	var ord: Array = sim.order()
 	var viol := 0
 	for i in range(ord.size() - 1):
