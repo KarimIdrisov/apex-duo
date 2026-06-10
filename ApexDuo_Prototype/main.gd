@@ -222,6 +222,13 @@ func _make_sim(coop: bool) -> void:
 				# M4: overtrained crew is slower over the wall next race (≈ +0.2 s).
 				d.pit_speed = clampf(
 					d.pit_speed - Season.active.pit_fatigue_penalty(), 0.0, 1.0)
+				# M5: a promoted junior keeps his name in the race HUD.
+				d.name = Season.active.driver_name(d.id)
+				# M5: the test driver stands in for this slot — −0.030 skill,
+				# everything else (attrs / car / crew) is inherited.
+				if d.id == Season.active.test_driver_slot:
+					d.skill -= Season.TESTDRIVE_SKILL_PEN
+					d.name = Season.active.testdriver_name()
 			else:
 				d.skill += Season.active.rival_skill_offset
 	sim = RaceSim.new(track, field, seed_value)

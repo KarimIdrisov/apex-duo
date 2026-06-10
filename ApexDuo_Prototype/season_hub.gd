@@ -177,6 +177,7 @@ func _rebuild() -> void:
 	col.add_child(_build_contracts(s))
 	col.add_child(_build_suppliers(s))
 	col.add_child(_build_pitcrew(s))
+	col.add_child(_build_academy(s))
 	col.add_child(_build_staff(s))
 	col.add_child(_build_sponsors(s))
 
@@ -891,6 +892,142 @@ func _build_pitcrew(s: Season) -> Control:
 	v.add_child(_label(dhl_line, 13, "#ffd166"))
 	v.add_child(_label("Победа в сезонном зачёте: +$%s и +%d RP." % [
 		_money(Season.DHL_PRIZE_MONEY), Season.DHL_PRIZE_RP], 12, "#7c8694"))
+
+	pc.add_child(v)
+	return pc
+
+# ---------------------------------------------------------------- academy (M5)
+# Test-driver card (R&D feedback + race stand-in), the signed juniors with
+# their superlicense progress, and the season scouting market.
+func _build_academy(s: Season) -> Control:
+	var pc := _panel()
+	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	v.add_child(_label("АКАДЕМИЯ", 18, "#ffffff"))
+	v.add_child(HSeparator.new())
+	var net_role2: String = Net.role()
+
+	# Test driver card
+	var td: Dictionary = s.staff_member("testdriver")
+	var fb: int = int(round(float((td.get("attrs", {}) as Dictionary).get("dev_feedback", 10))))
+	v.add_child(_label("Тест-пилот: %s · фидбэк %d/20 · ускоряет аэро-R&D ×%.2f" % [
+		s.testdriver_name(), fb, s.test_rd_mult()], 14, "#5dd17a"))
+	if s.test_driver_slot >= 0:
+		v.add_child(_label("Следующий этап: заменит %s (−0.030 темпа, +%d RP фидбэка)" % [
+			s.driver_name(s.test_driver_slot), Season.TESTDRIVE_RP_BONUS], 13, "#f2c14e"))
+	var td_row := HBoxContainer.new()
+	td_row.add_theme_constant_override("separation", 8)
+	for opt in [[4, "Выставить вместо P5"], [5, "Выставить вместо P6"], [-1, "Отменить"]]:
+		var oid: int = int(opt[0])
+		if oid == -1 and s.test_driver_slot < 0:
+			continue
+		if oid >= 0 and s.test_driver_slot == oid:
+			continue
+		var tdb := _button(String(opt[1]), 12)
+		var oid_cap := oid
+		if net_role2 == "client":
+			tdb.pressed.connect(func():
+				Net.net_season_set_testdrive.rpc_id(1, oid_cap))
+		else:
+			tdb.pressed.connect(func():
+				if s.set_test_drive(oid_cap):
+					if net_role2 == "host":
+						Season.active.save_to_disk()
+						Net.net_season_full.rpc(Season.active.to_dict())
+					_rebuild())
+		td_row.add_child(tdb)
+	v.add_child(td_row)
+
+	# Signed juniors
+	v.add_child(_spacer(4))
+	v.add_child(_label("Юниоры (%d/%d):" % [s.juniors.size(), Season.JUNIOR_MAX_SIGNED],
+		15, "#ffffff"))
+	if s.juniors.is_empty():
+		v.add_child(_label("Нет юниоров — скаутинг ниже.", 13, "#9aa4b2"))
+	for ji in s.juniors.size():
+		var j: Dictionary = s.juniors[ji]
+		var sl: int = int(j.get("superlicense_points", 0))
+		var stars: String = "★".repeat(clampi(int(round(float(j.get("potential", 0.5)) * 5.0)), 1, 5))
+		var jrow := HBoxContainer.new()
+		jrow.add_theme_constant_override("separation", 8)
+		jrow.add_child(_cell(String(j.get("name", "?")), 160, Color.WHITE))
+		jrow.add_child(_cell(String(j.get("series", "?")), 50, Color("#66c2ff")))
+		jrow.add_child(_cell("очки: %d" % int(j.get("season_progress", 0)), 90, Color("#cfd6e0")))
+		var sl_col := Color("#5dd17a") if sl >= Season.SUPERLICENSE_GATE else Color("#9aa4b2")
+		jrow.add_child(_cell("лицензия: %d/%d" % [sl, Season.SUPERLICENSE_GATE], 120, sl_col))
+		jrow.add_child(_cell("потенциал %s" % stars, 130, Color("#ffd166")))
+		if bool(j.get("loaned", false)):
+			jrow.add_child(_cell("ОДОЛЖЕН", 90, Color("#f2c14e")))
+		else:
+			# Promotion (hard superlicense gate) — into either seat.
+			for slot in [[4, "→P5"], [5, "→P6"]]:
+				var pbtn := _button("Повысить %s" % String(slot[1]), 12)
+				pbtn.disabled = not s.can_promote_junior(ji)
+				var ji_cap := ji
+				var did_cap: int = int(slot[0])
+				if net_role2 == "client":
+					pbtn.pressed.connect(func():
+						Net.net_season_promote_junior.rpc_id(1, ji_cap, did_cap))
+				else:
+					pbtn.pressed.connect(func():
+						if s.promote_junior(ji_cap, did_cap):
+							if net_role2 == "host":
+								Season.active.save_to_disk()
+								Net.net_season_full.rpc(Season.active.to_dict())
+								Net.net_season_feed.rpc("Партнёр: юниор повышен в Ф-1")
+							_rebuild())
+				jrow.add_child(pbtn)
+			if s.has_pu_client():
+				var lbtn := _button("Одолжить · +$%s" % _money(Season.JUNIOR_LOAN_INCOME), 12)
+				var ji_cap2 := ji
+				if net_role2 == "client":
+					lbtn.pressed.connect(func():
+						Net.net_season_loan_junior.rpc_id(1, ji_cap2))
+				else:
+					lbtn.pressed.connect(func():
+						if s.loan_junior(ji_cap2):
+							if net_role2 == "host":
+								Season.active.save_to_disk()
+								Net.net_season_full.rpc(Season.active.to_dict())
+							_rebuild())
+				jrow.add_child(lbtn)
+		v.add_child(jrow)
+	v.add_child(_label("Суперлицензия (%d очков) обязательна для Ф-1 — регламент FIA." %
+		Season.SUPERLICENSE_GATE, 12, "#7c8694"))
+
+	# Scouting market
+	v.add_child(_spacer(4))
+	v.add_child(HSeparator.new())
+	v.add_child(_label("Скаутинг (раз в сезон):", 15, "#ffffff"))
+	if s.junior_market.is_empty():
+		v.add_child(_label("Рынок молодёжи пуст до следующего сезона.", 13, "#9aa4b2"))
+	for cand in s.junior_market:
+		var cd: Dictionary = cand as Dictionary
+		var cstars: String = "★".repeat(clampi(int(round(float(cd.get("potential", 0.5)) * 5.0)), 1, 5))
+		var crow := HBoxContainer.new()
+		crow.add_theme_constant_override("separation", 8)
+		crow.add_child(_cell(String(cd.get("name", "?")), 160, Color("#66c2ff")))
+		crow.add_child(_cell("%s · %d л." % [String(cd.get("series", "?")),
+			int(cd.get("age", 18))], 90, Color("#9aa4b2")))
+		crow.add_child(_cell("потенциал %s" % cstars, 130, Color("#ffd166")))
+		var jcost: int = int(cd.get("cost", 0))
+		var sbtn := _button("Подписать · $%s/сезон" % _money(jcost), 12)
+		sbtn.disabled = s.money < jcost or s.juniors.size() >= Season.JUNIOR_MAX_SIGNED
+		var cid_cap: int = int(cd.get("id", -1))
+		if net_role2 == "client":
+			sbtn.pressed.connect(func():
+				Net.net_season_sign_junior.rpc_id(1, cid_cap))
+		else:
+			sbtn.pressed.connect(func():
+				if s.sign_junior(cid_cap):
+					if net_role2 == "host":
+						Season.active.save_to_disk()
+						Net.net_season_full.rpc(Season.active.to_dict())
+						Net.net_season_feed.rpc("Партнёр: подписан юниор в академию")
+					_rebuild())
+		crow.add_child(sbtn)
+		v.add_child(crow)
 
 	pc.add_child(v)
 	return pc
