@@ -297,6 +297,8 @@ class Driver:
 	var attack_backed: bool = false  # stalled attack abandoned — strike at the stops
 	var atk_latch: bool = false    # fight is live: hysteresis floor stays at the
 	                               # release threshold across non-DRS (banking) sectors
+	var pressure: float = 0.0      # 0..1 hunted-pressure: builds under a sustained
+	                               # threat behind, decays by composure; raises error risk
 	var follow_pen: float = 0.0    # this tick's net following term (dirty air − slipstream)
 	var da_pen: float = 0.0        # dirty-air part only — excluded from the M-A2 stall
 	                               # edge (an armed Overtake waives it); the tow stays in
@@ -966,7 +968,9 @@ func _situational_energy(d: Driver, ahead_gap: float, behind_gap: float) -> void
 			d.ers_mode = "harvest" if d.soc_avg < atk_on else "balanced"
 			d.overtake = false
 	elif behind_gap >= 0.0 and behind_gap < OT_GAP_S and d.soc_avg > floor_soc + 12.0:
-		d.ers_mode = "attack"
+		# M-D1: defensive spend is sector-targeted — burn battery only where
+		# the attacker's boost strikes (battery poker, not a free stat).
+		d.ers_mode = "attack" if _drs_armable(d) else "balanced"
 		d.overtake = false
 		d.atk_latch = false
 	else:
@@ -986,14 +990,27 @@ func _situational_energy(d: Driver, ahead_gap: float, behind_gap: float) -> void
 # The player's driver executes the engineer's directive — unless this lap it
 # defies the order (d.obey, rolled in _on_lap_complete) and drives to character.
 func _player_brain(d: Driver, ahead_gap: float, behind_gap: float) -> void:
-	var in_drs := ahead_gap >= 0.0 and ahead_gap < OT_GAP_S and d.soc_avg > 35.0
+	var in_range := ahead_gap >= 0.0 and ahead_gap < OT_GAP_S and d.soc_avg > 35.0
+	var in_drs := in_range and _drs_armable(d)
 	if d.obey:
 		d.pace_mode = d.dir_pace
 		if d.dir_intent == "attack":
-			d.ers_mode = "attack" if in_drs else "balanced"
-			d.overtake = in_drs
+			# The order means "fight now" — the driver executes it with the
+			# same sector smarts as the AI brain (an order must not be a
+			# trap): burn attack only where the boost fires, bank elsewhere.
+			if in_drs:
+				d.ers_mode = "attack"
+				d.overtake = true
+			elif in_range:
+				d.ers_mode = "harvest" if d.soc_avg < 50.0 else "balanced"
+				d.overtake = false
+			else:
+				d.ers_mode = "balanced"
+				d.overtake = false
 		elif d.dir_intent == "hold":
-			d.ers_mode = "attack" if (behind_gap >= 0.0 and behind_gap < OT_GAP_S and d.soc_avg > 50.0) else "balanced"
+			# Defensive spend only where the attacker's boost strikes (M-D1).
+			var threat := behind_gap >= 0.0 and behind_gap < OT_GAP_S and d.soc_avg > 50.0
+			d.ers_mode = "attack" if (threat and _drs_armable(d)) else "balanced"
 			d.overtake = false
 		else:
 			_situational_energy(d, ahead_gap, behind_gap)
@@ -1311,6 +1328,9 @@ func step(dt: float) -> void:
 			cond += 0.4
 		if ahead_gap >= 0.0 and ahead_gap < DA_THRESH:
 			cond += 0.3
+		# M-D2: a hunted driver cracks — siege pressure raises the error
+		# roll, low composure amplifies it (the classic defending lock-up).
+		cond *= 1.0 + d.pressure * 0.8 * (1.2 - _attr(d, "composure"))
 		if rng.unit() < risk * cond * dt * INCIDENT_K:
 			_driver_incident(d)
 		d.pu_health = maxf(0.0, d.pu_health - PU_WEAR * (1.5 if d.pace_mode == "push" else 1.0) * (dt / lt))
@@ -1421,6 +1441,14 @@ func _resolve_combat(dt: float) -> void:
 			b.passes_made += 1
 			if on_str_b:
 				passes_on_straight += 1
+			# M-C1 pass-sticks: the passed car is rattled (mood — team cars
+			# only, they have the per-lap recovery loop) and its attack is
+			# frozen for a couple of laps — no instant re-pass ping-pong.
+			if a.team:
+				a.mood = maxf(-1.0, a.mood - (0.20 + 0.20 * (1.0 - _attr(a, "composure"))))
+			a.attack_laps = -2
+			a.atk_latch = false
+			a.pressure = 0.0
 			_emit("%s обошёл %s" % [b.name, a.name], "overtake")
 			# Never assign b.lap here: lap bookkeeping (fuel, deploy budget, pits,
 			# trust/mood) belongs to step() phase 3, which wraps lap_frac >= 1.0.
@@ -1639,6 +1667,12 @@ func _on_lap_complete(d: Driver) -> void:
 				d.radio_cd = 5
 	else:
 		d.attack_laps = 0
+	# M-D2: pressure — being hunted inside Overtake range builds it; freedom
+	# (and composure) sheds it. Feeds the incident-risk cond in step phase 1.
+	if _someone_behind(d, OT_GAP_S):
+		d.pressure = minf(1.0, d.pressure + 0.12)
+	else:
+		d.pressure = maxf(0.0, d.pressure - (0.15 + 0.35 * _attr(d, "composure")))
 	if d.is_player:
 		d.obey = _roll_obey(d)        # decide compliance for the new lap
 	var do_pit := false
