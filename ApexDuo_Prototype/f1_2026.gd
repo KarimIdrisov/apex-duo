@@ -128,10 +128,58 @@ const PARTS := {
 		"also": {},           "also_rel": {"d_eng_rel": 0.017}},
 	"gearbox":    {"group": "reliability",  "label": "КПП",
 		"scalar": "d_ch_rel", "per_level": 0.025, "max_level": 2,
-		"also": {"d_aero": 0.005}, "also_rel": {}},
+		"also": {"d_aero": 0.005}, "also_rel": {}, "buy_cost": 120_000},
 	"cooling":    {"group": "reliability",  "label": "Охлаждение",
 		"scalar": "d_ch_rel", "per_level": 0.025, "max_level": 2,
 		"also": {"d_power": 0.005}, "also_rel": {}},
+	# --- M3: extended parts (sidepods/suspension = LTC aero; hydraulics = transferable)
+	"sidepods":   {"group": "aero",         "label": "Боковые понтоны",
+		"scalar": "d_aero",   "per_level": 0.015, "max_level": 2,
+		"also": {},           "also_rel": {"d_ch_rel": 0.025}},
+	"suspension_geo": {"group": "aero",     "label": "Геометрия подвески",
+		"scalar": "d_aero",   "per_level": 0.010, "max_level": 2,
+		"also": {},           "also_rel": {"d_ch_rel": 0.030}},
+	"hydraulics": {"group": "reliability",  "label": "Гидравлика",
+		"scalar": "d_ch_rel", "per_level": 0.020, "max_level": 2,
+		"also": {},           "also_rel": {}, "buy_cost": 100_000},
+}
+
+# --- M3: buy-vs-develop + supplier tables --------------------------------------
+# Transferable parts (FIA 2026: PU/gearbox/hydraulics may be bought from another
+# team) carry a "buy_cost" key in PARTS above: ice 200k, turbo 150k, battery 150k,
+# ers 120k, gearbox 120k, hydraulics 100k. Aero parts are LTC — own design only,
+# no "buy_cost". A bought part contributes SUPPLIER_LEVEL_EQ (=1.5) own levels
+# immediately but is LOCKED: own development to max (2.0) beats it by 0.5 level
+# (full PU gap = 0.0125 d_power — the design's 0.010-0.015 corridor).
+# Verified in meta_m3_car_check.py (20/20 PASS).
+const SUPPLIER_LEVEL_EQ: float = 1.5
+
+# Brake suppliers (seasonal choice, Motorsport-Manager style). d_ch_rel flows
+# into the car; pit_cons is added to the player cars' pit_consistency scalar.
+# cost = per-round supply price; partner_pay = tech-partner sponsor income
+# (the supplier pays for running their product — closes the M1 tech slot).
+const BRAKE_SUPPLIERS := {
+	"brembo": {"label": "Brembo",            "d_ch_rel": 0.035, "pit_cons": 0.06,
+		"cost": 180_000, "partner_pay": 90_000},
+	"ap":     {"label": "AP Racing",         "d_ch_rel": 0.025, "pit_cons": 0.03,
+		"cost": 120_000, "partner_pay": 70_000},
+	"ci":     {"label": "Carbone Industrie", "d_ch_rel": 0.020, "pit_cons": 0.02,
+		"cost": 80_000,  "partner_pay": 60_000},
+}
+
+# Fuel/oil suppliers. Shell = power tracks (Monza), Petronas = ERS recovery
+# (Monaco); budget options free money for R&D. Best-vs-worst spread = 0.010.
+const FUEL_SUPPLIERS := {
+	"shell":    {"label": "Shell",       "d_power": 0.018, "d_energy": 0.010,
+		"cost": 200_000, "partner_pay": 90_000},
+	"petronas": {"label": "Petronas",    "d_power": 0.012, "d_energy": 0.020,
+		"cost": 200_000, "partner_pay": 90_000},
+	"exxon":    {"label": "ExxonMobil",  "d_power": 0.015, "d_energy": 0.012,
+		"cost": 150_000, "partner_pay": 75_000},
+	"aramco":   {"label": "Aramco",      "d_power": 0.010, "d_energy": 0.010,
+		"cost": 130_000, "partner_pay": 70_000},
+	"castrol":  {"label": "bp-Castrol",  "d_power": 0.008, "d_energy": 0.015,
+		"cost": 100_000, "partner_pay": 60_000},
 }
 
 # --- R&D car-upgrade state (META-1) ------------------------------------------
@@ -191,6 +239,31 @@ static func compose_part_deltas(levels: Dictionary) -> Dictionary:
 		for rk: String in also_rel:
 			if out.has(rk):
 				out[rk] = float(out[rk]) + float(also_rel[rk]) * float(lvl)
+	return out
+
+# M3: Compose BOUGHT transferable parts -> the same 5-scalar delta dict.
+# Each bought part contributes per_level (and also/also_rel) × SUPPLIER_LEVEL_EQ.
+# Output format matches compose_part_deltas() so season.gd can simply sum them.
+static func compose_supplier_deltas(bought: Dictionary) -> Dictionary:
+	var out := {"d_aero": 0.0, "d_power": 0.0, "d_energy": 0.0, "d_ch_rel": 0.0, "d_eng_rel": 0.0}
+	for part_key: String in bought:
+		if not bool(bought[part_key]):
+			continue
+		if not PARTS.has(part_key):
+			continue
+		var pdef: Dictionary = PARTS[part_key]
+		if not pdef.has("buy_cost"):
+			continue   # LTC part — cannot be bought (corrupt state guard)
+		var primary: String = String(pdef["scalar"])
+		out[primary] = float(out[primary]) + float(pdef["per_level"]) * SUPPLIER_LEVEL_EQ
+		var also: Dictionary = pdef["also"]
+		for sk: String in also:
+			if out.has(sk):
+				out[sk] = float(out[sk]) + float(also[sk]) * SUPPLIER_LEVEL_EQ
+		var also_rel: Dictionary = pdef["also_rel"]
+		for rk: String in also_rel:
+			if out.has(rk):
+				out[rk] = float(out[rk]) + float(also_rel[rk]) * SUPPLIER_LEVEL_EQ
 	return out
 
 static func team_count() -> int:

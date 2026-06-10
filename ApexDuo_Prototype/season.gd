@@ -160,6 +160,23 @@ const LEAVE_LOYALTY: float = 0.25
 const LEAVE_PROB: float = 0.30
 const ROUNDS_PER_SEASON: int = 5
 
+# ============================================================
+# M3: DEEP CAR — suppliers + buy-vs-develop + ATR
+# ---------------------------------------------------------------
+# Supplier tables live in F1_2026 (BRAKE_SUPPLIERS / FUEL_SUPPLIERS).
+# Changing a supplier mid-season costs integration: the NEW supplier's effect
+# runs at 90% for 2 rounds ("механики не обкатали систему").
+# ATR (catch-up, real FIA rule): LTC research SPEED scales 0.75× (P1
+# constructors) … 1.15× (P10+); cost_part(aero) = base / (rd_speed_mult × atr)
+# — the leader pays MORE RP per aero step, the underdog less.
+# Verified numerically in meta_m3_car_check.py (20/20 PASS).
+const INTEGRATION_SCALE: float = 0.9
+const INTEGRATION_ROUNDS: int = 2
+const ATR_SPEED_P1: float = 0.75
+const ATR_SPEED_P10: float = 1.15
+const BRAKE_DEFAULT := "ap"        # neutral mid option
+const FUEL_DEFAULT := "aramco"     # neutral mid option
+
 const NAMES := ["Норрис", "Пиастри", "Ферстаппен", "Леклер", "Антонелли",
 	"Расселл", "Хэмилтон", "Сайнс", "Албон", "Алонсо"]   # default grid (Mercedes player)
 const TEAM_IDS := [4, 5]
@@ -305,6 +322,17 @@ var staff_market: Array = []
 var staff_market_epoch: int = -1
 var staff_log: Array = []
 
+# M3: Deep-car state
+# brake/fuel supplier keys (into F1_2026.BRAKE_SUPPLIERS / FUEL_SUPPLIERS);
+# *_integration: rounds remaining at 90% effect after a mid-season change;
+# bought_parts: part_key -> true for transferable parts bought from a supplier
+# (instant 1.5-level effect, own development locked).
+var brake_supplier: String = BRAKE_DEFAULT
+var fuel_supplier: String = FUEL_DEFAULT
+var brake_integration: int = 0
+var fuel_integration: int = 0
+var bought_parts: Dictionary = {}
+
 func _init() -> void:
 	for id in TEAM_IDS:
 		driver_dev[id] = 0.0
@@ -329,6 +357,12 @@ func _init() -> void:
 	staff_market = []
 	staff_market_epoch = -1
 	staff_log = []
+	# M3: neutral default suppliers, nothing bought yet
+	brake_supplier = BRAKE_DEFAULT
+	fuel_supplier = FUEL_DEFAULT
+	brake_integration = 0
+	fuel_integration = 0
+	bought_parts = {}
 
 func _new_stat() -> Dictionary:
 	return {"races": 0, "wins": 0, "podiums": 0, "poles": 0, "fl": 0,
@@ -462,12 +496,14 @@ func _init_part_levels() -> void:
 # M2: LTC (aero-group) parts are cheapened/inflated by staff quality via
 # rd_speed_mult() (0.85 weak .. 1.20 top TD+designer) — verified in
 # meta_m2_staff_check.py (gap ≈ 1 extra R&D step over a 5-round season).
+# M3: the ATR catch-up multiplier stacks on top: research speed 0.75× for the
+# constructors leader … 1.15× for P10+ (cost = base / (staff × ATR)).
 func cost_part(part_key: String) -> int:
 	var lvl: int = int(part_levels.get(part_key, 0))
 	var base: int = 5 + lvl * 3
 	var pdef: Dictionary = F1_2026.PARTS.get(part_key, {})
 	if String(pdef.get("group", "")) == "aero":
-		return maxi(1, int(round(float(base) / rd_speed_mult())))
+		return maxi(1, int(round(float(base) / (rd_speed_mult() * atr_speed()))))
 	return base
 
 # CAR-1: Buy one level for a part. Deducts RP, updates part_levels, mirrors
@@ -475,6 +511,9 @@ func cost_part(part_key: String) -> int:
 # Returns true on success (enough RP, part not maxed).
 func buy_part(part_key: String) -> bool:
 	if not F1_2026.PARTS.has(part_key):
+		return false
+	# M3: a supplier-bought part is locked — its ceiling is the supplier's level.
+	if bool(bought_parts.get(part_key, false)):
 		return false
 	var pdef: Dictionary = F1_2026.PARTS[part_key]
 	var max_lv: int = int(pdef["max_level"])
@@ -936,7 +975,8 @@ func _collect_sponsor_income(dnf_ids: Array, fl_id: int, order_ids: Array) -> in
 		payout_log = payout_log.slice(payout_log.size() - 20)
 	return total
 
-# Public: current income per round (prize + base sponsor payments). Used by UI.
+# Public: current income per round (prize + base sponsor payments + tech
+# partners). Used by UI. Supplier supply price is an expense, not shown here.
 func income_per_round() -> int:
 	var pos: int = constructor_position()
 	var prize: int = constructor_prize(pos)
@@ -944,7 +984,7 @@ func income_per_round() -> int:
 	for sp in active_sponsors:
 		if bool((sp as Dictionary).get("active", true)):
 			sponsor_base += int((sp as Dictionary).get("base_payment", 0))
-	return prize + sponsor_base
+	return prize + sponsor_base + supplier_income_per_round()
 
 # ---- Sponsor serialisation helpers ----
 
@@ -1370,6 +1410,98 @@ func _staff_from_array(raw: Array) -> Array:
 		out.append(md)
 	return out
 
+# ---------------------------------------------------------------- M3: deep car
+
+# ATR catch-up: research SPEED multiplier from constructors position.
+# P1 = 0.75 (leader handicapped), P10+ = 1.15 (underdog catches up).
+func atr_speed() -> float:
+	var pos: int = constructor_position()
+	return clampf(0.75 + float(pos - 1) / 9.0 * 0.40, ATR_SPEED_P1, ATR_SPEED_P10)
+
+# Current supplier definition for a kind ("brake" | "fuel").
+func supplier_def(kind: String) -> Dictionary:
+	if kind == "brake":
+		return F1_2026.BRAKE_SUPPLIERS.get(brake_supplier, {})
+	return F1_2026.FUEL_SUPPLIERS.get(fuel_supplier, {})
+
+# Effect scale for a supplier kind: 0.9 while integrating, else 1.0.
+func supplier_scale(kind: String) -> float:
+	var rounds: int = brake_integration if kind == "brake" else fuel_integration
+	return INTEGRATION_SCALE if rounds > 0 else 1.0
+
+# Switch supplier (seasonal decision). Mid-season change (after round 0)
+# triggers the integration penalty: 90% effect for the next 2 rounds.
+# Returns false if the key is unknown or already selected.
+func set_supplier(kind: String, key: String) -> bool:
+	if kind == "brake":
+		if not F1_2026.BRAKE_SUPPLIERS.has(key) or key == brake_supplier:
+			return false
+		brake_supplier = key
+		brake_integration = INTEGRATION_ROUNDS if round_index > 0 else 0
+	elif kind == "fuel":
+		if not F1_2026.FUEL_SUPPLIERS.has(key) or key == fuel_supplier:
+			return false
+		fuel_supplier = key
+		fuel_integration = INTEGRATION_ROUNDS if round_index > 0 else 0
+	else:
+		return false
+	apply_car_rd()   # supplier deltas feed team_car() immediately
+	return true
+
+# Supplier contributions to the 5 car scalars (integration-scaled).
+# Fuel -> d_power/d_energy; brakes -> d_ch_rel. pit_cons goes via brake_pit_bonus().
+func supplier_deltas() -> Dictionary:
+	var brake: Dictionary = supplier_def("brake")
+	var fuel: Dictionary = supplier_def("fuel")
+	var bs: float = supplier_scale("brake")
+	var fs: float = supplier_scale("fuel")
+	return {
+		"d_aero":    0.0,
+		"d_power":   float(fuel.get("d_power", 0.0)) * fs,
+		"d_energy":  float(fuel.get("d_energy", 0.0)) * fs,
+		"d_ch_rel":  float(brake.get("d_ch_rel", 0.0)) * bs,
+		"d_eng_rel": 0.0,
+	}
+
+# Brake supplier's pit-consistency bonus for the player cars (integration-scaled).
+# Added to d.pit_consistency in main.gd when building the field.
+func brake_pit_bonus() -> float:
+	return float(supplier_def("brake").get("pit_cons", 0.0)) * supplier_scale("brake")
+
+# Per-round supply price (both suppliers).
+func supplier_cost_per_round() -> int:
+	return int(supplier_def("brake").get("cost", 0)) + int(supplier_def("fuel").get("cost", 0))
+
+# Per-round tech-partner income: the suppliers pay for running their product
+# (closes the M1 tech-partner sponsor slot).
+func supplier_income_per_round() -> int:
+	return int(supplier_def("brake").get("partner_pay", 0)) \
+		+ int(supplier_def("fuel").get("partner_pay", 0))
+
+# Money price to buy a transferable part from its supplier (0 = not buyable/LTC).
+func part_buy_cost(part_key: String) -> int:
+	var pdef: Dictionary = F1_2026.PARTS.get(part_key, {})
+	return int(pdef.get("buy_cost", 0))
+
+# Buy a transferable part from a supplier: one-time money cost, instant
+# 1.5-level effect (compose_supplier_deltas), own development locked.
+# Only allowed while the part is undeveloped (level 0) — the paths exclude
+# each other by design ("своё vs покупное").
+func buy_part_supplier(part_key: String) -> bool:
+	var cost: int = part_buy_cost(part_key)
+	if cost <= 0:
+		return false   # LTC or unknown part
+	if bool(bought_parts.get(part_key, false)):
+		return false   # already bought
+	if int(part_levels.get(part_key, 0)) > 0:
+		return false   # already developing in-house
+	if money < cost:
+		return false
+	money -= cost
+	bought_parts[part_key] = true
+	apply_car_rd()
+	return true
+
 # Return a human-readable cap status string (for UI). Russian.
 func cap_status_text() -> String:
 	var over: int = maxi(0, cumulative_salary_spend - SALARY_CAP)
@@ -1495,9 +1627,16 @@ func buy_energy() -> bool:
 # CAR-1: uses compose_part_deltas when part_levels has been populated;
 # falls back to legacy step-counter formula for safety (should not happen
 # in normal play, but guards against race conditions in loading).
+# M3: developed parts + supplier-bought parts + brake/fuel supplier deltas
+# all sum into the same 5 scalars (one channel into team_car()).
 func car_rd_deltas() -> Dictionary:
 	if not part_levels.is_empty():
-		return F1_2026.compose_part_deltas(part_levels)
+		var out: Dictionary = F1_2026.compose_part_deltas(part_levels)
+		var bought: Dictionary = F1_2026.compose_supplier_deltas(bought_parts)
+		var sup: Dictionary = supplier_deltas()
+		for k: String in out:
+			out[k] = float(out[k]) + float(bought.get(k, 0.0)) + float(sup.get(k, 0.0))
+		return out
 	# Legacy fallback (e.g. called before _init_part_levels in edge cases)
 	var aero_s: int = clampi(car_aero_steps, 0, RD_AERO_MAX_STEPS)
 	var pwt_s: int = clampi(car_pwt_steps, 0, RD_PWT_MAX_STEPS)
@@ -1549,22 +1688,32 @@ func apply_results(order_ids: Array, dnf_ids: Array = [], fl_id: int = -1) -> vo
 	var prize_income: int = constructor_prize(constructor_pos)
 	# M1: sponsor base payments + goal evaluation + bonuses
 	var sponsor_income: int = _collect_sponsor_income(dnf_ids, fl_id, order_ids)
-	var gained_money: int = prize_income + sponsor_income
+	# M3: tech-partner income (suppliers pay for running their product)
+	var tech_income: int = supplier_income_per_round()
+	var gained_money: int = prize_income + sponsor_income + tech_income
 
 	rp += 12 + gained_pts
 	money += gained_money
+	# M3: pay the supplier contracts (brakes + fuel supply price)
+	var supply_cost: int = mini(money, supplier_cost_per_round())
+	money -= supply_cost
 	last_summary = {
 		"round": round_index + 1,
 		"pts": gained_pts,
 		"money": gained_money,
 		"prize": prize_income,
 		"sponsor": sponsor_income,
+		"tech": tech_income,
+		"supply": supply_cost,
 		"constructor_pos": constructor_pos,
 		"rp": rp,
 	}
 	_update_drivers(order_ids)
 	# M2: staff lifecycle (loyalty drift, gardening leave, departure rolls).
 	_staff_end_of_round(gained_pts)
+	# M3: integration penalty burns down one round per race.
+	brake_integration = maxi(0, brake_integration - 1)
+	fuel_integration = maxi(0, fuel_integration - 1)
 	round_index += 1
 	# META-3: pay driver salaries and evaluate cap after each round
 	_pay_salaries()
@@ -1707,6 +1856,12 @@ func to_dict() -> Dictionary:
 		"staff_market":       _staff_to_array(staff_market),
 		"staff_market_epoch": staff_market_epoch,
 		"staff_log":          staff_log.duplicate(true),
+		# M3: deep car (suppliers + bought parts)
+		"brake_supplier":    brake_supplier,
+		"fuel_supplier":     fuel_supplier,
+		"brake_integration": brake_integration,
+		"fuel_integration":  fuel_integration,
+		"bought_parts":      bought_parts.duplicate(true),
 	}
 
 func save_to_disk() -> void:
@@ -1957,6 +2112,19 @@ static func _apply_dict(s: Season, data: Dictionary) -> void:
 	if typeof(slog_raw) == TYPE_ARRAY:
 		for entry in (slog_raw as Array):
 			s.staff_log.append(String(entry))
+	# M3: suppliers + bought parts (old saves get the neutral defaults).
+	var bsup: String = String(data.get("brake_supplier", BRAKE_DEFAULT))
+	s.brake_supplier = bsup if F1_2026.BRAKE_SUPPLIERS.has(bsup) else BRAKE_DEFAULT
+	var fsup: String = String(data.get("fuel_supplier", FUEL_DEFAULT))
+	s.fuel_supplier = fsup if F1_2026.FUEL_SUPPLIERS.has(fsup) else FUEL_DEFAULT
+	s.brake_integration = clampi(int(float(data.get("brake_integration", 0))), 0, INTEGRATION_ROUNDS)
+	s.fuel_integration = clampi(int(float(data.get("fuel_integration", 0))), 0, INTEGRATION_ROUNDS)
+	s.bought_parts = {}
+	var bp_raw: Variant = data.get("bought_parts", null)
+	if typeof(bp_raw) == TYPE_DICTIONARY:
+		for bk in (bp_raw as Dictionary):
+			if F1_2026.PARTS.has(String(bk)) and bool((bp_raw as Dictionary)[bk]):
+				s.bought_parts[String(bk)] = true
 	# Prime F1_2026's static R&D state so the loaded upgrades take effect immediately.
 	s.apply_car_rd()
 
