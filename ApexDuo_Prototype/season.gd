@@ -2982,6 +2982,7 @@ static func _apply_dict(s: Season, data: Dictionary) -> void:
 				s.grid_names[cid] = String((cn_raw as Dictionary)[ck])
 	# Prime F1_2026's static R&D state so the loaded upgrades take effect immediately.
 	s.apply_car_rd()
+	s.apply_ai_dev()   # re-prime F1_2026._dev_deltas with the loaded rival development
 
 # Construct a Season from an already-parsed Dictionary (e.g. RPC payload from host).
 # Behaviour-identical to load_from_disk but takes a Dictionary instead of reading a file.
