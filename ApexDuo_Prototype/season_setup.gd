@@ -63,16 +63,23 @@ func _rebuild() -> void:
 	var mrow := HBoxContainer.new()
 	mrow.add_theme_constant_override("separation", 8)
 	col.add_child(mrow)
-	var solo_b := _button("Соло (1 игрок)", 16)
-	solo_b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	solo_b.modulate = Color.WHITE if not sel_coop else Color(0.5, 0.5, 0.5)
-	solo_b.pressed.connect(func(): sel_coop = false; _rebuild())
-	mrow.add_child(solo_b)
-	var coop_b := _button("Локальный кооп (2 игрока)", 16)
-	coop_b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	coop_b.modulate = Color.WHITE if sel_coop else Color(0.5, 0.5, 0.5)
-	coop_b.pressed.connect(func(): sel_coop = true; _rebuild())
-	mrow.add_child(coop_b)
+	# If we arrived here via «Сезон-онлайн (хост)», show the online-host label
+	# and lock the mode (no toggling needed — coop is forced).
+	var is_online_host: bool = Net.role() == "host"
+	if is_online_host:
+		var online_lbl := _label("Онлайн-кооп (хост) — сервер поднят, ожидание партнёра…", 15, "#66c2ff")
+		mrow.add_child(online_lbl)
+	else:
+		var solo_b := _button("Соло (1 игрок)", 16)
+		solo_b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		solo_b.modulate = Color.WHITE if not sel_coop else Color(0.5, 0.5, 0.5)
+		solo_b.pressed.connect(func(): sel_coop = false; _rebuild())
+		mrow.add_child(solo_b)
+		var coop_b := _button("Локальный кооп (2 игрока)", 16)
+		coop_b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		coop_b.modulate = Color.WHITE if sel_coop else Color(0.5, 0.5, 0.5)
+		coop_b.pressed.connect(func(): sel_coop = true; _rebuild())
+		mrow.add_child(coop_b)
 
 	# --- actions --- (flexible spacer pins the action bar to the bottom)
 	var grow := Control.new()
@@ -122,7 +129,10 @@ func _team_card(i: int) -> Control:
 
 func _on_start() -> void:
 	var s := Season.new()
-	s.configure(sel_team, sel_diff, sel_coop)
+	# If Net is already hosting (online-season path), force coop=true so the hub
+	# knows this is a networked session regardless of the local toggle selection.
+	var is_online_host: bool = Net.role() == "host"
+	s.configure(sel_team, sel_diff, sel_coop or is_online_host)
 	Season.active = s
 	get_tree().change_scene_to_file("res://season_hub.tscn")
 

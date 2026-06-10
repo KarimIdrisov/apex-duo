@@ -45,16 +45,31 @@ const ERS_MODES := {
 # Energy tuning (locked by the Python balance harness).
 const CLIP_PENALTY := 0.55     # s/lap lost when battery spent  (× 0.6 + 0.8·power)
 const OT_PACE := -0.55         # s/lap Overtake boost           (× 0.6 + 0.8·power)
-const OT_DRAIN := 9.0          # extra SoC %/lap while Overtake fires (× 0.6 + 0.8·deploy)
-const OT_MIN_SOC := 14.0       # below this the Overtake boost can't fire
+# --- 2026 store dynamics (energy rework v0.5) --------------------------------
+# The 4 MJ store cycles WITHIN a lap (real 2026: full deploy empties it in
+# ~11 s; braking regen refills it more than once per lap), so the battery
+# visibly "breathes": down the straights, up through the braking zones.
+# Rates below are %/s of the store (× dt) — NOT %/lap like the old model.
+const SOC_DEPLOY_PS := {"harvest": 0.8, "balanced": 3.6, "attack": 5.5}
+const SOC_EL_SCALE0 := 0.4     # deploy-rate floor of the energy_limit scaling
+const SOC_REGEN_PS := 1.6      # %/s braking regen (× harvest char × intensity)
+const SOC_HARVEST_REGEN := 1.5 # harvest mode: extra regen (lift & coast)
+const OT_DRAIN_PS := 1.6       # extra SoC %/s while the Overtake boost fires
+								# (kept cheap: the real MOM recharges every braking
+								# zone, so a chaser can press for laps on end)
+const CLIP_TRICKLE_PS := 0.4   # small straight-line recharge while clipped
+const OT_MIN_SOC := 8.0        # below this the Overtake boost can't fire (v0.5:
+								# raw SoC dips low at the end of straights — the
+								# boost must stay alive deeper into the discharge)
 const OT_GAP_S := 1.0          # Overtake works only within 1.0s of the car ahead
-const PASSIVE_REGEN := 4.0     # forced recharge while clipped  (× 0.5 + harvest)
-const SOC_RECOVER := 20.0      # SoC needed to recover from a clip (hysteresis)
+const SOC_RECOVER := 12.0      # SoC to exit a clip (fast-cycle hysteresis)
+const SOC_AVG_TAU := 20.0      # s — soc_avg smoothing for AI/radio decisions
 const DA_THRESH := 0.7         # dirty-air time gap (s) — smaller than pre-2026
 const DA_COEF := 0.42          # dirty-air strength (× 0.5 + downforce × 1.4 − overtaking)
 const SLIP_THRESH := 1.4       # slipstream tow zone (s) — wider than dirty air
 const SLIP_COEF := 0.48        # max tow pace gain (s/lap) at zero gap (× power+overtaking−0.72)
-const PASS_OT_BASE := 0.40     # pass-credit accrual floor (low-overtaking tracks pass slower)
+const PASS_OT_BASE := 0.48     # pass-credit accrual floor (raised v0.5: the fast
+								# store cycle interrupts OT pressure more often)
 const PASS_OT_K := 1.6         # pass-credit accrual gain per unit track.overtaking
 
 # 2026 per-lap deploy budget + high-speed taper (energy rework v0.4).
@@ -66,16 +81,20 @@ const PASS_OT_K := 1.6         # pass-credit accrual gain per unit track.overtak
 const DEPLOY_BUDGET_BASE := 8.5  # abstract deploy units per lap at energy_limit=1.0
 const TAPER_K            := 0.35 # attack pace scaling loss per unit of track.power
 # Active-aero (Straight Mode zones) — low-drag straights give a small per-lap
-# pace gain (proportional to car power) plus a small SoC regen bonus.
+# pace gain (proportional to car power). The old per-zone SoC bonus was folded
+# into the v0.5 store dynamics (energy_limit scaling of the deploy rate).
 const AERO_ZONE_K  := 0.012      # s/lap pace gain per zone per unit of car-power blend
-const AERO_SOC_K   := 0.8        # SoC %/lap regen bonus per aero zone
 
 # Safety car (driven by track.sc_prob). Verified in the Python harness:
 # occurrence ≈ sc_prob, field bunches to a tight train, pits get cheaper.
 const SC_PACE_MULT := 1.40     # everyone laps at 140% of base under the SC
 const SC_MIN_LAPS := 3         # SC stays out at least this many laps
 const SC_MAX_LAPS := 5
-const SC_BUNCH_GAP := 0.006    # train spacing in laps (~0.5s) when the field bunches
+# The field is NOT teleported into a train on deploy (that un-lapped lapped
+# cars and ate lap bookkeeping). Cars far behind the one ahead close up at a
+# catch-up pace instead, so the train forms physically over the SC laps.
+const SC_CATCH_GAP := 0.7      # s: further than this behind the car ahead → catch up
+const SC_CATCH_MULT := 1.08    # catch-up pace multiplier (vs SC_PACE_MULT of the train)
 const SC_PIT_FACTOR := 0.55    # pit stop costs less under SC (slow field)
 const SC_EARLIEST := 0.15      # deploy window as a fraction of race distance
 const SC_LATEST := 0.70
@@ -116,8 +135,15 @@ const ATTR_KEYS := ["pace", "overtaking", "defending", "tyre", "energy", "race_i
 	"composure", "consistency", "aggression", "discipline", "wet", "starts"]
 
 # Car model: power/aero bias character + reliability failure scale.
-const CAR_K := 2.5             # s/lap per (power−aero)·(track power−downforce)
-const DNF_BASE := 0.008        # per-lap mechanical-failure scale × (1−reliability)
+# SKILL_K: s/lap of pace per unit of combined driver+car skill (0..1). Raised
+# 1.0 → 3.0 (balance pass 2026-06-10): the old field spread (0.23 s/lap) was
+# smaller than the CAR_K track bias, so backmarker power-cars out-qualified the
+# top teams at Monza. CAR_K cut 2.5 → 1.2 in the same pass: track character is
+# a flavour (±~0.17 s/lap), not a verdict. Tuned against the real-engine suite
+# (godot-MCP headless runs: Монако/Монца/Бахрейн × 2 seeds).
+const SKILL_K := 3.0           # s/lap per unit skill (race + quali — keep in sync)
+const CAR_K := 1.2             # s/lap per (power−aero)·(track power−downforce)
+const DNF_BASE := 0.005        # per-lap mechanical-failure scale × (1−reliability)
 
 # Incidents & wear-out (Wave 3): driver errors, contact, damage, component health.
 const INCIDENT_K := 0.00010   # base per-tick driver-error scale (× situational risk)
@@ -195,7 +221,8 @@ class Driver:
 	# --- 2026 energy (battery State of Charge) ---
 	var ers_mode: String = "balanced"  # harvest / balanced / attack
 	var overtake: bool = false         # Overtake boost armed (fires within 1s)
-	var soc: float = 80.0              # battery charge 0..100 (%)
+	var soc: float = 80.0              # battery charge 0..100 (%) — pulses within a lap (v0.5)
+	var soc_avg: float = 80.0          # lap-smoothed SoC: AI/radio decisions read this, not the raw pulse
 	var soc_max: float = 100.0         # usable battery (energy R&D can raise it)
 	var harvest_mult: float = 1.0      # >1 = better regen (energy R&D)
 	var clipped: bool = false          # battery spent: no deploy until recovered
@@ -251,6 +278,7 @@ class Driver:
 	var in_pitlane: bool = false        # truly in the pit lane (vs a brief on-track stall)
 	var aero_damage: float = 0.0        # 0..1 floor/wing damage → pace penalty until repaired
 	var pu_health: float = 1.0          # 1..0 component condition (drops with use → more DNF)
+	var compounds_used: Array = []      # strings (set): tracks which slick compounds this driver has used
 	func progress() -> float:
 		return float(lap) + lap_frac
 	# 0..1 progress through the pit stop (for the minimap pit-lane animation).
@@ -327,6 +355,7 @@ var wet_start: float = 1.1           # race fraction the rain starts (>1 = stays
 var wet_end: float = 1.2             # race fraction the rain stops
 var wet_peak: float = 0.7            # peak wetness of the shower
 var _wet_announced: bool = false
+var had_wet: bool = false            # true once wetness > 0.30 during this race (waives two-compound rule)
 var sc_done: bool = false            # this race already had its safety car
 var sc_deploy_lap: int = -1          # leader lap at which the SC comes out (-1 = none)
 var sc_until_lap: int = -1           # leader lap at which the SC comes back in
@@ -373,7 +402,7 @@ func _init(track_in: Track, drivers_in: Array, seed_value: int = 12345) -> void:
 func _run_qualifying() -> void:
 	var qscore: Dictionary = {}
 	for d in drivers:
-		var qt: float = -d.skill * 1.0
+		var qt: float = -d.skill * SKILL_K
 		qt -= (d.car_power - d.car_aero) * (track.power - track.downforce) * CAR_K
 		qt += COMPOUNDS["soft"]["pace"]
 		var qnoise: float = QUALI_NOISE_BASE * (1.3 - _attr(d, "consistency") * 0.6)
@@ -461,8 +490,12 @@ func _m_weather(d: Driver) -> float:
 func current_laptime(d: Driver, ahead_gap: float = -1.0) -> float:
 	var lt := track.base_laptime
 	if sc_active:
-		return lt * SC_PACE_MULT        # behind the safety car: everyone circulates slowly
-	lt -= d.skill * 1.0
+		# Behind the safety car: the train circulates at SC pace; a car far
+		# behind the one ahead runs a catch-up delta until it joins the queue.
+		if ahead_gap >= 0.0 and ahead_gap > SC_CATCH_GAP:
+			return lt * SC_CATCH_MULT
+		return lt * SC_PACE_MULT
+	lt -= d.skill * SKILL_K
 	# mood: a driver "in the zone" finds a few tenths; a rattled one loses them.
 	# Only the player's team cars carry mood (AI mood stays 0 → no effect).
 	lt -= d.mood * MOOD_PACE * track.base_laptime
@@ -537,35 +570,38 @@ func _ot_effective(d: Driver, ahead_gap: float) -> bool:
 	return d.overtake and not d.clipped and d.soc > OT_MIN_SOC \
 		and ahead_gap >= 0.0 and ahead_gap < OT_GAP_S
 
-# Battery update for one tick. Harvest scales with the track's recovery
-# opportunity; deploy/Overtake drain scales with its energy demand.
-# Also drains the per-lap deploy_budget when in attack/OT mode, and adds a small
-# SoC regen bonus from low-drag Straight Mode zones (active-aero saves energy).
+# Battery update for one tick (store dynamics v0.5). The 4 MJ store cycles
+# WITHIN a lap, like the real 2026 cars: deploy drains it fast on the straights
+# (scaled by track.energy_limit — low-el tracks like Monza ration deploy) and
+# braking regen refills it fast in the corners (scaled by the track's harvest
+# character and corner intensity). Rates are %/s (× dt), not %/lap. The per-lap
+# deploy_budget keeps its v0.4 accounting unchanged (pace gates / power-cut).
+# AI and radio read the smoothed soc_avg so intra-lap pulses don't flap them.
 func _update_soc(d: Driver, dt: float, lt: float, ahead_gap: float) -> void:
-	var rate := 0.0
-	if d.clipped:
-		rate = PASSIVE_REGEN * (0.5 + track.harvest) * d.harvest_mult   # forced recharge
-	else:
-		rate = ERS_MODES[d.ers_mode]["soc"]
-		if rate >= 0.0:
-			rate = rate * (0.5 + track.harvest) * d.harvest_mult
+	var seg: Dictionary = track.seg_at(d.lap_frac)
+	var on_straight: bool = seg.is_empty() or String(seg.get("kind", "")) == "straight"
+	var rate := 0.0                       # %/s of the store
+	if on_straight:
+		if d.clipped:
+			rate = CLIP_TRICKLE_PS        # limp down the straight, recover at braking
 		else:
-			rate = rate * (0.6 + 0.8 * track.deploy)
-		if _ot_effective(d, ahead_gap):
-			rate -= OT_DRAIN * (0.6 + 0.8 * track.deploy)
-		# drain the per-lap deploy budget when consuming electric energy (attack/OT).
-		# Drain rate is keyed to the attack-mode SoC value by design (the budget is in
-		# attack-equivalent units) — keep in sync if ERS_MODES["attack"] changes.
-		# Segment model: you DEPLOY on the straights (that's where the per-lap budget
-		# burns) and harvest under braking in the CORNERS (which tops the budget back
-		# up). Corner-heavy tracks (Monaco) recover and stay easy on energy; straight-
-		# heavy tracks (Monza/Baku) deplete and clip. Pace/clip formulas untouched, so
-		# lap-time calibration and overtaking corridors are preserved.
-		var seg: Dictionary = track.seg_at(d.lap_frac)
-		var on_straight: bool = seg.is_empty() or String(seg.get("kind", "")) == "straight"
+			var el_scale: float = SOC_EL_SCALE0 + (1.0 - SOC_EL_SCALE0) * track.energy_limit
+			rate = -float(SOC_DEPLOY_PS[d.ers_mode]) * el_scale
+			if _ot_effective(d, ahead_gap):
+				rate -= OT_DRAIN_PS
+	else:
+		var inten: float = float(seg.get("intensity", 0.7))
+		rate = SOC_REGEN_PS * (0.5 + track.harvest) * d.harvest_mult * (0.5 + inten)
+		if d.ers_mode == "harvest":
+			rate *= SOC_HARVEST_REGEN     # lift & coast: bank the braking energy
+		# dirty air hurts cooling → worse energy recovery while stuck behind a car
+		if ahead_gap >= 0.0 and ahead_gap < DA_THRESH:
+			rate *= 0.9
+	# per-lap deploy budget (v0.4 accounting, unchanged: pace gate + power-cut).
+	if not d.clipped:
 		if (d.ers_mode == "attack" or _ot_effective(d, ahead_gap)) and on_straight:
-			# divide by straight_frac so a full-straight attack still burns ≈ the old
-			# per-lap amount (calibration); the corner regen below is the differentiator.
+			# keyed to the attack-mode soc value by design (the budget is in
+			# attack-equivalent units) — keep in sync if ERS_MODES changes.
 			var deploy_drain: float = absf(float(ERS_MODES["attack"]["soc"])) \
 				* (0.6 + 0.8 * track.deploy) * (dt / lt) / maxf(0.25, track.straight_frac)
 			d.deploy_budget = maxf(0.0, d.deploy_budget - deploy_drain)
@@ -578,17 +614,8 @@ func _update_soc(d: Driver, dt: float, lt: float, ahead_gap: float) -> void:
 		if d.ers_mode == "harvest":
 			var bmaxh: float = DEPLOY_BUDGET_BASE * track.energy_limit
 			d.deploy_budget = minf(bmaxh, d.deploy_budget + HARVEST_BUDGET_REGEN * (dt / lt))
-	# dirty air hurts cooling → worse energy recovery while stuck behind a car
-	if rate > 0.0 and ahead_gap >= 0.0 and ahead_gap < DA_THRESH:
-		rate *= 0.9
-	# active-aero bonus: low-drag Straight Mode zones need less energy per lap —
-	# small positive SoC term (faithful: less drag = less electric demand used).
-	# rate is in %/lap, applied as rate*(dt/lt) each tick. Only while NOT clipped:
-	# a clipped car's recovery is governed solely by PASSIVE_REGEN + the SOC_RECOVER
-	# hysteresis, so the zone bonus must not accelerate clip recovery per-track.
-	if not d.clipped:
-		rate += AERO_SOC_K * float(track.aero_zones)
-	d.soc = clampf(d.soc + rate * (dt / lt), 0.0, d.soc_max)
+	d.soc = clampf(d.soc + rate * dt, 0.0, d.soc_max)
+	d.soc_avg += (d.soc - d.soc_avg) * minf(1.0, dt / SOC_AVG_TAU)
 	if d.soc <= 0.0:
 		if not d.clipped and d.is_player:
 			_emit("%s: батарея разряжена — клиппинг! Нужен харвест." % d.name, "clip")
@@ -663,13 +690,13 @@ func _situational_energy(d: Driver, ahead_gap: float, behind_gap: float) -> void
 	var atk_on := 56.0 - aggr * 10.0          # engage attack: ~46..56
 	var atk_off := 34.0 - aggr * 8.0          # release attack: ~26..34
 	var floor_soc := atk_off if attacking else atk_on
-	if d.soc < 24.0:
+	if d.soc_avg < 24.0:
 		d.ers_mode = "harvest"
 		d.overtake = false
-	elif ahead_gap >= 0.0 and ahead_gap < OT_GAP_S and d.soc > floor_soc and aggr > 0.45:
+	elif ahead_gap >= 0.0 and ahead_gap < OT_GAP_S and d.soc_avg > floor_soc and aggr > 0.45:
 		d.ers_mode = "attack"
 		d.overtake = true
-	elif behind_gap >= 0.0 and behind_gap < OT_GAP_S and d.soc > floor_soc + 12.0:
+	elif behind_gap >= 0.0 and behind_gap < OT_GAP_S and d.soc_avg > floor_soc + 12.0:
 		d.ers_mode = "attack"
 		d.overtake = false
 	else:
@@ -679,14 +706,14 @@ func _situational_energy(d: Driver, ahead_gap: float, behind_gap: float) -> void
 # The player's driver executes the engineer's directive — unless this lap it
 # defies the order (d.obey, rolled in _on_lap_complete) and drives to character.
 func _player_brain(d: Driver, ahead_gap: float, behind_gap: float) -> void:
-	var in_drs := ahead_gap >= 0.0 and ahead_gap < OT_GAP_S and d.soc > 35.0
+	var in_drs := ahead_gap >= 0.0 and ahead_gap < OT_GAP_S and d.soc_avg > 35.0
 	if d.obey:
 		d.pace_mode = d.dir_pace
 		if d.dir_intent == "attack":
 			d.ers_mode = "attack" if in_drs else "balanced"
 			d.overtake = in_drs
 		elif d.dir_intent == "hold":
-			d.ers_mode = "attack" if (behind_gap >= 0.0 and behind_gap < OT_GAP_S and d.soc > 50.0) else "balanced"
+			d.ers_mode = "attack" if (behind_gap >= 0.0 and behind_gap < OT_GAP_S and d.soc_avg > 50.0) else "balanced"
 			d.overtake = false
 		else:
 			_situational_energy(d, ahead_gap, behind_gap)
@@ -698,7 +725,7 @@ func _player_brain(d: Driver, ahead_gap: float, behind_gap: float) -> void:
 		d.pace_mode = "conserve"
 		d.ers_mode = "harvest"
 		d.overtake = false
-	if d.soc < 22.0:
+	if d.soc_avg < 22.0:
 		d.ers_mode = "harvest"
 
 # Once a lap, decide whether the player's driver obeys the directive. Costly
@@ -852,7 +879,7 @@ func _eval_call(d: Driver, call: String) -> String:
 	var disagree := false
 	match call:
 		"attack":
-			disagree = d.tire_wear > 85.0 or d.soc < 18.0
+			disagree = d.tire_wear > 85.0 or d.soc_avg < 18.0
 		"save":
 			disagree = _in_fight(d) and _attr(d, "aggression") > 0.5
 		"defend":
@@ -948,6 +975,11 @@ func step(dt: float) -> void:
 		return
 	elapsed += dt
 	if not _started:
+		# Record each driver's starting compound BEFORE the launch (pre-race
+		# tyre choice is captured here, not in _init, so set_start_compound has fired).
+		for d in drivers:
+			if not (d.compound in d.compounds_used):
+				d.compounds_used.append(d.compound)
 		_started = true
 		_race_start()
 	if team_pit_cooldown > 0.0:
@@ -1034,6 +1066,17 @@ func step(dt: float) -> void:
 				d.finished = true
 				d.lap_frac = 0.0
 				d.finish_time = elapsed
+				# Two-compound rule: in a dry race, at least two different slick
+				# compounds must be used. AI always complies; this only bites a human
+				# car that started and finished on the same compound without a pit stop.
+				if not had_wet:
+					var slicks_used := 0
+					for cu in d.compounds_used:
+						if String(cu) in ["soft", "medium", "hard"]:
+							slicks_used += 1
+					if slicks_used < 2:
+						d.finish_time += 20.0
+						_emit("%s: +20 с — не использованы два состава шин (правило)." % d.name, "penalty")
 				break
 			_on_lap_complete(d)
 	var all_done := true
@@ -1097,17 +1140,13 @@ func _resolve_combat(dt: float) -> void:
 			if on_str_b:
 				passes_on_straight += 1
 			_emit("%s обошёл %s" % [b.name, a.name], "overtake")
-			b.lap = a.lap
-			b.lap_frac = a.lap_frac + mg
-			if b.lap_frac >= 1.0:
-				b.lap_frac -= 1.0
-				b.lap += 1
+			# Never assign b.lap here: lap bookkeeping (fuel, deploy budget, pits,
+			# trust/mood) belongs to step() phase 3, which wraps lap_frac >= 1.0.
+			b.lap_frac = a.progress() + mg - float(b.lap)
 		elif b.progress() > a.progress() - mg:          # held up behind a
-			b.lap = a.lap
-			b.lap_frac = a.lap_frac - mg
-			if b.lap_frac < 0.0:
-				b.lap_frac += 1.0
-				b.lap -= 1
+			# lap_frac may go slightly negative here (held just behind the line):
+			# progress() stays correct and seg_at() uses fposmod, so that's safe.
+			b.lap_frac = a.progress() - mg - float(b.lap)
 
 # Cumulative pace edge (seconds) a follower must build to pass here.
 # Low-overtaking circuits (Monaco) demand far more than easy ones (Monza).
@@ -1129,11 +1168,8 @@ func _update_safety_car() -> void:
 		sc_active = true
 		sc_done = true
 		sc_until_lap = leader_lap + int(erng.rangef(SC_MIN_LAPS, SC_MAX_LAPS + 1))
-		var lead: Driver = run[0]
-		for k in run.size():
-			var c: Driver = run[k]
-			c.lap = lead.lap
-			c.lap_frac = maxf(0.0, lead.lap_frac - k * SC_BUNCH_GAP)
+		# No teleport: the field concertinas via SC_CATCH_MULT in current_laptime
+		# (lap counters are never assigned — see the combat invariant in CLAUDE.md).
 		# Every SC must name a cause. Incidents set sc_reason when they trigger it;
 		# a scheduled (sc_prob) SC has none yet, so manufacture a plausible cause.
 		if sc_reason == "":
@@ -1161,11 +1197,13 @@ func _driver_incident(d: Driver) -> void:
 		d.pit_timer += rng.rangef(3.5, 8.0)
 		d.aero_damage = minf(1.0, d.aero_damage + rng.rangef(0.10, 0.30))
 		_emit("%s: вылет в эскейп — потеря времени и повреждения." % d.name, "incident")
-	elif sev < 0.975:
+	elif sev < 0.99:
 		d.pit_timer += rng.rangef(7.0, 15.0)
 		d.aero_damage = minf(1.0, d.aero_damage + rng.rangef(0.30, 0.60))
 		_emit("%s: авария! Серьёзные повреждения." % d.name, "incident")
-		_trigger_incident_sc(d.lap, "%s — авария, машина в барьере" % d.name)
+		# not every crash needs a safety car — gate it, or SC appears ~every race
+		if rng.unit() < 0.55:
+			_trigger_incident_sc(d.lap, "%s — авария, машина в барьере" % d.name)
 	else:
 		d.finished = true
 		d.dnf = true
@@ -1233,6 +1271,8 @@ func _update_weather() -> void:
 		var mid := wet_start + span * 0.5
 		w = wet_peak * (1.0 - absf(frac - mid) / (span * 0.5))
 	wetness = clampf(w, 0.0, 1.0)
+	if wetness > 0.30:
+		had_wet = true
 	if wetness > 0.05 and not _wet_announced:
 		_wet_announced = true
 		_emit("Начинается дождь! Время думать про дождевую резину.", "weather")
@@ -1268,6 +1308,11 @@ func _on_lap_complete(d: Driver) -> void:
 		var laps_left := track.laps - d.lap
 		var want_pit := (d.tire_wear >= d.ai_pit_wear and laps_left > 6 and d.pit_count == 0) \
 				or (d.tire_wear >= 92.0 and laps_left > 3)
+		# Mandatory-stop rule (dry): the AI never runs flag-to-flag on low wear —
+		# it banks the required stop late (two-compound rule, sim side; player-side
+		# enforcement arrives with the pre-race tyre-choice UI).
+		if d.pit_count == 0 and wetness < 0.30 and laps_left <= 12 and laps_left > 3:
+			want_pit = true
 		# tyre/weather crossover: slicks in the rain or wets on a drying track → box
 		var on_slick: bool = d.compound in ["soft", "medium", "hard"]
 		if laps_left > 2 and ((on_slick and wetness > 0.40) or (not on_slick and wetness < 0.15)):
@@ -1287,6 +1332,9 @@ func _on_lap_complete(d: Driver) -> void:
 				new_comp = "wet"
 			elif wetness > 0.38:
 				new_comp = "inter"
+			elif new_comp == d.compound:
+				# two-compound rule: a dry stop must fit a different compound
+				new_comp = "soft" if laps_left <= 16 else "hard"
 	if do_pit:
 		var loss := track.pit_loss * (1.1 - 0.2 * d.pit_speed) \
 			+ rng.rangef(-1.5, 1.5) * (1.0 - d.pit_consistency) \
@@ -1308,9 +1356,20 @@ func _on_lap_complete(d: Driver) -> void:
 		d.graining = 0.0                  # fresh rubber: no graining
 		d.aero_damage = 0.0               # the stop also repairs floor/wing damage
 		d.compound = new_comp
+		if not (new_comp in d.compounds_used):
+			d.compounds_used.append(new_comp)
 		_emit("%s — пит-стоп (%s)" % [d.name, new_comp.capitalize()], "pit")
 		d.pit_count += 1
 		d.ai_pit_wear = _strat_pit_wear(d)
+
+# Pre-race starting compound (the co-directors' joint call). Only before the
+# first tick, only team cars, slicks only (races always start dry).
+func set_start_compound(car_id: int, comp: String) -> void:
+	var d := get_driver_by_id(car_id)
+	if d == null or _started or not d.team:
+		return
+	if comp in ["soft", "medium", "hard"]:
+		d.compound = comp
 
 # --- per-car control (works for any human-driven car: solo or co-op team) ---
 func request_pit(car_id: int, compound: String) -> void:

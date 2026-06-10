@@ -3,6 +3,11 @@ extends Control
 # ============================================================================
 # Apex Duo — paddock hub (between races). Reads Season.active.
 # Shows championship standings, budget, R&D upgrades, and starts the next race.
+#
+# Online-season networking:
+#   Host: authoritative — buys/upgrades, saves, broadcasts via Net RPC.
+#   Client: mirror — buttons send net_season_* RPCs instead of mutating Season.
+#   The group "season_hub" is used by Net to deliver callbacks here.
 # ============================================================================
 
 const ACCENT := Color("#c8102e")
@@ -12,16 +17,57 @@ const BG := Color("#14161a")
 const PANEL := Color("#1f242b")
 const MUTED := "#9aa4b2"
 
+# Feed lines for the partner-action log (newest-first, max 5 entries).
+var _feed_lines: Array = []
+var _feed_label: Label
+
 func _ready() -> void:
 	if Season.active == null:
 		get_tree().change_scene_to_file("res://main.tscn")
 		return
-	Season.active.save_to_disk()      # auto-save every time we reach the paddock
+	# Register with the "season_hub" group so Net can deliver callbacks here.
+	add_to_group("season_hub")
+	# Only the host autosaves; clients never write the season file (spec §0.6).
+	if Net.role() != "client":
+		Season.active.save_to_disk()
+	# Host: send the initial season state to any connected client.
+	if Net.role() == "host" and Net.partner_connected:
+		Net.net_season_full.rpc(Season.active.to_dict())
 	_rebuild()
+
+# Called by Net when the host broadcasts net_season_full (client side only).
+func _on_season_updated() -> void:
+	_rebuild()
+
+# Called by Net on both sides after a partner action (feed line from net_season_feed).
+func _on_feed_line(line: String) -> void:
+	_feed_lines.push_front(line)
+	if _feed_lines.size() > 5:
+		_feed_lines.resize(5)
+	_update_feed_label()
+
+# Called by Net when the partner disconnects (host side).
+func _on_partner_disconnected() -> void:
+	_on_feed_line("Партнёр отключился — следующую гонку P6 ведёт ИИ")
+	_rebuild()
+
+# Called by Net when the host disconnects (client side).
+func _on_host_disconnected() -> void:
+	Season.active = null
+	get_tree().change_scene_to_file("res://main.tscn")
+
+func _update_feed_label() -> void:
+	if _feed_label == null:
+		return
+	if _feed_lines.is_empty():
+		_feed_label.text = ""
+		return
+	_feed_label.text = "\n".join(_feed_lines)
 
 func _rebuild() -> void:
 	for c in get_children():
 		c.queue_free()
+	_feed_label = null   # reset reference — will be reassigned below
 
 	var bg := ColorRect.new()
 	bg.color = BG
@@ -46,6 +92,22 @@ func _rebuild() -> void:
 	add_child(margin)
 
 	var s := Season.active
+
+	# Online-season status bar (only when networked).
+	var net_role: String = Net.role()
+	if net_role != "":
+		var net_status_col := "#66c2ff" if net_role == "host" else "#ffd166"
+		var partner_status: String
+		if net_role == "host":
+			partner_status = "партнёр в игре" if Net.partner_connected else "ожидание партнёра…"
+			col.add_child(_label("ОНЛАЙН-СЕЗОН · хост · %s" % partner_status, 14, net_status_col))
+		else:
+			col.add_child(_label("ОНЛАЙН-СЕЗОН · клиент (зеркало)", 14, net_status_col))
+		# Partner feed (online actions log).
+		_feed_label = _label("", 13, "#9aa4b2")
+		_feed_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		col.add_child(_feed_label)
+		_update_feed_label()
 
 	var title := _label("ПАДДОК · %s" % s.team_name, 30, "#c8102e")
 	col.add_child(title)
@@ -97,40 +159,81 @@ func _rebuild() -> void:
 		col.add_child(_label("Прошлый этап: команда +%d очк., +$%s призовых." % [
 			ls["pts"], _money(ls["money"])], 15, "#66c2ff"))
 
-	# main area: standings (left) + R&D (right) + contracts (below)
+	# M1: income-per-round summary line
+	var inc: int = s.income_per_round()
+	var cpos: int = s.constructor_position()
+	var prize_line: int = s.constructor_prize(cpos)
+	col.add_child(_label(
+		"Доход/этап (прогноз): $%s  (призовые P%d: $%s + спонсоры: $%s)" % [
+			_money(inc), cpos, _money(prize_line), _money(inc - prize_line)],
+		15, "#5dd17a"))
+
+	# main area: standings (left) + R&D (right) + contracts (below) + sponsors
 	var mid := HBoxContainer.new()
 	mid.add_theme_constant_override("separation", 18)
 	col.add_child(mid)
 	mid.add_child(_build_standings(s))
 	mid.add_child(_build_rnd(s))
 	col.add_child(_build_contracts(s))
+	col.add_child(_build_sponsors(s))
 
 	# bottom actions — pinned below the scroll so they're always visible
 	var bar := HBoxContainer.new()
 	bar.add_theme_constant_override("separation", 10)
 	outer.add_child(bar)
 
+	var net_role2: String = Net.role()
 	if s.is_complete():
 		var to_menu := _button("В главное меню", 17)
 		to_menu.pressed.connect(func():
 			Season.delete_save()       # season over: clear the save slot
 			Season.active = null
+			if net_role2 != "":
+				Net.disconnect_peer()
 			get_tree().change_scene_to_file("res://main.tscn"))
 		bar.add_child(to_menu)
+	elif net_role2 == "client":
+		# Client mirror: only a "Ready" ping and "Quit" — no start/simulate.
+		var ready_btn := _button("✔ Готов к старту", 16)
+		ready_btn.pressed.connect(func():
+			Net.net_season_ready.rpc_id(1, true))
+		bar.add_child(ready_btn)
+		var spacer_c := Control.new()
+		spacer_c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		bar.add_child(spacer_c)
+		var quit_c := _button("Выйти в меню", 15)
+		quit_c.pressed.connect(func():
+			Net.disconnect_peer()
+			Season.active = null
+			get_tree().change_scene_to_file("res://main.tscn"))
+		bar.add_child(quit_c)
 	else:
-		var mode_txt := "лок. кооп" if s.coop else "соло"
+		# Host or local/solo: full controls.
+		var mode_txt: String
+		if net_role2 == "host":
+			mode_txt = "онлайн-хост"
+		elif s.coop:
+			mode_txt = "лок. кооп"
+		else:
+			mode_txt = "соло"
 		var start := _button("Старт гонки →  (%s)" % mode_txt, 18)
 		start.custom_minimum_size = Vector2(260, 44)
 		start.pressed.connect(func():
 			s.race_pending = true
+			if net_role2 == "host":
+				# Notify the client to enter the race scene.
+				var track_name: String = s.round_name()
+				Net.net_season_start_race.rpc(track_name, 0)
 			get_tree().change_scene_to_file("res://main.tscn"))
 		bar.add_child(start)
-		var quick := _button("⏩ Симулировать этап", 15)
-		quick.pressed.connect(func():
-			s.race_pending = true
-			s.race_quick = true
-			get_tree().change_scene_to_file("res://main.tscn"))
-		bar.add_child(quick)
+		if net_role2 != "host":
+			# Quick-sim only available offline.
+			var quick := _button("⏩ Симулировать этап", 15)
+			quick.pressed.connect(func():
+				s.race_pending = true
+				s.race_quick = true
+				get_tree().change_scene_to_file("res://main.tscn"))
+			bar.add_child(quick)
 		var profile := _button("Пилоты", 15)
 		profile.pressed.connect(func(): get_tree().change_scene_to_file("res://driver_profile.tscn"))
 		bar.add_child(profile)
@@ -143,6 +246,8 @@ func _rebuild() -> void:
 		var quit := _button("Выйти в меню", 15)
 		quit.pressed.connect(func():
 			Season.active = null
+			if net_role2 != "":
+				Net.disconnect_peer()
 			get_tree().change_scene_to_file("res://main.tscn"))
 		bar.add_child(quit)
 
@@ -249,9 +354,18 @@ func _build_rnd(s: Season) -> Control:
 				var btn := _button("Развить · %d RP" % cost_val, 12)
 				btn.disabled = s.rp < cost_val
 				var pk_cap := pk   # capture for closure
-				btn.pressed.connect(func():
-					if s.buy_part(pk_cap):
-						_rebuild())
+				if Net.role() == "client":
+					# Client: send command to host; host applies and rebroadcasts.
+					btn.pressed.connect(func():
+						Net.net_season_buy_part.rpc_id(1, pk_cap))
+				else:
+					btn.pressed.connect(func():
+						if s.buy_part(pk_cap):
+							if Net.role() == "host":
+								Season.active.save_to_disk()
+								Net.net_season_full.rpc(Season.active.to_dict())
+								Net.net_season_feed.rpc("Партнёр: куплено «%s»" % String(F1_2026.PARTS[pk_cap]["label"]))
+							_rebuild())
 				row.add_child(btn)
 			else:
 				row.add_child(_label("  МАКС", 12, "#5dd17a"))
@@ -274,9 +388,17 @@ func _build_rnd(s: Season) -> Control:
 	tyre_row.add_theme_constant_override("separation", 8)
 	var tyre := _button("Купить шинную программу · %d RP" % s.cost_tyre(), 14)
 	tyre.disabled = s.rp < s.cost_tyre() or s.wear_bonus >= 0.36
-	tyre.pressed.connect(func():
-		if s.buy_tyre():
-			_rebuild())
+	if Net.role() == "client":
+		tyre.pressed.connect(func():
+			Net.net_season_buy_tyre.rpc_id(1))
+	else:
+		tyre.pressed.connect(func():
+			if s.buy_tyre():
+				if Net.role() == "host":
+					Season.active.save_to_disk()
+					Net.net_season_full.rpc(Season.active.to_dict())
+					Net.net_season_feed.rpc("Партнёр: куплена шинная программа")
+				_rebuild())
 	tyre_row.add_child(tyre)
 	v.add_child(tyre_row)
 
@@ -451,6 +573,129 @@ func _spacer(h: int) -> Control:
 	var c := Control.new()
 	c.custom_minimum_size = Vector2(0, h)
 	return c
+
+# ---------------------------------------------------------------- sponsors (M1)
+func _build_sponsors(s: Season) -> Control:
+	var pc := _panel()
+	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	v.add_child(_label("СПОНСОРЫ", 18, "#ffffff"))
+	v.add_child(HSeparator.new())
+
+	# Active sponsor slots
+	if s.active_sponsors.is_empty():
+		v.add_child(_label("Нет активных спонсоров — используй рынок ниже.", 13, "#9aa4b2"))
+	else:
+		v.add_child(_label("Активные контракты:", 14, "#cfd6e0"))
+		for sp in s.active_sponsors:
+			var spd: Dictionary = sp as Dictionary
+			var sp_name: String = String(spd.get("name", "?"))
+			var tier: String = String(spd.get("tier", "partner"))
+			var base_pay: int = int(spd.get("base_payment", 0))
+			var bonus: int = int(spd.get("bonus_payment", 0))
+			var progress: int = int(spd.get("goal_progress", 0))
+			var g_met: bool = bool(spd.get("goal_met", false))
+			var g_failed: bool = bool(spd.get("goal_failed", false))
+			var tier_col: String = "#ffd166" if tier == "title" else "#66c2ff"
+			var tier_ru: String = "ТИТУЛЬНЫЙ" if tier == "title" else "ПАРТНЁР"
+			var status_txt: String
+			if g_met:
+				status_txt = "✔ Цель выполнена"
+			elif g_failed:
+				status_txt = "✘ Цель провалена"
+			else:
+				status_txt = "цель: %s (прогресс %d)" % [_goal_ru(spd), progress]
+			var row := HBoxContainer.new()
+			row.add_theme_constant_override("separation", 8)
+			row.add_child(_label("[%s] %s" % [tier_ru, sp_name], 14, tier_col))
+			row.add_child(_label("$%s/эт. + $%s бонус" % [_money(base_pay), _money(bonus)], 13, "#cfd6e0"))
+			v.add_child(row)
+			v.add_child(_label("  %s" % status_txt, 12, "#9aa4b2"))
+
+	# Slot summary
+	var title_used: int = 0
+	var partner_used: int = 0
+	for sp in s.active_sponsors:
+		var spd: Dictionary = sp as Dictionary
+		if bool(spd.get("active", true)):
+			if String(spd.get("tier", "")) == "title":
+				title_used += 1
+			elif String(spd.get("tier", "")) == "partner":
+				partner_used += 1
+	v.add_child(_label("Слоты: Титульный %d/1 · Партнёр %d/2" % [title_used, partner_used],
+		13, "#7c8694"))
+
+	v.add_child(_spacer(6))
+	v.add_child(HSeparator.new())
+	v.add_child(_label("Рынок спонсоров:", 15, "#ffffff"))
+
+	var net_role2: String = Net.role()
+	var offers: Array = s.list_sponsor_offers()
+	if offers.is_empty():
+		v.add_child(_label("Все предложения подписаны или рынок пуст.", 13, "#9aa4b2"))
+	else:
+		for offer in offers:
+			var od: Dictionary = offer as Dictionary
+			var offer_id: int = int(od.get("id", -1))
+			var tier: String = String(od.get("tier", "partner"))
+			var tier_ru: String = "ТИТУЛ." if tier == "title" else "ПАРТНЁР"
+			var tier_col: String = "#ffd166" if tier == "title" else "#66c2ff"
+			var base_pay: int = int(od.get("base_payment", 0))
+			var bonus: int = int(od.get("bonus_payment", 0))
+
+			# Check if slot available
+			var slot_full: bool = false
+			if tier == "title" and title_used >= Season.SPONSOR_SLOT_TITLE:
+				slot_full = true
+			elif tier == "partner" and partner_used >= Season.SPONSOR_SLOT_PARTNER:
+				slot_full = true
+
+			var orow := HBoxContainer.new()
+			orow.add_theme_constant_override("separation", 8)
+			orow.add_child(_label("[%s] %s" % [tier_ru, String(od.get("name", "?"))],
+				13, tier_col))
+			orow.add_child(_label("$%s/эт. + бонус $%s" % [_money(base_pay), _money(bonus)],
+				12, "#cfd6e0"))
+			orow.add_child(_label("Цель: %s" % _goal_ru(od), 12, "#9aa4b2"))
+
+			var sign_btn := _button("Подписать", 12)
+			sign_btn.disabled = slot_full
+			var cap_id := offer_id
+			if net_role2 == "client":
+				sign_btn.pressed.connect(func():
+					Net.net_season_sign_sponsor.rpc_id(1, cap_id))
+			else:
+				sign_btn.pressed.connect(func():
+					if s.sign_sponsor(cap_id):
+						if net_role2 == "host":
+							Season.active.save_to_disk()
+							Net.net_season_full.rpc(Season.active.to_dict())
+							Net.net_season_feed.rpc("Партнёр: подписан спонсор «%s»" % String(od.get("name", "?")))
+						_rebuild())
+			orow.add_child(sign_btn)
+			v.add_child(orow)
+
+	pc.add_child(v)
+	return pc
+
+func _goal_ru(sp: Dictionary) -> String:
+	var gtype: String = String(sp.get("goal_type", ""))
+	var gtarget: int = int(sp.get("goal_target", 0))
+	var gscope: String = String(sp.get("goal_scope", "season"))
+	var scope_ru: String
+	match gscope:
+		"season":      scope_ru = "за сезон"
+		"single_race": scope_ru = "в одной гонке"
+		"any_3_races": scope_ru = "в любых 3 гонках"
+		_:             scope_ru = gscope
+	match gtype:
+		"position":    return "Финиш P%d или выше (%s)" % [gtarget, scope_ru]
+		"points":      return "%d+ очков команды (%s)" % [gtarget, scope_ru]
+		"both_finish": return "Оба финишируют (%s)" % scope_ru
+		"no_dnf":      return "Ни одного схода (%s)" % scope_ru
+		"fastest_lap": return "Быстрейший круг (%s)" % scope_ru
+	return gtype
 
 func _arch_ru(a: String) -> String:
 	match a:

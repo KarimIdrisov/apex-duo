@@ -9,6 +9,91 @@ extends RefCounted
 # ============================================================================
 
 const POINTS := [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]
+
+# ============================================================
+# M1: CONSTRUCTOR PRIZE TABLE (per round, per team, scaled)
+# ---------------------------------------------------------------
+# Source: real 2026 prize-fund proportions scaled to game economy.
+# P1 ≈ 5.6× P10 (real ratio preserved; absolute numbers scaled down
+# so $3–8M starting budgets remain meaningful over a 5-round season).
+# Design corridors (acceptance criterion 6):
+#   Underdog  P10 + full sponsor pack → $350–550k/round  ✓
+#   Contender P1  + full sponsor pack → $700–1000k/round ✓
+# Indexed 0 = P1 constructor … 10 = P11 constructor.
+const CONSTRUCTOR_PRIZE := [
+	280_000,   # P1  constructor
+	240_000,   # P2
+	200_000,   # P3
+	170_000,   # P4
+	140_000,   # P5
+	115_000,   # P6
+	 95_000,   # P7
+	 78_000,   # P8
+	 62_000,   # P9
+	 50_000,   # P10
+	 38_000,   # P11 (safety floor)
+]
+
+# ============================================================
+# M1: SPONSOR SYSTEM
+# ---------------------------------------------------------------
+# Slots: 1 title (exclusive) + 2 partner slots.
+# Tech-partner slot is M3 scope — not implemented here.
+# Each sponsor is a Dictionary with these keys (see _new_sponsor()):
+#   id, name, tier, base_payment, goal_type, goal_target,
+#   goal_scope, bonus_payment, duration_seasons, exclusive,
+#   active, goal_progress, goal_met, goal_failed
+#
+# goal_type values: "position" | "points" | "both_finish" |
+#                   "no_dnf"   | "fastest_lap"
+# goal_scope values: "season" | "single_race" | "any_3_races"
+#
+# Title sponsor payment range: $300k–$600k base/round + $150–400k bonus
+# Partner sponsor range:        $80k–$200k base/round + $50–$150k bonus
+#
+# These base ranges are encoded in the generated offers (SPONSOR_OFFERS_*).
+# Justification: keeps underdog full-package in $350–550k corridor and
+# contender in $700–1000k corridor (verified meta_m1_income_check.py).
+
+# Sponsor offer generation seed material.
+# Mixed with cal_seed so offers are unique per season, not per save-load.
+const SPONSOR_SEED_MIX: int = 0xDEADF00D
+
+# Max sponsors from the market shown at once.
+const SPONSOR_MARKET_SIZE: int = 5
+
+# Slot counts (tech partner excluded until M3).
+const SPONSOR_SLOT_TITLE: int    = 1
+const SPONSOR_SLOT_PARTNER: int  = 2
+
+# ---- Sponsor name pool (const — plain string arrays, valid const expressions) ----
+const SPONSOR_NAMES_TITLE := [
+	"GlobalFuel Corp", "TechDrive AI", "Apex Capital", "CityBank F1",
+	"NovaPower Group", "VeloSport International", "QuantumMotors",
+	"OmniRacing Ltd", "HyperDrive Finance", "Atlas Performance",
+]
+const SPONSOR_NAMES_PARTNER := [
+	"SpeedLink Pro", "FasterCar Systems", "ElectroDrive", "PrecisionAero",
+	"UltraCharge", "NanoTech Racing", "GridEdge", "ApexWear",
+	"Torque Analytics", "SlipStream Media", "RacePulse", "VectorFuel",
+]
+
+# ---- Goal pools for title / partner (tier-appropriate) ----
+# Each entry: [goal_type, goal_target, goal_scope, bonus]
+# goal_target meaning: position goal = finish position P≤N; points goal = season total.
+const SPONSOR_GOALS_TITLE := [
+	["position",    8, "season",       250_000],   # finish in top-8 constructors
+	["points",     30, "season",       300_000],   # 30+ team points this season
+	["both_finish", 0, "any_3_races",  350_000],   # both finish in any 3 races
+	["no_dnf",      0, "season",       400_000],   # zero DNFs entire season
+]
+const SPONSOR_GOALS_PARTNER := [
+	["both_finish", 0, "single_race",   80_000],   # both finish in one specific race
+	["fastest_lap", 0, "any_3_races",   90_000],   # fastest lap in any 3 races
+	["points",     12, "season",        70_000],   # 12+ team points this season
+	["no_dnf",      0, "any_3_races",  100_000],   # no DNF across any 3 races
+	["position",    6, "single_race",   60_000],   # finish P6 or better in one race
+]
 const NAMES := ["Норрис", "Пиастри", "Ферстаппен", "Леклер", "Антонелли",
 	"Расселл", "Хэмилтон", "Сайнс", "Албон", "Алонсо"]   # default grid (Mercedes player)
 const TEAM_IDS := [4, 5]
@@ -136,6 +221,14 @@ var contracts: Array = []
 var cumulative_salary_spend: int = 0   # tracks total salary paid this season (vs SALARY_CAP)
 var cap_penalty_pending: int = 0       # RP to deduct at start of next race weekend
 
+# M1: Sponsor system state
+# active_sponsors: Array of sponsor Dicts (max 3: 1 title + 2 partner).
+# sponsor_offers:  Array of currently available market offers (generated once per season).
+# payout_log:      Array of {"round": int, "amount": int, "from": String} (display only).
+var active_sponsors: Array = []
+var sponsor_offers: Array = []
+var payout_log: Array = []
+
 func _init() -> void:
 	for id in TEAM_IDS:
 		driver_dev[id] = 0.0
@@ -151,6 +244,10 @@ func _init() -> void:
 	_init_default_contracts(1)   # mid-tier default; configure() overwrites
 	# CAR-1: initialise all part levels to 0
 	_init_part_levels()
+	# M1: initialise sponsor offers (empty until configure() sets cal_seed properly)
+	active_sponsors = []
+	sponsor_offers = []
+	payout_log = []
 
 func _new_stat() -> Dictionary:
 	return {"races": 0, "wins": 0, "podiums": 0, "poles": 0, "fl": 0,
@@ -461,6 +558,344 @@ func upgrade_salary(driver_id: int) -> bool:
 			return true
 	return false
 
+# ---------------------------------------------------------------- M1 helpers
+
+# Returns the constructor-prize income for a given 1-based position.
+# Position ≥ 12 or < 1 returns 0 (safety; 11 teams in 2026 grid).
+func constructor_prize(pos_1indexed: int) -> int:
+	var i: int = pos_1indexed - 1
+	if i < 0 or i >= CONSTRUCTOR_PRIZE.size():
+		return 0
+	return int(CONSTRUCTOR_PRIZE[i])
+
+# Returns the player team's current constructor position (1-based).
+# Computed from standings: count unique team-point-totals above the player total.
+# Simplified (single-team model): counts how many teams score more combined points.
+func constructor_position() -> int:
+	# Sum points for each team index across the 22-driver grid (2 per team).
+	# F1_2026 grid is ordered: TEAMS × 2 drivers, starting at index 0.
+	# Player team ids are always TEAM_IDS = [4, 5]. Rivals fill the rest.
+	var player_pts: int = constructor_points()
+	# Build rival team totals: F1_2026 has 11 teams × 2 drivers = 22 grid IDs.
+	# Grid IDs 0..21 in order. Player team is at TEAM_IDS (4, 5).
+	# Rivals: 10 other teams; their 2 driver IDs are all IDs except 4 and 5.
+	# Simple approach: count how many NON-player-team total-point-blocks beat us.
+	var rival_team_totals: Array = []
+	for base in range(0, 22, 2):
+		if base == 4:   # player team slot (IDs 4 and 5)
+			continue
+		var team_pts: int = int(standings.get(base, 0)) + int(standings.get(base + 1, 0))
+		rival_team_totals.append(team_pts)
+	var above: int = 0
+	for rp_val in rival_team_totals:
+		if int(rp_val) > player_pts:
+			above += 1
+	return above + 1   # P1 if no one is above
+
+# Builds a new (empty) sponsor dict with all required fields.
+func _new_sponsor(id_val: int, name_val: String, tier_val: String,
+		base_val: int, goal_type_val: String, goal_target_val: int,
+		goal_scope_val: String, bonus_val: int, duration_val: int,
+		exclusive_val: bool) -> Dictionary:
+	return {
+		"id":             id_val,
+		"name":           name_val,
+		"tier":           tier_val,
+		"base_payment":   base_val,
+		"goal_type":      goal_type_val,
+		"goal_target":    goal_target_val,
+		"goal_scope":     goal_scope_val,
+		"bonus_payment":  bonus_val,
+		"duration_seasons": duration_val,
+		"exclusive":      exclusive_val,
+		"active":         true,
+		"goal_progress":  0,       # races in which goal was met so far
+		"goal_met":       false,   # season-scope: permanently met
+		"goal_failed":    false,   # season-scope: permanently failed (no_dnf after a DNF)
+	}
+
+# Deterministic LCG step (same polynomial as _lcg_step; separated for clarity).
+func _sponsor_lcg(state: int) -> Array:
+	var next_state: int = (state * 1664525 + 1013904223) & 0xFFFFFFFF
+	var fval: float = float(next_state & 0xFFFF) / 65535.0
+	return [next_state, fval]
+
+# Generate the season's sponsor-market offers deterministically from cal_seed.
+# Two calls with the same cal_seed always produce the same list (acceptance #4).
+func _generate_sponsor_offers() -> Array:
+	# Mix cal_seed with SPONSOR_SEED_MIX so offers are independent of race RNG.
+	var s: int = (int(cal_seed) ^ int(SPONSOR_SEED_MIX)) & 0xFFFFFFFF
+	var offers: Array = []
+	# Title slots: 2 offers
+	for _ti in 2:
+		var res: Array = _sponsor_lcg(s)
+		s = int(res[0])
+		var name_idx: int = int(float(res[1]) * float(SPONSOR_NAMES_TITLE.size()))
+		name_idx = clampi(name_idx, 0, SPONSOR_NAMES_TITLE.size() - 1)
+
+		res = _sponsor_lcg(s)
+		s = int(res[0])
+		var base_pay: int = int(300_000 + float(res[1]) * 300_000.0)  # 300k..600k
+
+		res = _sponsor_lcg(s)
+		s = int(res[0])
+		var goal_idx: int = int(float(res[1]) * float(SPONSOR_GOALS_TITLE.size()))
+		goal_idx = clampi(goal_idx, 0, SPONSOR_GOALS_TITLE.size() - 1)
+		var gdef: Array = SPONSOR_GOALS_TITLE[goal_idx]
+
+		offers.append(_new_sponsor(
+			offers.size(),
+			String(SPONSOR_NAMES_TITLE[name_idx]),
+			"title",
+			base_pay,
+			String(gdef[0]),
+			int(gdef[1]),
+			String(gdef[2]),
+			int(gdef[3]),
+			1,
+			true
+		))
+
+	# Partner slots: 3 offers
+	for _pi in 3:
+		var res2: Array = _sponsor_lcg(s)
+		s = int(res2[0])
+		var name_idx2: int = int(float(res2[1]) * float(SPONSOR_NAMES_PARTNER.size()))
+		name_idx2 = clampi(name_idx2, 0, SPONSOR_NAMES_PARTNER.size() - 1)
+
+		res2 = _sponsor_lcg(s)
+		s = int(res2[0])
+		var base_pay2: int = int(80_000 + float(res2[1]) * 120_000.0)  # 80k..200k
+
+		res2 = _sponsor_lcg(s)
+		s = int(res2[0])
+		var goal_idx2: int = int(float(res2[1]) * float(SPONSOR_GOALS_PARTNER.size()))
+		goal_idx2 = clampi(goal_idx2, 0, SPONSOR_GOALS_PARTNER.size() - 1)
+		var gdef2: Array = SPONSOR_GOALS_PARTNER[goal_idx2]
+
+		offers.append(_new_sponsor(
+			offers.size(),
+			String(SPONSOR_NAMES_PARTNER[name_idx2]),
+			"partner",
+			base_pay2,
+			String(gdef2[0]),
+			int(gdef2[1]),
+			String(gdef2[2]),
+			int(gdef2[3]),
+			1,
+			false
+		))
+
+	return offers
+
+# Public: regenerate sponsor offers (call after configure() sets cal_seed, or on
+# a new season). Idempotent if already generated — call once per season start.
+func ensure_sponsor_offers() -> void:
+	if sponsor_offers.is_empty():
+		sponsor_offers = _generate_sponsor_offers()
+
+# Count active sponsors of a given tier.
+func _sponsor_count(tier: String) -> int:
+	var n: int = 0
+	for sp in active_sponsors:
+		if String((sp as Dictionary).get("tier", "")) == tier and bool((sp as Dictionary).get("active", true)):
+			n += 1
+	return n
+
+# Public: list current market offers (generates on first call per season).
+func list_sponsor_offers() -> Array:
+	ensure_sponsor_offers()
+	return sponsor_offers
+
+# Public: sign a sponsor from the offer list by offer id.
+# Returns true on success, false if the slot is full or offer not found.
+# The signed sponsor is removed from sponsor_offers and added to active_sponsors.
+func sign_sponsor(offer_id: int) -> bool:
+	ensure_sponsor_offers()
+	var offer_idx: int = -1
+	for i in sponsor_offers.size():
+		if int((sponsor_offers[i] as Dictionary).get("id", -1)) == offer_id:
+			offer_idx = i
+			break
+	if offer_idx < 0:
+		return false
+	var sp: Dictionary = sponsor_offers[offer_idx]
+	var tier: String = String(sp.get("tier", "partner"))
+	# Check slot availability
+	if tier == "title" and _sponsor_count("title") >= SPONSOR_SLOT_TITLE:
+		return false
+	if tier == "partner" and _sponsor_count("partner") >= SPONSOR_SLOT_PARTNER:
+		return false
+	# Sign: move from offers to active
+	active_sponsors.append(sp.duplicate(true))
+	sponsor_offers.remove_at(offer_idx)
+	return true
+
+# ---- Goal evaluation (called from apply_results) ----
+
+# Returns true if driver id is in order_ids (not DNF).
+func _driver_finished(id: int, order_ids: Array, dnf_ids: Array) -> bool:
+	return (id in order_ids) and not (id in dnf_ids)
+
+# Evaluate all active sponsor goals against a race result.
+# dnf_ids: Array of driver ids that DNF'd this race.
+# fl_id: driver id with fastest lap (-1 if none).
+# team_pos: team P5 and P6 finishing positions dict {id: 1-based pos}.
+# Called BEFORE round_index is incremented.
+func _evaluate_sponsor_goals(order_ids: Array, dnf_ids: Array, fl_id: int) -> void:
+	# Determine team car positions
+	var team_pos: Dictionary = {}
+	for i in order_ids.size():
+		var id: int = int(order_ids[i])
+		if id in TEAM_IDS:
+			team_pos[id] = i + 1
+
+	for i in active_sponsors.size():
+		var sp: Dictionary = active_sponsors[i]
+		if not bool(sp.get("active", true)):
+			continue
+		if bool(sp.get("goal_failed", false)):
+			continue
+		if bool(sp.get("goal_met", false)):
+			continue
+		var gtype: String = String(sp.get("goal_type", ""))
+		var gtarget: int = int(sp.get("goal_target", 0))
+		var gscope: String = String(sp.get("goal_scope", "season"))
+
+		var race_met: bool = false
+		match gtype:
+			"position":
+				# Team's BEST finish this race <= gtarget
+				for id in TEAM_IDS:
+					if team_pos.has(id) and not (id in dnf_ids):
+						if int(team_pos[id]) <= gtarget:
+							race_met = true
+			"points":
+				# Season scope: total team points this season (updated in apply_results
+				# before here — we read constructor_points() post-update)
+				if gscope == "season":
+					if constructor_points() >= gtarget:
+						race_met = true
+			"both_finish":
+				# Both team cars in order_ids AND neither DNF'd
+				var p5_ok: bool = _driver_finished(TEAM_IDS[0], order_ids, dnf_ids)
+				var p6_ok: bool = _driver_finished(TEAM_IDS[1], order_ids, dnf_ids)
+				race_met = p5_ok and p6_ok
+			"no_dnf":
+				# Any team-car DNF fails the goal permanently
+				if TEAM_IDS[0] in dnf_ids or TEAM_IDS[1] in dnf_ids:
+					sp["goal_failed"] = true
+					continue   # skip progress update
+				race_met = true   # this race clean — progress irrelevant, not met until scope
+			"fastest_lap":
+				race_met = (fl_id in TEAM_IDS)
+
+		if race_met:
+			sp["goal_progress"] = int(sp.get("goal_progress", 0)) + 1
+
+		# Check if the goal is now fully met based on scope
+		var progress: int = int(sp.get("goal_progress", 0))
+		match gscope:
+			"single_race":
+				if race_met:
+					sp["goal_met"] = true
+			"any_3_races":
+				if progress >= 3:
+					sp["goal_met"] = true
+			"season":
+				if gtype == "no_dnf":
+					# Season no_dnf: met only at end of season if never failed.
+					# Mark as met at the last round (round_index == total_rounds - 1).
+					if round_index == total_rounds() - 1 and not bool(sp.get("goal_failed", false)):
+						sp["goal_met"] = true
+				else:
+					if race_met:
+						sp["goal_met"] = true
+
+# Collect sponsor income for the current round. Called inside apply_results.
+# Returns total payout and appends to payout_log.
+func _collect_sponsor_income(dnf_ids: Array, fl_id: int, order_ids: Array) -> int:
+	# Goals are evaluated first (before income collection).
+	_evaluate_sponsor_goals(order_ids, dnf_ids, fl_id)
+	var total: int = 0
+	for sp in active_sponsors:
+		if not bool(sp.get("active", true)):
+			continue
+		var base: int = int(sp.get("base_payment", 0))
+		total += base
+		# Bonus: single-race goals that were just met this round, or any-3-races that
+		# just hit 3, or season-scope that just met.
+		if bool(sp.get("goal_met", false)):
+			var already_paid: bool = bool(sp.get("bonus_paid", false))
+			if not already_paid:
+				total += int(sp.get("bonus_payment", 0))
+				sp["bonus_paid"] = true
+				payout_log.append({
+					"round": round_index + 1,
+					"amount": int(sp.get("bonus_payment", 0)),
+					"from": String(sp.get("name", "?")) + " (бонус)"
+				})
+		payout_log.append({"round": round_index + 1, "amount": base,
+			"from": String(sp.get("name", "?"))})
+	# Trim log to last 20 entries (UI only needs recent)
+	if payout_log.size() > 20:
+		payout_log = payout_log.slice(payout_log.size() - 20)
+	return total
+
+# Public: current income per round (prize + base sponsor payments). Used by UI.
+func income_per_round() -> int:
+	var pos: int = constructor_position()
+	var prize: int = constructor_prize(pos)
+	var sponsor_base: int = 0
+	for sp in active_sponsors:
+		if bool((sp as Dictionary).get("active", true)):
+			sponsor_base += int((sp as Dictionary).get("base_payment", 0))
+	return prize + sponsor_base
+
+# ---- Sponsor serialisation helpers ----
+
+func _sponsors_to_array(slist: Array) -> Array:
+	var out: Array = []
+	for sp in slist:
+		var d: Dictionary = (sp as Dictionary).duplicate(true)
+		# Ensure all int fields survive JSON float round-trip by storing as int.
+		d["id"]               = int(d.get("id", 0))
+		d["base_payment"]     = int(d.get("base_payment", 0))
+		d["goal_target"]      = int(d.get("goal_target", 0))
+		d["bonus_payment"]    = int(d.get("bonus_payment", 0))
+		d["duration_seasons"] = int(d.get("duration_seasons", 1))
+		d["goal_progress"]    = int(d.get("goal_progress", 0))
+		out.append(d)
+	return out
+
+func _sponsors_from_array(raw: Array) -> Array:
+	var out: Array = []
+	for entry in raw:
+		if typeof(entry) != TYPE_DICTIONARY:
+			continue
+		var sd: Dictionary = entry as Dictionary
+		out.append(_new_sponsor(
+			int(float(sd.get("id", 0))),
+			String(sd.get("name", "?")),
+			String(sd.get("tier", "partner")),
+			int(float(sd.get("base_payment", 0))),
+			String(sd.get("goal_type", "points")),
+			int(float(sd.get("goal_target", 0))),
+			String(sd.get("goal_scope", "season")),
+			int(float(sd.get("bonus_payment", 0))),
+			int(float(sd.get("duration_seasons", 1))),
+			bool(sd.get("exclusive", false))
+		))
+		# Restore mutable state fields
+		var sp: Dictionary = out[out.size() - 1]
+		sp["active"]       = bool(sd.get("active", true))
+		sp["goal_progress"]= int(float(sd.get("goal_progress", 0)))
+		sp["goal_met"]     = bool(sd.get("goal_met", false))
+		sp["goal_failed"]  = bool(sd.get("goal_failed", false))
+		if sd.has("bonus_paid"):
+			sp["bonus_paid"] = bool(sd.get("bonus_paid", false))
+	return out
+
 # Return a human-readable cap status string (for UI). Russian.
 func cap_status_text() -> String:
 	var over: int = maxi(0, cumulative_salary_spend - SALARY_CAP)
@@ -504,6 +939,10 @@ func configure(tier: int, diff: int, is_coop: bool) -> void:
 	# so that load_from_disk() calling configure() doesn't overwrite loaded contracts)
 	if contracts.is_empty():
 		_init_default_contracts(team_tier)
+	# M1: generate sponsor market offers deterministically from cal_seed (only if not
+	# already loaded from a save — _apply_dict restores sponsor_offers directly).
+	if sponsor_offers.is_empty() and active_sponsors.is_empty():
+		sponsor_offers = _generate_sponsor_offers()
 
 func difficulty_name() -> String:
 	return DIFFICULTY[difficulty]["name"]
@@ -614,22 +1053,37 @@ func team_harvest_mult() -> float:
 
 # --- results ---
 # order_ids: driver ids in finishing order (index 0 = P1).
-func apply_results(order_ids: Array) -> void:
+# dnf_ids: (optional) Array of driver ids that retired — used for sponsor goal eval.
+# fl_id:   (optional) driver id who set fastest lap (-1 = none).
+func apply_results(order_ids: Array, dnf_ids: Array = [], fl_id: int = -1) -> void:
 	# META-3: apply any RP cap penalty accumulated from last round's salary evaluation
 	_apply_cap_penalty()
 	var gained_pts := 0
-	var gained_money := 0
 	for i in order_ids.size():
-		var id: int = order_ids[i]
+		var id: int = int(order_ids[i])
 		var pts: int = POINTS[i] if i < POINTS.size() else 0
 		standings[id] += pts
 		if id in TEAM_IDS:
 			gained_pts += pts
-			gained_money += maxi(0, 11 - (i + 1)) * 60000
+
+	# M1: constructor-prize income (replaces old per-car positional formula)
+	var constructor_pos: int = constructor_position()
+	var prize_income: int = constructor_prize(constructor_pos)
+	# M1: sponsor base payments + goal evaluation + bonuses
+	var sponsor_income: int = _collect_sponsor_income(dnf_ids, fl_id, order_ids)
+	var gained_money: int = prize_income + sponsor_income
+
 	rp += 12 + gained_pts
 	money += gained_money
-	last_summary = {"round": round_index + 1, "pts": gained_pts,
-		"money": gained_money, "rp": rp}
+	last_summary = {
+		"round": round_index + 1,
+		"pts": gained_pts,
+		"money": gained_money,
+		"prize": prize_income,
+		"sponsor": sponsor_income,
+		"constructor_pos": constructor_pos,
+		"rp": rp,
+	}
 	_update_drivers(order_ids)
 	round_index += 1
 	# META-3: pay driver salaries and evaluate cap after each round
@@ -764,6 +1218,10 @@ func to_dict() -> Dictionary:
 		"cumulative_salary_spend": cumulative_salary_spend,
 		"cap_penalty_pending": cap_penalty_pending,
 		"contracts": contracts.duplicate(true),
+		# M1: sponsor system
+		"active_sponsors": _sponsors_to_array(active_sponsors),
+		"sponsor_offers":  _sponsors_to_array(sponsor_offers),
+		"payout_log":      payout_log.duplicate(true),
 	}
 
 func save_to_disk() -> void:
@@ -810,18 +1268,12 @@ static func _migrate_steps_to_parts(s: Season, aero_steps: int, pwt_steps: int) 
 		var pslot: Array = pwt_slots[i]
 		s.part_levels[String(pslot[0])] = int(pslot[1])
 
-static func load_from_disk() -> Season:
-	if not FileAccess.file_exists(SAVE_PATH):
-		return null
-	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
-	if f == null:
-		return null
-	var txt := f.get_as_text()
-	f.close()
-	var data: Variant = JSON.parse_string(txt)
-	if typeof(data) != TYPE_DICTIONARY:
-		return null
-	var s := Season.new()
+# ---------------------------------------------------------------- from_dict / load_from_disk
+# Common parser: applies a Dictionary payload to a freshly-created Season instance.
+# Used by both load_from_disk (from file JSON) and from_dict (from RPC payload).
+# All int(float(...)) casts are intentional: JSON and RPC both produce floats for
+# integer fields, so this guard handles both paths identically.
+static func _apply_dict(s: Season, data: Dictionary) -> void:
 	s.round_index = int(data.get("round_index", 0))
 	s.coop = bool(data.get("coop", false))
 	s.money = int(data.get("money", 5_000_000))
@@ -848,8 +1300,7 @@ static func load_from_disk() -> Season:
 	s.energy_bonus = minf(0.30, float(s.car_pwt_steps) * 0.06)
 	# --- CAR-1: part_levels loading + migration ---
 	# Path A: save has "part_levels" dict -> restore directly (int(float()) for quirk).
-	# Path B: no "part_levels" (old META-1 save) -> migrate from step counters using
-	#         the slot-map approach (see _migrate_steps_to_parts).
+	# Path B: no "part_levels" (old META-1 save) -> migrate from step counters.
 	s._init_part_levels()   # start with all-zero dict with correct keys
 	var pl_raw: Variant = data.get("part_levels", null)
 	if typeof(pl_raw) == TYPE_DICTIONARY:
@@ -917,8 +1368,6 @@ static func load_from_disk() -> Season:
 				s.driver_attr_dev[id] = s._new_attr_dev()
 	else:
 		# Path B: old save — migrate scalar to balanced-distributed attr deltas.
-		# Distribute evenly: per_attr = old_scalar / n_attrs so that
-		# sum(attrs) = old_scalar = dev_of() is back-compat.
 		for id in TEAM_IDS:
 			var old_scalar: float = float(s.driver_dev.get(id, 0.0))
 			var per_attr: float = old_scalar / float(n_attrs)
@@ -936,16 +1385,20 @@ static func load_from_disk() -> Season:
 			s.driver_morale[TEAM_IDS[i]] = int(mr[i])
 	var ls: Variant = data.get("last_summary", {})
 	if typeof(ls) == TYPE_DICTIONARY and not (ls as Dictionary).is_empty():
+		var lsd: Dictionary = ls as Dictionary
 		s.last_summary = {
-			"round": int(ls.get("round", 0)),
-			"pts": int(ls.get("pts", 0)),
-			"money": int(ls.get("money", 0)),
-			"rp": int(ls.get("rp", 0)),
+			"round":           int(float(lsd.get("round",           0))),
+			"pts":             int(float(lsd.get("pts",             0))),
+			"money":           int(float(lsd.get("money",           0))),
+			"rp":              int(float(lsd.get("rp",              0))),
+			# M1 additions (default 0 for old saves)
+			"prize":           int(float(lsd.get("prize",           0))),
+			"sponsor":         int(float(lsd.get("sponsor",         0))),
+			"constructor_pos": int(float(lsd.get("constructor_pos", 0))),
 		}
 	# --- META-3: contracts + cap state ---
 	# Migration path A: save has "contracts" key -> restore each contract dict.
 	# Migration path B: no "contracts" key (old save) -> default contracts for tier.
-	# int(float(...)) handles JSON int->float quirk for all integer fields.
 	var contracts_raw: Variant = data.get("contracts", null)
 	if typeof(contracts_raw) == TYPE_ARRAY and (contracts_raw as Array).size() > 0:
 		# Path A: new save
@@ -971,6 +1424,55 @@ static func load_from_disk() -> Season:
 	# Restore cap state (default 0 for old saves)
 	s.cumulative_salary_spend = int(float(data.get("cumulative_salary_spend", 0)))
 	s.cap_penalty_pending = int(float(data.get("cap_penalty_pending", 0)))
+	# M1: sponsor system — restore active_sponsors, sponsor_offers, payout_log.
+	# Migration: old saves without "active_sponsors" get an empty list; fresh offers
+	# generated by configure() -> _generate_sponsor_offers() already ran above.
+	var asp_raw: Variant = data.get("active_sponsors", null)
+	if typeof(asp_raw) == TYPE_ARRAY:
+		s.active_sponsors = s._sponsors_from_array(asp_raw as Array)
+	else:
+		s.active_sponsors = []
+	var sof_raw: Variant = data.get("sponsor_offers", null)
+	if typeof(sof_raw) == TYPE_ARRAY:
+		s.sponsor_offers = s._sponsors_from_array(sof_raw as Array)
+	else:
+		# Old save: generate fresh offers from the restored cal_seed.
+		s.sponsor_offers = s._generate_sponsor_offers()
+	var plog_raw: Variant = data.get("payout_log", null)
+	if typeof(plog_raw) == TYPE_ARRAY:
+		s.payout_log = []
+		for entry in (plog_raw as Array):
+			if typeof(entry) == TYPE_DICTIONARY:
+				var ed: Dictionary = entry as Dictionary
+				s.payout_log.append({
+					"round":  int(float(ed.get("round",  0))),
+					"amount": int(float(ed.get("amount", 0))),
+					"from":   String(ed.get("from", "?")),
+				})
+	else:
+		s.payout_log = []
 	# Prime F1_2026's static R&D state so the loaded upgrades take effect immediately.
 	s.apply_car_rd()
+
+# Construct a Season from an already-parsed Dictionary (e.g. RPC payload from host).
+# Behaviour-identical to load_from_disk but takes a Dictionary instead of reading a file.
+# All int(float(...)) casts handle the JSON/RPC float quirk the same way.
+static func from_dict(data: Dictionary) -> Season:
+	var s := Season.new()
+	_apply_dict(s, data)
+	return s
+
+static func load_from_disk() -> Season:
+	if not FileAccess.file_exists(SAVE_PATH):
+		return null
+	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	if f == null:
+		return null
+	var txt := f.get_as_text()
+	f.close()
+	var data: Variant = JSON.parse_string(txt)
+	if typeof(data) != TYPE_DICTIONARY:
+		return null
+	var s := Season.new()
+	_apply_dict(s, data as Dictionary)
 	return s

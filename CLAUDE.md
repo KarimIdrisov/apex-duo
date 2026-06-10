@@ -6,8 +6,14 @@ first. Keep it up to date when architecture or conventions change.
 ## What this is
 
 **Apex Duo** — a co-op Formula‑1 team-management game prototype, built in
-**Godot 4.6** (GDScript). The headline feature is **co-op, Mode A**: two players
-run one team — a *Director* (driver P5) and a *Race Engineer* (driver P6).
+**Godot 4.6** (GDScript). The headline feature is **symmetric co-op**
+(decision 2026-06-10): two players are *co-directors* of one team — meta
+decisions (R&D, race tyre choice, strategy) are taken together in the paddock;
+in the race each player runs **one car** (P5 / P6) as its race engineer (pace,
+ERS, pits, radio). The old asymmetric "Mode A" (Director + Engineer roles) is
+backlog as a possible Mode B; the GDD still describes it and needs a revision
+pass. Current focus: **playability & challenge** — tune/fix existing mechanics,
+don't add new systems.
 
 The full design lives in **`Apex_Duo_GDD.docx`** (repo root). The playable
 prototype lives in **`ApexDuo_Prototype/`**.
@@ -20,8 +26,9 @@ Current state (stages 0–3.5, "engine v0.3"). Implemented:
   and a **safety car** driven by each track's `sc_prob` (field bunching, cheaper
   pit). A hashed **events RNG** (`mix32`) keeps the SC roll well-distributed.
 - **Real 2026 grid** (11 teams / 22 drivers / power units) in `f1_2026.gd`.
-- **Co-op Mode A** (local split-screen + online host/client), **team tactics**
-  (shared pace, swap order, pit coordination).
+- **Symmetric co-op** (local split-screen + online host/client; each player
+  engineers one of the team's two cars), **team tactics** (shared pace, swap
+  order, pit coordination).
 - **Season/championship**: 5 real rounds, points, money, **3 R&D branches**
   (aero / tyres / powertrain), team tier + difficulty selection, driver
   morale & development, JSON save/load.
@@ -75,6 +82,10 @@ Instances → 2*, host in one window, join `127.0.0.1` in the other.
   `overtaking` is low) and completes the pass; (3) lap completion + pits. Cars
   start from a **qualifying grid** (skill-ordered, spread). This hold-up model
   replaced free progress-swapping, which let noise make cars overtake endlessly.
+  **Invariant (fix 2026-06-10):** combat writes only `lap_frac` (relative to the
+  car's *own* `lap`) and never assigns `lap` — phase 3 owns all lap bookkeeping
+  (fuel burn, deploy-budget reset, pit execution, trust/mood). Keep it that way;
+  regression test: `combat_lap_check.py` (invariant: completions == lap).
   Uses a **seeded LCG RNG** so the same seed
   reproduces the same race. **Determinism is load-bearing** — it underpins the
   host-authoritative netcode and the Python balance harness. Don't introduce
@@ -178,6 +189,16 @@ Instances → 2*, host in one window, join `127.0.0.1` in the other.
   **self-contained** test file (no cross-import); fresh filenames read correctly.
 - **Save/load:** verify round-trips by simulating Godot's JSON int→float quirk
   in Python (numbers come back as floats; loaders cast back to int).
+- **Real-engine headless runs via the godot MCP** (when the `mcp__godot__*`
+  tools are connected): `script → execute_gdscript` with
+  `project_path = ...\ApexDuo_Prototype` runs code INSIDE the real project on
+  the Windows side (Godot 4.6.3) — `load("res://race_sim.gd")`, build a field,
+  loop `sim.step(0.25)`, print JSON stats. This is the preferred way to verify
+  balance corridors and engine behaviour (gotcha #2 only applies to the Linux
+  bash sandbox). Notes: each call needs a `confirm_and_execute` round-trip;
+  the process has a hard ~120 s cap and the sim costs ~1 ms/tick → run ONE race
+  per call (a 53-78 lap race ≈ 18-26k ticks ≈ 25-45 s). `runtime`/`batch` tools
+  can also launch the editor, run scenes and validate files.
 - **Always run a final verification step** and report what was checked.
 
 ## Roadmap status

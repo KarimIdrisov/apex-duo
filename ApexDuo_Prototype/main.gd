@@ -31,6 +31,13 @@ var speed := 1.0
 var paused := false
 var seed_value := 12345
 
+# pre-race tyre modal
+var pre_race_open := false            # true while the modal is visible
+var pre_race_panel: Control           # reference to the modal (freed on close)
+var start_comp_choices := {}          # car_id -> chosen compound string (local/host choices)
+var _client_quali_rows: Array = []    # client: rows received via net_quali_rows RPC
+var _quali_list_container: Control    # reference to the quali VBox inside the open modal
+
 # networking
 var my_car_id := 4               # host/solo default; client gets assigned 5
 var partner_connected := false
@@ -69,7 +76,20 @@ func _ready() -> void:
 	if Season.active != null and Season.active.race_pending:
 		Season.active.race_pending = false
 		season_race = true
-		_start("local" if Season.active.coop else "solo")
+		# Online-season host: start the race and notify the client.
+		if Net.role() == "host":
+			_start("host")
+			# Broadcast the race start to the connected client (if any).
+			if Net.partner_connected and sim != null:
+				var track_name: String = sim.track.name
+				Net.net_season_start_race.rpc(track_name, seed_value)
+		elif Net.role() == "client":
+			# Client enters main.tscn via net_season_start_race RPC — join as client.
+			_start("client")
+		elif Season.active.coop:
+			_start("local")
+		else:
+			_start("solo")
 		if Season.active.race_quick:           # paddock asked to instant-sim it
 			Season.active.race_quick = false
 			fast_to_end = true
@@ -79,8 +99,8 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if game_mode == "":
 		return
-	# quick-sim: run the whole race to the end in one frame
-	if fast_to_end and game_mode != "client" and sim != null and not sim.finished:
+	# quick-sim: run the whole race to the end in one frame (gated: not while pre-race modal open)
+	if fast_to_end and not pre_race_open and game_mode != "client" and sim != null and not sim.finished:
 		var g := 0
 		while not sim.finished and g < 200000:
 			sim.step(STEP)
@@ -89,8 +109,8 @@ func _process(delta: float) -> void:
 		if season_race:
 			_on_to_paddock()
 			return
-	# run authoritative sim (solo / local / host)
-	if game_mode != "client" and sim != null and not paused and not sim.finished:
+	# run authoritative sim (solo / local / host) — gated while pre-race modal open
+	if game_mode != "client" and sim != null and not paused and not sim.finished and not pre_race_open:
 		sim_accum += delta * speed
 		var guard := 0
 		while sim_accum >= STEP and guard < 4000:
@@ -128,6 +148,11 @@ func _start(m: String) -> void:
 		"client":
 			my_car_id = 5
 			_setup_client(ip_input.text if ip_input != null else "127.0.0.1")
+		"online_host":
+			# Online-season host: peer already created in Net; just make the sim.
+			_make_sim(true)
+			my_car_id = 4
+			_ensure_host_signals()
 
 	_build_panels()
 	# Set the 2026 track character strip once at race start (host/solo/local have sim ready).
@@ -145,6 +170,10 @@ func _start(m: String) -> void:
 			Season.active.round_index + 1, Season.active.total_rounds(),
 			Season.active.round_name()]
 	_set_msg(hello)
+	# Show pre-race tyre choice modal (host/solo/local only; client waits for the host).
+	if m != "client" and sim != null:
+		start_comp_choices = {4: "medium", 5: "medium"}
+		_show_prerace_modal()
 
 func _make_sim(coop: bool) -> void:
 	var track: RaceSim.Track
@@ -189,16 +218,32 @@ func _make_sim(coop: bool) -> void:
 #  NETWORKING (host-authoritative)
 # ============================================================================
 func _setup_server() -> void:
+	# If Net already owns an active peer (online-season path), don't recreate it.
+	if Net.is_online():
+		_ensure_host_signals()
+		return
 	var peer := ENetMultiplayerPeer.new()
 	var err := peer.create_server(PORT, 3)
 	if err != OK:
 		_set_msg("Не удалось поднять сервер (порт занят?).")
 		return
 	multiplayer.multiplayer_peer = peer
-	multiplayer.peer_connected.connect(_on_peer_connected)
-	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
+	_ensure_host_signals()
+
+# Wire in-race peer signals (connect once; Net handles the permanent disconnect signals).
+func _ensure_host_signals() -> void:
+	if not multiplayer.peer_connected.is_connected(_on_peer_connected):
+		multiplayer.peer_connected.connect(_on_peer_connected)
+	if not multiplayer.peer_disconnected.is_connected(_on_peer_disconnected):
+		multiplayer.peer_disconnected.connect(_on_peer_disconnected)
+	# Reflect Net's partner state so the HUD label is correct immediately.
+	partner_connected = Net.partner_connected
 
 func _setup_client(addr: String) -> void:
+	# If Net already owns an active peer (online-season path), don't recreate it.
+	if Net.is_online():
+		_set_msg("Ты ведёшь P6.")
+		return
 	# Accept "127.0.0.1", "127.0.0.1:24555", or "  192.168.0.5 : 24555 ".
 	var host := addr.strip_edges()
 	var port := PORT
@@ -209,12 +254,10 @@ func _setup_client(addr: String) -> void:
 			port = int(bits[1].strip_edges())
 	if host == "":
 		host = "127.0.0.1"
-	var peer := ENetMultiplayerPeer.new()
-	var err := peer.create_client(host, port)
+	var err: int = Net.join_client(host + (":" + str(port) if port != PORT else ""))
 	if err != OK:
 		_set_msg("Не удалось создать клиент для %s:%d (код %d)." % [host, port, err])
 		return
-	multiplayer.multiplayer_peer = peer
 	multiplayer.connected_to_server.connect(func(): _set_msg("Подключено к %s:%d! Ты ведёшь P6." % [host, port]))
 	multiplayer.connection_failed.connect(func(): _set_msg("Сбой подключения к %s:%d — хост запущен?" % [host, port]))
 	multiplayer.server_disconnected.connect(func(): _set_msg("Хост отключился."))
@@ -223,6 +266,9 @@ func _setup_client(addr: String) -> void:
 func _on_peer_connected(id: int) -> void:
 	partner_connected = true
 	net_assign.rpc_id(id, 5)     # partner drives car P6
+	# Also send the qualifying classification so the client can show it in the modal.
+	if sim != null:
+		net_quali_rows.rpc_id(id, build_quali_rows(sim))
 	_set_msg("Напарник подключился — ведёт P6.")
 
 func _on_peer_disconnected(_id: int) -> void:
@@ -260,9 +306,31 @@ func net_set_overtake(car_id: int, on: bool) -> void:
 	if multiplayer.is_server() and sim != null:
 		sim.set_overtake(car_id, on)
 
+# Client sends its chosen starting compound to the host.
+@rpc("any_peer", "call_remote", "reliable")
+func net_set_start_compound(car_id: int, comp: String) -> void:
+	if multiplayer.is_server() and sim != null:
+		sim.set_start_compound(car_id, comp)
+
+# Host broadcasts "race is starting now" so the client closes its wait panel.
+@rpc("authority", "call_remote", "reliable")
+func net_prerace_done() -> void:
+	_close_prerace_modal()
+
 @rpc("authority", "call_remote", "reliable")
 func net_assign(car_id: int) -> void:
 	my_car_id = car_id
+	# Client gets assigned a car — show its own waiting panel for the tyre choice.
+	_show_prerace_modal()
+
+# Host → client: qualifying classification rows (plain Dicts, RPC-serialisable).
+# Sent on peer connect (alongside net_assign) and on race restart (new sim → new quali).
+# If the client's modal is already open when this arrives, the list refreshes in-place.
+@rpc("authority", "call_remote", "reliable")
+func net_quali_rows(rows: Array) -> void:
+	_client_quali_rows = rows
+	if pre_race_open and _quali_list_container != null:
+		_refresh_quali_section(_client_quali_rows)
 
 @rpc("authority", "call_remote", "unreliable_ordered")
 func net_snapshot(payload: Dictionary) -> void:
@@ -283,6 +351,8 @@ func _make_snapshot() -> Dictionary:
 			"deploy_budget_max": RaceSim.DEPLOY_BUDGET_BASE * sim.track.energy_limit,
 			"last_lap": d.last_lap, "best_lap": d.best_lap, "tyre_laps": d.tyre_laps, "speed": sim.speed_kmh(d),
 				"trust": d.trust, "mood": d.mood, "power_cut": d.power_cut,
+			# Task B: partner-intent fields for the co-op transparency HUD.
+			"pitting": d.pitting, "pit_request_compound": d.pit_request_compound,
 		})
 	return {"elapsed": sim.elapsed, "laps": sim.track.laps,
 		"finished": sim.finished, "drivers": ds, "sc": sim.sc_active,
@@ -290,6 +360,7 @@ func _make_snapshot() -> Dictionary:
 		"wet": sim.wetness,
 		"energy_limit": sim.track.energy_limit, "aero_zones": sim.track.aero_zones,
 		"corners": sim.track.corners, "straight_km": sim.track.straight_km, "evolution": sim.track.evolution,
+		"team_pit_cooldown": sim.team_pit_cooldown,
 		"events": sim.event_log.slice(maxi(0, sim.event_log.size() - 12))}
 
 # Visual state of a car for the minimap: out / pit / clip / attack / run.
@@ -327,6 +398,8 @@ func _collect_entries() -> Array:
 			"deploy_budget_max": RaceSim.DEPLOY_BUDGET_BASE * sim.track.energy_limit,
 			"last_lap": d.last_lap, "best_lap": d.best_lap, "tyre_laps": d.tyre_laps, "speed": sim.speed_kmh(d),
 				"trust": d.trust, "mood": d.mood, "power_cut": d.power_cut,
+			# Task B: partner-intent fields.
+			"pitting": d.pitting, "pit_request_compound": d.pit_request_compound,
 		})
 	return out
 
@@ -499,6 +572,7 @@ func _update_feed() -> void:
 			"incident": col = "#ff7a1a"
 			"team":     col = "#ffd166"
 			"clip":     col = "#9aa4b2"
+			"penalty":  col = "#ff4d6d"
 			_:          col = "#c8d0db"
 		lbl.text = "[color=%s]Кр.%d · %s[/color]" % [col, lap_n, txt]
 
@@ -610,6 +684,50 @@ func _update_panels(entries: Array) -> void:
 			team_gap_label.text = "%s впереди %s: %.1f c" % [
 				ahead_e["name"], trail_e["name"], g]
 
+	# Task B: partner-intent HUD — each player sees the other car's battery,
+	# pit intent, crew status and double-stack warning.
+	var tcd: float = 0.0
+	if game_mode == "client":
+		tcd = float(snapshot.get("team_pit_cooldown", 0.0))
+	elif sim != null:
+		tcd = sim.team_pit_cooldown
+	for p in panels:
+		if not p.has("partner_label"):
+			continue
+		var partner_id: int = 5 if int(p["id"]) == 4 else 4
+		var pe: Dictionary = by_id.get(partner_id, {})
+		if pe.is_empty():
+			(p["partner_label"] as Label).text = ""
+			if p.has("crew_label"):
+				(p["crew_label"] as Label).text = ""
+			if p.has("stack_label"):
+				(p["stack_label"] as Label).text = ""
+			continue
+		# Battery line
+		var psoc: float = float(pe.get("soc", 0.0))
+		(p["partner_label"] as Label).text = "АКБ напарника: %d%%" % int(psoc)
+		# Pit intent
+		var ppitting: bool = bool(pe.get("pitting", false))
+		var pprc: String = String(pe.get("pit_request_compound", ""))
+		if ppitting:
+			var comp_letter: String = _comp_letter_ru(pprc)
+			(p["partner_label"] as Label).text += "   ПИТ → %s" % comp_letter
+		# Crew busy
+		var crew_txt: String = ""
+		if tcd > 0.0:
+			var secs_busy: int = int(ceili(tcd))
+			crew_txt = "Экипаж занят: %d с" % secs_busy
+		if p.has("crew_label"):
+			(p["crew_label"] as Label).text = crew_txt
+		# Double-stack warning
+		var my_e: Dictionary = by_id.get(int(p["id"]), {})
+		var my_pitting: bool = bool(my_e.get("pitting", false))
+		var stack_warn: String = ""
+		if (ppitting and tcd > 0.0) or (ppitting and my_pitting):
+			stack_warn = "Дабл-стак: +7 с!"
+		if p.has("stack_label"):
+			(p["stack_label"] as Label).text = stack_warn
+
 func _update_net_label() -> void:
 	if net_label == null:
 		return
@@ -695,6 +813,13 @@ func _on_restart() -> void:
 	_make_sim(game_mode != "solo")
 	paused = false
 	_set_msg("Новая гонка.")
+	# Re-open the pre-race compound modal for the new race.
+	if sim != null:
+		start_comp_choices = {4: "medium", 5: "medium"}
+		_show_prerace_modal()
+		# In host mode push fresh quali rows to any connected partner (new sim → new quali).
+		if game_mode == "host" and partner_connected:
+			net_quali_rows.rpc(build_quali_rows(sim))
 
 # ---------------------------------------------------------------- colors / text
 func _tire_color(c) -> Color:
@@ -829,6 +954,8 @@ func _build_menu() -> void:
 	center.add_child(_spacer_v(6))
 	center.add_child(_menu_button("СЕЗОН — новый чемпионат", func(): _begin_season_setup()))
 	center.add_child(_spacer_v(6))
+	center.add_child(_menu_button("Сезон-онлайн (хост)", func(): _begin_online_season_host()))
+	center.add_child(_spacer_v(6))
 	center.add_child(_menu_button("Создать игру по сети (хост)", func(): _start("host")))
 
 	var join_row := HBoxContainer.new()
@@ -838,11 +965,11 @@ func _build_menu() -> void:
 	ip_input.text = "127.0.0.1"
 	ip_input.custom_minimum_size = Vector2(180, 38)
 	join_row.add_child(ip_input)
-	join_row.add_child(_menu_button("Подключиться", func(): _start("client")))
+	join_row.add_child(_menu_button("Подключиться", func(): _join_online(ip_input.text)))
 	center.add_child(join_row)
 
 	var note := Label.new()
-	note.text = "Онлайн (бета): нужны 2 копии игры. В одной — «Создать игру», в другой\nвведи IP (например 127.0.0.1) и «Подключиться». В редакторе Godot:\nDebug → Run Multiple Instances → Run 2 Instances."
+	note.text = "Онлайн (бета): нужны 2 копии игры. В одной — «Сезон-онлайн (хост)», в другой\nвведи IP (например 127.0.0.1) и «Подключиться». В редакторе Godot:\nDebug → Run Multiple Instances → Run 2 Instances."
 	note.add_theme_font_size_override("font_size", 13)
 	note.add_theme_color_override("font_color", Color("#7c8694"))
 	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -864,6 +991,24 @@ func _spacer_v(h: int) -> Control:
 func _begin_season_setup() -> void:
 	get_tree().change_scene_to_file("res://season_setup.tscn")
 
+# «Сезон-онлайн (хост)»: raise the ENet server then go to setup.
+# The setup screen will detect Net.role() == "host" and set coop+online flags.
+func _begin_online_season_host() -> void:
+	var err: int = Net.host_server()
+	if err != OK:
+		_set_msg("Не удалось поднять сервер (порт занят?). Код: %d" % err)
+		return
+	get_tree().change_scene_to_file("res://season_setup.tscn")
+
+# «Подключиться» in online-season context: connect to host, then wait for
+# net_season_full which will route us to season_hub.tscn automatically (via Net).
+func _join_online(addr: String) -> void:
+	var err: int = Net.join_client(addr)
+	if err != OK:
+		_set_msg("Не удалось подключиться к %s (код %d)." % [addr, err])
+		return
+	_set_msg("Подключение к %s…" % addr)
+
 func _continue_season() -> void:
 	var s := Season.load_from_disk()
 	if s != null:
@@ -883,6 +1028,10 @@ func _on_to_paddock() -> void:
 			"passes": d.passes_made, "best_lap": d.best_lap, "dnf": d.dnf})
 	Season.active.record_race(results)
 	Season.active.apply_results(ids)
+	# Online-season: host saves and syncs updated state to client before scene change.
+	if Net.role() == "host":
+		Season.active.save_to_disk()
+		Net.net_season_full.rpc(Season.active.to_dict())
 	get_tree().change_scene_to_file("res://season_hub.tscn")
 
 func _build_race_ui(root: Control) -> void:
@@ -1255,14 +1404,313 @@ func _make_panel(car_id: int, role: String, dname: String) -> Control:
 		pit_row.add_child(b)
 	v.add_child(pit_row)
 
+	# Task B: partner-intent section — shows the OTHER team car's battery, pit
+	# intent, crew busy status and double-stack warning.
+	v.add_child(HSeparator.new())
+	var partner_label := _mklabel(14, "#9aa4b2", "")
+	v.add_child(partner_label)
+	var crew_label := _mklabel(14, "#f2c14e", "")
+	v.add_child(crew_label)
+	var stack_label := _mklabel(14, "#e23b3b", "")
+	v.add_child(stack_label)
+
 	panels.append({
 		"id": car_id, "role": role, "tire_label": tire,
 		"wear_bar": bar, "call_buttons": call_buttons,
 		"trust_label": trust_label, "trust_bar": trust_bar, "mood_label": mood_label,
 		"soc_bar": soc_bar, "deploy_bar": deploy_bar,
 		"ers_buttons": ers_buttons, "ot_button": ot_btn,
+		"partner_label": partner_label, "crew_label": crew_label, "stack_label": stack_label,
 	})
 	return pc
+
+# ============================================================================
+#  PRE-RACE TYRE MODAL  («Квалификация и стартовая резина»)
+# ============================================================================
+
+# Builds display rows for the qualifying classification (pole first).
+# Each row: {p: int, name: String, color: String, team: bool,
+#            time_s: float, gap: float}
+# Pure static helper — no UI, no side effects. Testable headless.
+static func build_quali_rows(s: RaceSim) -> Array:
+	var rows: Array = []
+	if s == null or s.quali_grid.is_empty():
+		return rows
+	var pole_id: int = int(s.quali_grid[0])
+	var pole_score: float = float(s.quali_times.get(pole_id, 0.0))
+	# Build driver id → Driver lookup
+	var by_id: Dictionary = {}
+	for d in s.drivers:
+		by_id[int(d.id)] = d
+	for p in s.quali_grid.size():
+		var did: int = int(s.quali_grid[p])
+		var score: float = float(s.quali_times.get(did, 0.0))
+		var time_s: float = s.track.base_laptime + score
+		var gap: float = score - pole_score        # 0.0 for pole, positive for the rest
+		var drv: RaceSim.Driver = by_id.get(did)
+		var dname: String  = drv.name  if drv != null else "?"
+		var dcol: String   = drv.color if drv != null else "#8a94a6"
+		var dteam: bool    = drv.team  if drv != null else false
+		rows.append({
+			"p":      p + 1,
+			"name":   dname,
+			"color":  dcol,
+			"team":   dteam,
+			"time_s": time_s,
+			"gap":    gap,
+		})
+	return rows
+
+# Format a lap time as m:ss.mmm (when ≥ 60 s) or ss.mmm.
+static func _fmt_laptime(t: float) -> String:
+	if t >= 60.0:
+		var mins: int = int(t) / 60
+		var secs: float = t - float(mins * 60)
+		return "%d:%06.3f" % [mins, secs]
+	return "%.3f" % t
+
+# Build the VBoxContainer of RichTextLabel rows for the qualifying list.
+func _build_quali_list(rows: Array) -> VBoxContainer:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 2)
+	if rows.is_empty():
+		var empty := Label.new()
+		empty.text = "Квалификация недоступна"
+		empty.add_theme_font_size_override("font_size", 14)
+		empty.add_theme_color_override("font_color", Color("#9aa4b2"))
+		v.add_child(empty)
+		return v
+	# Track which team-car entries we've already seen (first = P5 gold, second = P6 cyan).
+	var team_count: int = 0
+	for i in rows.size():
+		var row: Dictionary = rows[i]
+		var pos: int      = int(row.get("p", i + 1))
+		var dname: String = String(row.get("name", ""))
+		var dcol: String  = String(row.get("color", "#ffffff"))
+		var dteam: bool   = bool(row.get("team", false))
+		var time_s: float = float(row.get("time_s", 0.0))
+		var gap: float    = float(row.get("gap", 0.0))
+
+		var time_txt: String
+		if pos == 1:
+			time_txt = _fmt_laptime(time_s)
+		else:
+			time_txt = "+%.3f" % gap
+
+		var txt: String = "P%-2d  %-18s  %s" % [pos, dname, time_txt]
+
+		# Player team cars: gold (first team car = P5) / cyan (second = P6).
+		# All other cars: their team colour.
+		var display_col: String
+		if dteam:
+			display_col = "#ffd166" if team_count == 0 else "#66c2ff"
+			team_count += 1
+		else:
+			display_col = dcol
+
+		var lbl := RichTextLabel.new()
+		lbl.bbcode_enabled = true
+		lbl.fit_content = true
+		lbl.scroll_active = false
+		lbl.add_theme_font_size_override("normal_font_size", 14)
+		lbl.text = "[color=%s]%s[/color]" % [display_col, txt]
+		v.add_child(lbl)
+	return v
+
+# Populate / refresh the quali section of the open modal.
+# Clears the list_holder VBox and rebuilds it from rows.
+func _refresh_quali_section(rows: Array) -> void:
+	if _quali_list_container == null:
+		return
+	for ch in _quali_list_container.get_children():
+		ch.queue_free()
+	_quali_list_container.add_child(_build_quali_list(rows))
+
+# Returns the Russian single-letter abbreviation for a pit/start compound.
+func _comp_letter_ru(comp: String) -> String:
+	match comp:
+		"soft":   return "С"
+		"medium": return "М"
+		"hard":   return "Х"
+		"inter":  return "И"
+		"wet":    return "В"
+	return comp.to_upper().substr(0, 1)
+
+func _show_prerace_modal() -> void:
+	pre_race_open = true
+	_quali_list_container = null      # reset: new modal gets a new container reference
+	if pre_race_panel != null:
+		pre_race_panel.queue_free()
+	var overlay := ColorRect.new()
+	overlay.color = Color(0.0, 0.0, 0.0, 0.72)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	pre_race_panel = overlay
+	race_root.add_child(overlay)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 12)
+	center.add_child(box)
+
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = PANEL
+	sb.set_corner_radius_all(12)
+	sb.set_content_margin_all(22)
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", sb)
+	box.add_child(pc)
+
+	var inner := VBoxContainer.new()
+	inner.add_theme_constant_override("separation", 10)
+	pc.add_child(inner)
+
+	# ---- Modal title ----
+	var tname: String = sim.track.name if sim != null else "Трасса"
+	var title := Label.new()
+	title.text = "КВАЛИФИКАЦИЯ И СТАРТОВАЯ РЕЗИНА — %s" % tname
+	title.add_theme_font_size_override("font_size", 20)
+	title.add_theme_color_override("font_color", ACCENT)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	inner.add_child(title)
+
+	# ---- Track info line ----
+	var tlaps: int = sim.track.laps if sim != null else 0
+	var tabr: float = sim.track.abrasion if sim != null else 1.0
+	var twet: int = int(round(float(sim.track.wet_prob if sim != null else 0.2) * 100.0))
+	var info := Label.new()
+	info.text = "%s · Кругов: %d · Абразив: %.2f · Дождь: %d%%" \
+		% [tname, tlaps, tabr, twet]
+	info.add_theme_font_size_override("font_size", 14)
+	info.add_theme_color_override("font_color", Color("#9aa4b2"))
+	info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	inner.add_child(info)
+
+	inner.add_child(HSeparator.new())
+
+	# ---- Qualifying classification section ----
+	var quali_header := Label.new()
+	quali_header.text = "КВАЛИФИКАЦИЯ"
+	quali_header.add_theme_font_size_override("font_size", 16)
+	quali_header.add_theme_color_override("font_color", Color("#9aa4b2"))
+	inner.add_child(quali_header)
+
+	# ScrollContainer caps the list height so the modal stays on screen.
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.custom_minimum_size = Vector2(500, 300)
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	# _quali_list_container is the VBox that _refresh_quali_section clears/repopulates.
+	var list_holder := VBoxContainer.new()
+	list_holder.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_quali_list_container = list_holder
+	scroll.add_child(list_holder)
+	inner.add_child(scroll)
+
+	# Populate: host/solo/local use the live sim; client uses rows from net_quali_rows
+	# (may be empty until the RPC arrives — net_quali_rows will refresh in-place).
+	if sim != null:
+		_refresh_quali_section(build_quali_rows(sim))
+	else:
+		_refresh_quali_section(_client_quali_rows)
+
+	inner.add_child(HSeparator.new())
+
+	# ---- Tyre choice section ----
+	var tyre_header := Label.new()
+	tyre_header.text = "СТАРТОВАЯ РЕЗИНА"
+	tyre_header.add_theme_font_size_override("font_size", 16)
+	tyre_header.add_theme_color_override("font_color", Color("#9aa4b2"))
+	inner.add_child(tyre_header)
+
+	# One row per team car. In online: host edits id=4, client edits id=5.
+	var editable_ids: Array = []
+	if game_mode == "client":
+		editable_ids = [my_car_id]
+	else:
+		editable_ids = [4, 5] if game_mode in ["local", "host"] else [4]
+
+	# Compound toggle buttons per car row.
+	# Keys into start_comp_choices are the actual car ids (ints 4/5).
+	var comp_btn_groups: Dictionary = {}   # car_id -> {"soft": Button, "medium": Button, "hard": Button}
+	for cid in editable_ids:
+		var dname: String = _driver_name(cid)
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		var lbl := Label.new()
+		lbl.text = "P%d · %s:" % [cid + 1, dname]
+		lbl.add_theme_font_size_override("font_size", 16)
+		lbl.add_theme_color_override("font_color", TEAM_COL if cid == 4 else ENGI_COL)
+		lbl.custom_minimum_size = Vector2(180, 0)
+		row.add_child(lbl)
+		var btns: Dictionary = {}
+		for cspec in [["soft", "С (Soft)"], ["medium", "М (Medium)"], ["hard", "Х (Hard)"]]:
+			var cb := Button.new()
+			cb.text = cspec[1]
+			cb.add_theme_font_size_override("font_size", 15)
+			cb.custom_minimum_size = Vector2(100, 36)
+			cb.toggle_mode = true
+			var cname: String = cspec[0]
+			var cid_r: int = cid
+			cb.pressed.connect(func(): _on_prerace_compound(cid_r, cname, comp_btn_groups))
+			btns[cname] = cb
+			row.add_child(cb)
+		comp_btn_groups[cid] = btns
+		inner.add_child(row)
+		# Highlight the default choice (medium).
+		_prerace_highlight_btns(comp_btn_groups[cid], start_comp_choices.get(cid, "medium"))
+
+	# For the client: show a waiting note instead of the start button.
+	if game_mode == "client":
+		var wait_lbl := Label.new()
+		wait_lbl.text = "Ожидаем «Поехали» от хоста…"
+		wait_lbl.add_theme_font_size_override("font_size", 15)
+		wait_lbl.add_theme_color_override("font_color", Color("#9aa4b2"))
+		wait_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		inner.add_child(wait_lbl)
+		return   # client has no start button
+
+	# Host / solo / local: show a «Поехали» button.
+	var go_btn := Button.new()
+	go_btn.text = "Поехали!"
+	go_btn.add_theme_font_size_override("font_size", 18)
+	go_btn.custom_minimum_size = Vector2(200, 44)
+	go_btn.pressed.connect(_on_prerace_start)
+	inner.add_child(go_btn)
+
+func _prerace_highlight_btns(btns: Dictionary, selected: String) -> void:
+	for k in btns:
+		var b: Button = btns[k]
+		b.set_pressed_no_signal(k == selected)
+		b.modulate = Color.WHITE if k == selected else Color(0.55, 0.55, 0.55)
+
+func _on_prerace_compound(car_id: int, comp: String, groups: Dictionary) -> void:
+	start_comp_choices[car_id] = comp
+	# In online client mode, immediately RPC the choice to the host.
+	if game_mode == "client":
+		net_set_start_compound.rpc_id(1, car_id, comp)
+	if groups.has(car_id):
+		_prerace_highlight_btns(groups[car_id], comp)
+
+func _on_prerace_start() -> void:
+	# Apply choices to the sim, then close and start.
+	if sim != null:
+		for cid in start_comp_choices:
+			sim.set_start_compound(int(cid), String(start_comp_choices[cid]))
+	# Notify clients (if any) so they close their wait panel.
+	if game_mode == "host":
+		net_prerace_done.rpc()
+	_close_prerace_modal()
+
+func _close_prerace_modal() -> void:
+	pre_race_open = false
+	_quali_list_container = null     # panel is about to be freed; drop the dangling ref
+	if pre_race_panel != null:
+		pre_race_panel.queue_free()
+		pre_race_panel = null
 
 func _build_bottom_bar() -> Control:
 	var h := _row_box()

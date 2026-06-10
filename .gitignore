@@ -37,6 +37,9 @@ wheels/
 .DS_Store
 Thumbs.db
 
+# Session scratch (lint extracts, throwaway harness runs)
+outputs/
+
 # Godot user-specific
 export_presets.cfg
 export_sections.cfg

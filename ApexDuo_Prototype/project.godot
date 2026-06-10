@@ -32,3 +32,7 @@ window/size/window_height_override=900
 
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
+
+[autoload]
+
+Net="*res://net.gd"
