@@ -1738,7 +1738,13 @@ func _record_dhl(best_stops: Dictionary) -> void:
 		var t: float = float(best_stops[tidx])
 		if t < 900.0:
 			entries.append([t, int(tidx)])
-	entries.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
+	# Stable tie-break on team_idx so awarded points never depend on the
+	# best_stops Dictionary iteration order (exact float ties are ~impossible,
+	# but determinism should not rest on that).
+	entries.sort_custom(func(a, b):
+		if float(a[0]) == float(b[0]):
+			return int(a[1]) < int(b[1])
+		return float(a[0]) < float(b[0]))
 	for i in mini(DHL_POINTS.size(), entries.size()):
 		var key: String = str(int(entries[i][1]))
 		dhl_points[key] = int(dhl_points.get(key, 0)) + int(DHL_POINTS[i])
@@ -1909,11 +1915,13 @@ func _simulate_academy_round() -> void:
 	for ji in juniors.size():
 		var j: Dictionary = juniors[ji]
 		var out: Array = _junior_round(j, ji)
+		var before: int = int(j.get("superlicense_points", 0))
 		j["season_progress"] = int(j.get("season_progress", 0)) + int(out[0])
-		j["superlicense_points"] = int(j.get("superlicense_points", 0)) + int(out[1])
-		if int(out[1]) > 0 and int(j.get("superlicense_points", 0)) >= SUPERLICENSE_GATE:
+		j["superlicense_points"] = before + int(out[1])
+		# Edge-triggered: log only on CROSSING the gate, not every round after.
+		if before < SUPERLICENSE_GATE and before + int(out[1]) >= SUPERLICENSE_GATE:
 			_staff_log_add("Академия: %s набрал суперлицензию (%d очков)!" % [
-				String(j.get("name", "?")), int(j.get("superlicense_points", 0))])
+				String(j.get("name", "?")), before + int(out[1])])
 
 # The superlicense GATE: promotion is possible only at >= 40 points (real rule).
 func can_promote_junior(ji: int) -> bool:
@@ -2681,6 +2689,10 @@ static func _apply_dict(s: Season, data: Dictionary) -> void:
 			"prize":           int(float(lsd.get("prize",           0))),
 			"sponsor":         int(float(lsd.get("sponsor",         0))),
 			"constructor_pos": int(float(lsd.get("constructor_pos", 0))),
+			# M3/M4 additions (default 0 for old saves)
+			"tech":            int(float(lsd.get("tech",            0))),
+			"supply":          int(float(lsd.get("supply",          0))),
+			"clause":          int(float(lsd.get("clause",          0))),
 		}
 	# --- META-3: contracts + cap state ---
 	# Migration path A: save has "contracts" key -> restore each contract dict.
