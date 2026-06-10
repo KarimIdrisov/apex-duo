@@ -345,6 +345,18 @@ const STOP_BOTCH_EXTRA := 2.0      # botched stop (cross-threaded wheel) penalty
 const PIT_BASE := 13.0            # stationary stop + entry/exit delta (s)
 const PIT_LANE_K := 140.0         # s per unit of pit-lane fraction (longer lane = more loss)
 
+# First-lap (Turn-1) incident: a seeded chance of a start/spin that freezes the
+# victim(s) for a few seconds (uses pit_timer = "distance frozen", so it NEVER
+# touches `lap` — combat invariant safe). Rolled on erng at race start; an
+# incident can also bring out the safety car. Tunables verified in
+# t1_incident_check.py + a real-engine frequency run.
+const T1_INCIDENT_BASE := 0.12     # base per-race probability
+const T1_INCIDENT_TRACK_K := 0.15  # +prob where the track is hard to pass (low overtaking)
+const T1_INCIDENT_DOUBLE := 0.30   # chance a second car is collected
+const T1_LOSS_MIN := 3.0           # min time loss (s)
+const T1_LOSS_MAX := 14.0          # max time loss (s)
+const T1_SC_UPLIFT := 0.35         # chance the incident triggers a safety car (if none scheduled)
+
 # -------------------- sim state --------------------
 var track: Track
 var drivers: Array = []           # Array[Driver]
@@ -436,6 +448,10 @@ func _run_qualifying() -> void:
 		gd.grid_pos = gp + 1
 		gd.tyre_temp = TYRE_TEMP_GRID     # warmed on the formation lap
 
+# Turn-1 incident probability for this track (more likely where passing is hard).
+func _t1_incident_prob() -> float:
+	return clampf(T1_INCIDENT_BASE + (0.6 - track.overtaking) * T1_INCIDENT_TRACK_K, 0.04, 0.30)
+
 # Race start: a one-off launch off the grid. A good starter (attr "starts") gains
 # a place or two; a bog loses them — the opening-lap shuffle, applied on tick one.
 # Uses rng (main race RNG) to contribute to the deterministic race sequence.
@@ -449,6 +465,25 @@ func _race_start() -> void:
 			+ rng.rangef(-START_NOISE_AMP, START_NOISE_AMP)
 		launch = clampf(launch, -max_shift, max_shift)
 		d.lap_frac = maxf(0.0, d.lap_frac + launch)
+	# First-lap incident: a seeded shuffle at Turn 1.
+	if erng.unit() < _t1_incident_prob():
+		var pool: Array = []
+		for d in drivers:
+			if not d.finished:
+				pool.append(d)
+		if not pool.is_empty():
+			var n: int = 1 + (1 if erng.unit() < T1_INCIDENT_DOUBLE else 0)
+			for _k in mini(n, pool.size()):
+				var idx: int = mini(pool.size() - 1, int(erng.unit() * pool.size()))
+				var victim: Driver = pool[idx]
+				pool.remove_at(idx)
+				var loss: float = erng.rangef(T1_LOSS_MIN, T1_LOSS_MAX)
+				victim.pit_timer = maxf(victim.pit_timer, loss)   # frozen → drops back; lap untouched
+				victim.had_incident = true
+				_emit("%s: инцидент на старте — потеря времени." % victim.name, "incident")
+			# an opening-lap incident can bring out the safety car
+			if sc_deploy_lap < 0 and erng.unit() < T1_SC_UPLIFT:
+				sc_deploy_lap = 1
 
 # Dirty-air pace loss: a car stuck within ~DA_THRESH behind another loses time in
 # the corners (worse on high-downforce / low-overtaking tracks) unless its Overtake
