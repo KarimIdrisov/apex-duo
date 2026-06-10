@@ -319,6 +319,32 @@ class Track:
 	# and corners. Each seg = {kind:"straight"/"corner", frac, intensity, start}.
 	# `frac` sums to 1.0; `start` is the cumulative lap-fraction where the seg begins.
 	var segments: Array = []
+	# --- sector model ---
+	# sector_bounds: lap_frac where S1 ends, then S2 ends (S3 always ends at 1.0)
+	var sector_bounds: Array = [0.33, 0.67]
+	# sector_chars: per-sector {power, aero, harvest, drs} — shapes DRS eligibility and
+	# ERS AI decisions; does NOT change current_laptime() (balance preserved).
+	var sector_chars: Array = [
+		{"power": 0.5, "aero": 0.5, "harvest": 0.6, "drs": false},
+		{"power": 0.6, "aero": 0.4, "harvest": 0.5, "drs": true},
+		{"power": 0.5, "aero": 0.5, "harvest": 0.5, "drs": false},
+	]
+	# mini_sector_bounds: 17 lap_frac values marking end of each mini-sector.
+	# 5 in S1, 7 in S2, 5 in S3. Populated by _build_mini_bounds().
+	var mini_sector_bounds: Array = []
+
+	# Populate mini_sector_bounds from sector_bounds (call after setting sector_bounds).
+	func _build_mini_bounds() -> void:
+		mini_sector_bounds = []
+		var counts: Array = [5, 7, 5]
+		var s_start := 0.0
+		for si in 3:
+			var s_end: float = float(sector_bounds[si]) if si < 2 else 1.0
+			var n: int = int(counts[si])
+			for mi in n:
+				mini_sector_bounds.append(s_start + (s_end - s_start) * float(mi + 1) / float(n))
+			s_start = s_end
+
 	var straight_frac: float = 0.4 # total fraction of the lap spent on straights (cached)
 	# Which segment a lap-fraction falls in (returns the seg Dictionary, or {}).
 	func seg_at(frac: float) -> Dictionary:
@@ -1662,6 +1688,8 @@ static func generate_track(seed_value: int, archetype: String = "") -> Track:
 	t.aero_zones = int(a["az"])
 	t.track_temp = clampf(30.0 + r.rangef(-7.0, 12.0), 15.0, 45.0)
 	t.air_temp = t.track_temp - 9.0
+	_build_default_sectors(t)
+	t._build_mini_bounds()
 	return t
 
 # A varied championship calendar: one of each archetype, cycling if n > 5.
@@ -1740,6 +1768,77 @@ const TRACK_STRAIGHT_KM := {
 	"Интерлагос": 0.95, "Лас-Вегас": 1.90, "Лусаил": 1.05, "Яс-Марина": 1.00, "Мадрид": 1.00,
 }
 
+# Per-circuit sector boundaries and character. Sector bounds = lap_frac where S1 ends,
+# then where S2 ends. Chars: power/aero bias + DRS availability per sector.
+# Research basis: real F1 sector timing maps (S1/S2/S3 boundaries per circuit).
+static var SECTOR_BOUNDS: Dictionary = {
+	"Монако":       [0.36, 0.65],
+	"Монца":        [0.33, 0.67],
+	"Спа":          [0.34, 0.68],
+	"Сильверстоун": [0.35, 0.70],
+	"Сингапур":     [0.38, 0.70],
+	"Бахрейн":      [0.35, 0.70],
+	"Хунгароринг":  [0.38, 0.72],
+	"Сузука":       [0.38, 0.72],
+	"Баку":         [0.35, 0.68],
+	"Зандворт":     [0.38, 0.72],
+}
+
+# {power, aero, harvest, drs} per S1/S2/S3. Values shape AI ERS decisions and
+# DRS eligibility; they don't change current_laptime() (balance stays intact).
+static var SECTOR_CHARS: Dictionary = {
+	"Монако": [
+		{"power": 0.15, "aero": 0.95, "harvest": 0.75, "drs": false},
+		{"power": 0.35, "aero": 0.75, "harvest": 0.70, "drs": false},
+		{"power": 0.20, "aero": 0.90, "harvest": 0.80, "drs": false},
+	],
+	"Монца": [
+		{"power": 0.75, "aero": 0.25, "harvest": 0.45, "drs": false},
+		{"power": 0.97, "aero": 0.15, "harvest": 0.38, "drs": true},
+		{"power": 0.90, "aero": 0.20, "harvest": 0.40, "drs": true},
+	],
+	"Спа": [
+		{"power": 0.88, "aero": 0.60, "harvest": 0.50, "drs": true},
+		{"power": 0.70, "aero": 0.75, "harvest": 0.58, "drs": false},
+		{"power": 0.80, "aero": 0.50, "harvest": 0.55, "drs": true},
+	],
+	"Сильверстоун": [
+		{"power": 0.50, "aero": 0.90, "harvest": 0.55, "drs": false},
+		{"power": 0.70, "aero": 0.55, "harvest": 0.58, "drs": true},
+		{"power": 0.55, "aero": 0.75, "harvest": 0.60, "drs": false},
+	],
+	"Сингапур": [
+		{"power": 0.30, "aero": 0.88, "harvest": 0.80, "drs": false},
+		{"power": 0.35, "aero": 0.90, "harvest": 0.82, "drs": false},
+		{"power": 0.45, "aero": 0.85, "harvest": 0.78, "drs": true},
+	],
+	"Бахрейн": [
+		{"power": 0.70, "aero": 0.55, "harvest": 0.68, "drs": true},
+		{"power": 0.55, "aero": 0.75, "harvest": 0.72, "drs": false},
+		{"power": 0.75, "aero": 0.45, "harvest": 0.65, "drs": true},
+	],
+	"Хунгароринг": [
+		{"power": 0.30, "aero": 0.88, "harvest": 0.65, "drs": false},
+		{"power": 0.25, "aero": 0.92, "harvest": 0.68, "drs": false},
+		{"power": 0.40, "aero": 0.80, "harvest": 0.62, "drs": true},
+	],
+	"Сузука": [
+		{"power": 0.55, "aero": 0.85, "harvest": 0.52, "drs": false},
+		{"power": 0.68, "aero": 0.62, "harvest": 0.55, "drs": true},
+		{"power": 0.50, "aero": 0.80, "harvest": 0.58, "drs": false},
+	],
+	"Баку": [
+		{"power": 0.97, "aero": 0.20, "harvest": 0.58, "drs": true},
+		{"power": 0.30, "aero": 0.85, "harvest": 0.68, "drs": false},
+		{"power": 0.90, "aero": 0.30, "harvest": 0.62, "drs": true},
+	],
+	"Зандворт": [
+		{"power": 0.35, "aero": 0.90, "harvest": 0.60, "drs": false},
+		{"power": 0.45, "aero": 0.88, "harvest": 0.62, "drs": false},
+		{"power": 0.48, "aero": 0.85, "harvest": 0.58, "drs": true},
+	],
+}
+
 const REAL_TRACKS := [
 	{"name": "Монако",       "arch": "street",    "laps": 78, "lt":  73.5, "pit": 24.0, "df": 0.97, "pw": 0.20, "ot": 0.05, "abr": 0.70, "harv": 0.78, "dep": 0.40, "sc": 0.65, "wet": 0.25, "el": 1.00, "az": 0},
 	{"name": "Монца",        "arch": "power",     "laps": 53, "lt":  81.5, "pit": 19.0, "df": 0.15, "pw": 0.97, "ot": 0.82, "abr": 0.85, "harv": 0.38, "dep": 0.95, "sc": 0.18, "wet": 0.20, "el": 0.55, "az": 4},
@@ -1798,6 +1897,19 @@ static func _build_segments(t: Track) -> void:
 	t.segments = segs
 	t.straight_frac = total_straight
 
+# Default sector model for generated (fictional) tracks. Uses the archetype's
+# power/downforce/harvest to infer per-sector character. S2 always gets DRS.
+static func _build_default_sectors(t: Track) -> void:
+	t.sector_bounds = [0.33, 0.67]
+	var p := t.power
+	var a := t.downforce
+	var h := t.harvest
+	t.sector_chars = [
+		{"power": clampf(p * 0.7, 0.0, 1.0), "aero": clampf(a * 1.1, 0.0, 1.0), "harvest": clampf(h * 1.1, 0.0, 1.0), "drs": false},
+		{"power": clampf(p * 1.3, 0.0, 1.0), "aero": clampf(a * 0.8, 0.0, 1.0), "harvest": clampf(h * 0.8, 0.0, 1.0), "drs": true},
+		{"power": p, "aero": a, "harvest": h, "drs": false},
+	]
+
 static func real_track(i: int) -> Track:
 	var a: Dictionary = REAL_TRACKS[i % REAL_TRACKS.size()]
 	var t := Track.new()
@@ -1822,6 +1934,13 @@ static func real_track(i: int) -> Track:
 	t.corners = int(TRACK_CORNERS.get(a["name"], 15))
 	t.straight_km = float(TRACK_STRAIGHT_KM.get(a["name"], 0.9))
 	_build_segments(t)
+	# Sector model
+	if SECTOR_BOUNDS.has(t.name):
+		t.sector_bounds = Array(SECTOR_BOUNDS[t.name])
+		t.sector_chars  = Array(SECTOR_CHARS[t.name])
+	else:
+		_build_default_sectors(t)
+	t._build_mini_bounds()
 	t.track_temp = float(TRACK_TEMPS.get(a["name"], 30.0))
 	t.air_temp = t.track_temp - 9.0
 	return t
