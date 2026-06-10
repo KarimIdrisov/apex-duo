@@ -132,16 +132,14 @@ func _rebuild() -> void:
 	col.add_child(_label("Прогресс автоматически сохранён — можно выйти и продолжить позже.",
 		13, Palette.FINE_HEX))
 
-	# team drivers: morale + development
+	# team drivers: portrait cards (morale + development)
+	var drow := HBoxContainer.new()
+	drow.add_theme_constant_override("separation", 12)
+	var dslot := 0
 	for id in Season.TEAM_IDS:
-		var mor := s.morale_of(id)
-		var mcol := Palette.GOOD_HEX
-		if mor < 40:
-			mcol = Palette.DANG_HEX
-		elif mor < 66:
-			mcol = Palette.WARN_HEX
-		col.add_child(_label("%s — настрой %d/100 · развитие +%.3f к темпу" % [
-			s.driver_name(id), mor, s.dev_of(id)], 14, mcol))
+		drow.add_child(_driver_card(s, int(id), dslot))
+		dslot += 1
+	col.add_child(drow)
 
 	# FM-style season statistics
 	col.add_child(_label("Статистика сезона:", 14, Palette.MUTED_HEX))
@@ -549,6 +547,39 @@ func _build_contracts(s: Season) -> Control:
 func _panel() -> PanelContainer:
 	var pc := PanelContainer.new()
 	pc.add_theme_stylebox_override("panel", Palette.panel())
+	return pc
+
+# Driver portrait card (§5): grey-silhouette portrait + caps name + morale/dev.
+func _driver_card(s: Season, id: int, slot: int) -> PanelContainer:
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", Palette.panel())
+	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 12)
+	var accent: Color = Palette.P5 if slot == 0 else Palette.P6
+	var port := DriverPortrait.new()
+	port.custom_minimum_size = Vector2(84, 100)
+	port.setup(s.driver_name(id), accent)
+	hb.add_child(port)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 4)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var tag := _label("P5" if slot == 0 else "P6", 15, Palette.P5_HEX if slot == 0 else Palette.P6_HEX)
+	tag.add_theme_font_override("font", Palette.display_font(600, 2))
+	v.add_child(tag)
+	var nm := _label(s.driver_name(id).to_upper(), 18, Palette.CREAM_HEX)
+	nm.add_theme_font_override("font", Palette.display_font(600, 1))
+	v.add_child(nm)
+	var mor := s.morale_of(id)
+	var mcol := Palette.GOOD_HEX
+	if mor < 40:
+		mcol = Palette.DANG_HEX
+	elif mor < 66:
+		mcol = Palette.WARN_HEX
+	v.add_child(_label("Настрой: %d/100" % mor, 14, mcol))
+	v.add_child(_label("Развитие: +%.3f к темпу" % s.dev_of(id), 13, Palette.INFO_HEX))
+	hb.add_child(v)
+	pc.add_child(hb)
 	return pc
 
 func _label(txt: String, sz: int, col: String) -> Label:
