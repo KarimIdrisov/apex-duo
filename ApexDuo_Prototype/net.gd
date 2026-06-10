@@ -219,6 +219,37 @@ func net_season_sign_sponsor(offer_id: int) -> void:
 		net_season_feed.rpc("Партнёр: подписан спонсор «%s»" % sp_name)
 		get_tree().call_group("season_hub", "_on_season_updated")
 
+# client → host: switch a supplier ("brake"/"fuel") to the given key (M3).
+@rpc("any_peer", "call_remote", "reliable")
+func net_season_set_supplier(kind: String, key: String) -> void:
+	if not multiplayer.is_server():
+		return
+	if Season.active == null:
+		return
+	if Season.active.set_supplier(kind, key):
+		Season.active.save_to_disk()
+		net_season_full.rpc(Season.active.to_dict())
+		var label: String = String(Season.active.supplier_def(kind).get("label", key))
+		net_season_feed.rpc("Партнёр: выбран поставщик «%s»" % label)
+		get_tree().call_group("season_hub", "_on_season_updated")
+
+# client → host: buy a transferable part from its supplier (M3).
+@rpc("any_peer", "call_remote", "reliable")
+func net_season_buy_supplier_part(part_key: String) -> void:
+	if not multiplayer.is_server():
+		return
+	if Season.active == null:
+		return
+	if Season.active.buy_part_supplier(part_key):
+		Season.active.save_to_disk()
+		net_season_full.rpc(Season.active.to_dict())
+		var pdef: Variant = F1_2026.PARTS.get(part_key, null)
+		var part_name: String = part_key
+		if pdef != null:
+			part_name = String((pdef as Dictionary).get("label", part_key))
+		net_season_feed.rpc("Партнёр: куплена деталь «%s» у поставщика" % part_name)
+		get_tree().call_group("season_hub", "_on_season_updated")
+
 # client → host: poach a staff-market candidate by id (M2).
 # Host applies (deterministic roll), autosaves, rebroadcasts state + feed.
 @rpc("any_peer", "call_remote", "reliable")

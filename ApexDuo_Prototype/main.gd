@@ -215,6 +215,10 @@ func _make_sim(coop: bool) -> void:
 						var dv: float = Season.active.attr_dev_of(d.id, k) * 20.0
 						d.attrs[k] = clampf(float(d.attrs.get(k, 13)) + dv, 1.0, 20.0)
 				d.trust = float(Season.active.morale_of(d.id))   # directive compliance
+				# M3: the brake supplier improves our pit-stop consistency
+				# (Brembo +0.06 … CI +0.02, ×0.9 while integrating a new supplier).
+				d.pit_consistency = clampf(
+					d.pit_consistency + Season.active.brake_pit_bonus(), 0.0, 1.0)
 			else:
 				d.skill += Season.active.rival_skill_offset
 	sim = RaceSim.new(track, field, seed_value)

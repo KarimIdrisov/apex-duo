@@ -175,6 +175,7 @@ func _rebuild() -> void:
 	mid.add_child(_build_standings(s))
 	mid.add_child(_build_rnd(s))
 	col.add_child(_build_contracts(s))
+	col.add_child(_build_suppliers(s))
 	col.add_child(_build_staff(s))
 	col.add_child(_build_sponsors(s))
 
@@ -287,6 +288,9 @@ func _build_rnd(s: Season) -> Control:
 	v.add_theme_constant_override("separation", 8)
 	v.add_child(_label("R&D — РАЗВИТИЕ МАШИНЫ", 18, "#ffffff"))
 	v.add_child(_label("Доступно R&D очков: %d" % s.rp, 15, "#5dd17a"))
+	# M3: aero (LTC) price modifiers — staff quality (M2) × ATR catch-up
+	v.add_child(_label("Цена аэро-R&D: персонал ×%.2f · ATR ×%.2f (P%d конструкторов)" % [
+		s.rd_speed_mult(), s.atr_speed(), s.constructor_position()], 12, MUTED))
 	v.add_child(_spacer(4))
 
 	# Group metadata: [group_key, group_title, accent_colour, description]
@@ -301,7 +305,8 @@ func _build_rnd(s: Season) -> Control:
 			"КПП и охлаждение — снижают риск поломки + малый бонус."],
 	]
 
-	var deltas: Dictionary = F1_2026.compose_part_deltas(s.part_levels)
+	# M3: show TOTAL deltas (developed + bought parts + suppliers) — what the car gets.
+	var deltas: Dictionary = s.car_rd_deltas()
 
 	for gi in groups.size():
 		var ginfo: Array = groups[gi]
@@ -350,7 +355,11 @@ func _build_rnd(s: Season) -> Control:
 			name_lbl.custom_minimum_size = Vector2(200, 0)
 			row.add_child(name_lbl)
 
-			if cur_lv < max_lv:
+			var bought_flag: bool = bool(s.bought_parts.get(pk, false))
+			if bought_flag:
+				# M3: supplier part — instant 1.5-level effect, development locked.
+				row.add_child(_label("  ПОКУПНОЕ · потолок заблокирован", 12, "#66c2ff"))
+			elif cur_lv < max_lv:
 				var cost_val: int = s.cost_part(pk)
 				var btn := _button("Развить · %d RP" % cost_val, 12)
 				btn.disabled = s.rp < cost_val
@@ -368,6 +377,25 @@ func _build_rnd(s: Season) -> Control:
 								Net.net_season_feed.rpc("Партнёр: куплено «%s»" % String(F1_2026.PARTS[pk_cap]["label"]))
 							_rebuild())
 				row.add_child(btn)
+				# M3: buy-from-supplier path (transferable parts, only while undeveloped)
+				if cur_lv == 0 and s.part_buy_cost(pk) > 0:
+					var buy_val: int = s.part_buy_cost(pk)
+					var bbtn := _button("Купить · $%s" % _money(buy_val), 12)
+					bbtn.disabled = s.money < buy_val
+					var pk_cap2 := pk
+					if Net.role() == "client":
+						bbtn.pressed.connect(func():
+							Net.net_season_buy_supplier_part.rpc_id(1, pk_cap2))
+					else:
+						bbtn.pressed.connect(func():
+							if s.buy_part_supplier(pk_cap2):
+								if Net.role() == "host":
+									Season.active.save_to_disk()
+									Net.net_season_full.rpc(Season.active.to_dict())
+									Net.net_season_feed.rpc("Партнёр: куплена деталь «%s» у поставщика"
+										% String(F1_2026.PARTS[pk_cap2]["label"]))
+								_rebuild())
+					row.add_child(bbtn)
 			else:
 				row.add_child(_label("  МАКС", 12, "#5dd17a"))
 
@@ -679,6 +707,78 @@ func _build_sponsors(s: Season) -> Control:
 
 	pc.add_child(v)
 	return pc
+
+# ---------------------------------------------------------------- suppliers (M3)
+# Seasonal brake + fuel supplier choice. Mid-season change = integration
+# penalty (90% effect for 2 rounds). Suppliers pay back as tech partners.
+func _build_suppliers(s: Season) -> Control:
+	var pc := _panel()
+	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	v.add_child(_label("ПОСТАВЩИКИ", 18, "#ffffff"))
+	v.add_child(HSeparator.new())
+	var net_cost: int = s.supplier_cost_per_round() - s.supplier_income_per_round()
+	v.add_child(_label("Поставка: $%s/этап − техпартнёрство $%s/этап = $%s/этап" % [
+		_money(s.supplier_cost_per_round()), _money(s.supplier_income_per_round()),
+		_money(net_cost)], 13, "#9aa4b2"))
+	if s.round_index > 0:
+		v.add_child(_label("Смена в середине сезона: −10% эффекта на 2 этапа (интеграция).",
+			12, "#f2c14e"))
+
+	_add_supplier_rows(s, v, "brake", "ТОРМОЗА", F1_2026.BRAKE_SUPPLIERS,
+		s.brake_supplier, s.brake_integration)
+	v.add_child(_spacer(4))
+	_add_supplier_rows(s, v, "fuel", "ТОПЛИВО / МАСЛА", F1_2026.FUEL_SUPPLIERS,
+		s.fuel_supplier, s.fuel_integration)
+
+	pc.add_child(v)
+	return pc
+
+# One supplier category: header + a row per option with a select button.
+func _add_supplier_rows(s: Season, v: VBoxContainer, kind: String, title: String,
+		table: Dictionary, current: String, integration: int) -> void:
+	var head: String = title
+	if integration > 0:
+		head += "  ·  ИНТЕГРАЦИЯ: −10% ещё %d эт." % integration
+	v.add_child(_label(head, 15, "#ffd166" if kind == "brake" else "#66c2ff"))
+	var net_role2: String = Net.role()
+	for key: String in table:
+		var sdef: Dictionary = table[key]
+		var eff: String
+		if kind == "brake":
+			eff = "надёжн. +%.3f · пит-стабильн. +%.2f" % [
+				float(sdef.get("d_ch_rel", 0.0)), float(sdef.get("pit_cons", 0.0))]
+		else:
+			eff = "мощность +%.3f · энергия +%.3f" % [
+				float(sdef.get("d_power", 0.0)), float(sdef.get("d_energy", 0.0))]
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		var is_cur: bool = key == current
+		var name_col := Color("#5dd17a") if is_cur else Color.WHITE
+		var mark: String = "● " if is_cur else "○ "
+		row.add_child(_cell(mark + String(sdef.get("label", key)), 170, name_col))
+		row.add_child(_cell(eff, 270, Color("#cfd6e0")))
+		row.add_child(_cell("$%s/эт. (−$%s)" % [_money(int(sdef.get("cost", 0))),
+			_money(int(sdef.get("partner_pay", 0)))], 130, Color("#9aa4b2")))
+		if not is_cur:
+			var sel := _button("Выбрать", 12)
+			var kind_cap := kind
+			var key_cap := key
+			if net_role2 == "client":
+				sel.pressed.connect(func():
+					Net.net_season_set_supplier.rpc_id(1, kind_cap, key_cap))
+			else:
+				sel.pressed.connect(func():
+					if s.set_supplier(kind_cap, key_cap):
+						if net_role2 == "host":
+							Season.active.save_to_disk()
+							Net.net_season_full.rpc(Season.active.to_dict())
+							Net.net_season_feed.rpc("Партнёр: выбран поставщик «%s»"
+								% String(table[key_cap].get("label", key_cap)))
+						_rebuild())
+			row.add_child(sel)
+		v.add_child(row)
 
 # ---------------------------------------------------------------- staff (M2)
 # People with name/age/salary/loyalty/trait. Top-3 salaries marked as cap-exempt.
