@@ -20,8 +20,11 @@ const ROLES := {
 		"attrs": ["telemetry", "tyre_sense", "energy_sense", "rapport"]},
 	"engineer2": {"name": "Гоночный инженер №2", "sim": true,
 		"attrs": ["telemetry", "tyre_sense", "energy_sense", "rapport"]},
-	"pitcrew": {"name": "Главный механик / пит-экипаж", "sim": true,
-		"attrs": ["pit_speed", "pit_consistency", "reliability_work"]},
+	# M4: "pitcrew" is the CHIEF MECHANIC of the 5-role pit crew (see below).
+	# Old attrs (pit_speed/...) replaced: the 3 sim scalars now aggregate from
+	# the gunmen/jackmen + chief — see pit_speed()/pit_consistency()/reliability_work().
+	"pitcrew": {"name": "Ведущий механик", "sim": true,
+		"attrs": ["coordination", "experience"]},
 	"techdir": {"name": "Технический директор", "sim": false,
 		"attrs": ["development", "aero_dev", "pu_liaison"]},
 	"designer": {"name": "Главный конструктор", "sim": false,
@@ -30,12 +33,24 @@ const ROLES := {
 		"attrs": ["negotiation", "politics", "scouting"]},
 	"testdriver": {"name": "Тест/резервный пилот", "sim": true,
 		"attrs": ["dev_feedback", "pace", "adaptability"]},
+	# M4: the four over-the-wall key roles (gunmen drive stop SPEED, jackmen
+	# drive stop CONSISTENCY; the chief mechanic above drives reliability_work).
+	"gunman_front": {"name": "Передний ганмен", "sim": true,
+		"attrs": ["speed", "precision"]},
+	"gunman_rear": {"name": "Задний ганмен", "sim": true,
+		"attrs": ["speed", "precision"]},
+	"jackman_front": {"name": "Передний джекмен", "sim": true,
+		"attrs": ["strength", "timing"]},
+	"jackman_rear": {"name": "Задний джекмен", "sim": true,
+		"attrs": ["strength", "timing"]},
 }
 
 # Stable role order (deterministic seeding offset per role; never iterate ROLES
-# unordered into the sim).
+# unordered into the sim). M4 roles appended at the END so existing roles keep
+# their per-role seeds (rival staff stays identical for old indices).
 const ROLE_ORDER := ["principal", "strategist", "engineer1", "engineer2",
-	"pitcrew", "techdir", "designer", "sporting", "testdriver"]
+	"pitcrew", "techdir", "designer", "sporting", "testdriver",
+	"gunman_front", "gunman_rear", "jackman_front", "jackman_rear"]
 
 class Staff:
 	var role: String = ""
@@ -76,7 +91,8 @@ static func staff_from_saved(d: Dictionary) -> Staff:
 	var raw: Variant = d.get("attrs", {})
 	if typeof(raw) == TYPE_DICTIONARY:
 		for k in (raw as Dictionary):
-			s.attrs[String(k)] = clampi(int(float((raw as Dictionary)[k])), 1, 20)
+			# float-preserving: M4 pit training accumulates fractional attrs
+			s.attrs[String(k)] = clampf(float((raw as Dictionary)[k]), 1.0, 20.0)
 	return s
 
 # M2: neutral stand-in (all attrs 10) for a role whose person is unavailable
@@ -105,11 +121,27 @@ static func team_staff(team_idx: int, season_seed: int = 0) -> Dictionary:
 # These are what race_sim reads; computed from the relevant staff member.
 static func strategist_skill(staff: Dictionary) -> float:
 	return _s01(staff, "strategist", "strategy")
+# M4: stop speed = mean of the gunmen's speed + jackmen's strength (design:
+# "среднее speed/strength × 0.05" = /20). Verified in meta_m4_pitcrew_check.py.
 static func pit_speed(staff: Dictionary) -> float:
-	return _s01(staff, "pitcrew", "pit_speed")
+	if staff.has("gunman_front"):
+		return (_s01(staff, "gunman_front", "speed") + _s01(staff, "gunman_rear", "speed")
+			+ _s01(staff, "jackman_front", "strength")
+			+ _s01(staff, "jackman_rear", "strength")) / 4.0
+	return _s01(staff, "pitcrew", "pit_speed")   # legacy dicts (pre-M4)
+# M4: stop consistency = mean of the gunmen's precision + jackmen's timing.
 static func pit_consistency(staff: Dictionary) -> float:
+	if staff.has("gunman_front"):
+		return (_s01(staff, "gunman_front", "precision") + _s01(staff, "gunman_rear", "precision")
+			+ _s01(staff, "jackman_front", "timing")
+			+ _s01(staff, "jackman_rear", "timing")) / 4.0
 	return _s01(staff, "pitcrew", "pit_consistency")
+# M4: garage quality = the chief mechanic's coordination + experience.
 static func reliability_work(staff: Dictionary) -> float:
+	if staff.has("pitcrew"):
+		var chief: Staff = staff["pitcrew"]
+		if chief.attrs.has("coordination"):
+			return (chief.a01("coordination") + chief.a01("experience")) / 2.0
 	return _s01(staff, "pitcrew", "reliability_work")
 # Race engineer for a given car slot (0 -> engineer1, 1 -> engineer2).
 static func engineer_telemetry(staff: Dictionary, slot: int) -> float:
