@@ -293,6 +293,10 @@ func _build_rnd(s: Season) -> Control:
 	# M3: aero (LTC) price modifiers — staff quality (M2) × ATR catch-up
 	v.add_child(_label("Цена аэро-R&D: персонал ×%.2f · ATR ×%.2f (P%d конструкторов)" % [
 		s.rd_speed_mult(), s.atr_speed(), s.constructor_position()], 12, MUTED))
+	# CAR-2: season component pool status
+	var pool_col := "#9aa4b2" if s.replacements_used <= Season.FREE_REPLACEMENTS else "#f2c14e"
+	v.add_child(_label("Замены деталей: %d (бесплатно %d, далее −%d RP за замену)" % [
+		s.replacements_used, Season.FREE_REPLACEMENTS, Season.POOL_PENALTY_RP], 12, pool_col))
 	v.add_child(_spacer(4))
 
 	# Group metadata: [group_key, group_title, accent_colour, description]
@@ -400,6 +404,34 @@ func _build_rnd(s: Season) -> Control:
 					row.add_child(bbtn)
 			else:
 				row.add_child(_label("  МАКС", 12, "#5dd17a"))
+
+			# CAR-2: condition readout + replacement for developed (non-bought) parts
+			if cur_lv > 0 and not bought_flag:
+				var cond: float = float(s.part_condition.get(pk, 1.0))
+				var cond_col := "#5dd17a"
+				if cond < F1_2026.WORN_THRESHOLD:
+					cond_col = "#e23b3b"
+				elif cond < 0.6:
+					cond_col = "#f2c14e"
+				row.add_child(_label("%d%%" % int(round(cond * 100.0)), 12, cond_col))
+				if cond < 0.7:
+					var rep_cost: int = s.part_replace_cost(pk)
+					var rbtn := _button("Заменить · $%s" % _money(rep_cost), 12)
+					rbtn.disabled = s.money < rep_cost
+					var pk_cap3 := pk
+					if Net.role() == "client":
+						rbtn.pressed.connect(func():
+							Net.net_season_replace_part.rpc_id(1, pk_cap3))
+					else:
+						rbtn.pressed.connect(func():
+							if s.replace_part(pk_cap3):
+								if Net.role() == "host":
+									Season.active.save_to_disk()
+									Net.net_season_full.rpc(Season.active.to_dict())
+									Net.net_season_feed.rpc("Партнёр: заменена деталь «%s»"
+										% String(F1_2026.PARTS[pk_cap3]["label"]))
+								_rebuild())
+					row.add_child(rbtn)
 
 			part_rows_v.add_child(row)
 
