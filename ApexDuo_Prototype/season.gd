@@ -184,6 +184,17 @@ const ATR_SPEED_P10: float = 1.15
 const BRAKE_DEFAULT := "ap"        # neutral mid option
 const FUEL_DEFAULT := "aramco"     # neutral mid option
 
+# AI car development (rivals develop each round on the ATR catch-up curve).
+# Per-round baseline deltas (proportions match the player's R&D so both sit on
+# one balance scale). Pinned in ai_dev_check.py — do not edit without re-running it.
+const AI_DEV_BASELINE_AERO: float   = 0.010
+const AI_DEV_BASELINE_POWER: float  = 0.004
+const AI_DEV_BASELINE_ENERGY: float = 0.004
+const AI_DEV_AERO_REL: float = 0.012   # d_ch_rel folded in per round
+const AI_DEV_PWT_REL: float  = 0.012   # d_eng_rel folded in per round
+const AI_DEV_SEED_MIX: int = 0xA1DE7   # deterministic per-team jitter stream
+const AI_DEV_JITTER: float = 0.10      # ±10% seeded jitter around the baseline
+
 # ============================================================
 # M4: PIT CREW — training, key roles, DHL award + driver status
 # ---------------------------------------------------------------
@@ -424,6 +435,10 @@ var fuel_supplier: String = FUEL_DEFAULT
 var brake_integration: int = 0
 var fuel_integration: int = 0
 var bought_parts: Dictionary = {}
+
+# AI development: rival team_idx (as String, for JSON) -> accumulated 5-scalar dict.
+# Player team is never a key. Primed into F1_2026._dev_deltas via apply_ai_dev().
+var ai_dev: Dictionary = {}
 
 # M4: DHL Fastest Pit Stop zachet. Per-role training state (sessions/fatigue/
 # injury) lives inside the staff member dicts themselves.
@@ -1590,7 +1605,11 @@ func _staff_from_array(raw: Array) -> Array:
 # ATR catch-up: research SPEED multiplier from constructors position.
 # P1 = 0.75 (leader handicapped), P10+ = 1.15 (underdog catches up).
 func atr_speed() -> float:
-	var pos: int = constructor_position()
+	return _atr_for_position(constructor_position())
+
+# ATR catch-up multiplier for any constructors position (1-based).
+# P1 = 0.75 (leader handicapped) … P11+ clamps at 1.15 (underdog catches up).
+func _atr_for_position(pos: int) -> float:
 	return clampf(0.75 + float(pos - 1) / 9.0 * 0.40, ATR_SPEED_P1, ATR_SPEED_P10)
 
 # Current supplier definition for a kind ("brake" | "fuel").
@@ -2188,6 +2207,12 @@ func configure(tier: int, diff: int, is_coop: bool) -> void:
 	if part_levels.is_empty():
 		_init_part_levels()
 	apply_car_rd()   # prime F1_2026's static R&D state for the new team
+	# AI development: zero-init every rival once per season (loads restore via _apply_dict).
+	if ai_dev.is_empty():
+		for ti in F1_2026.team_count():
+			if ti != player_team:
+				ai_dev[str(ti)] = _zero_dev()
+	apply_ai_dev()   # prime F1_2026._dev_deltas for the rivals
 	# META-3: set default contracts for the chosen tier (only if contracts are empty
 	# so that load_from_disk() calling configure() doesn't overwrite loaded contracts)
 	if contracts.is_empty():
@@ -2311,6 +2336,59 @@ func apply_car_rd() -> void:
 		float(d["d_eng_rel"])
 	)
 
+# Per-TEAM constructor position (1-based), keyed by F1_2026 team_idx.
+# standings are keyed by GRID id (0..21); the grid maps each id -> team_idx, so we
+# sum points per team then rank. Total ordering (points desc, team_idx asc) keeps
+# it deterministic regardless of sort stability (determinism is load-bearing).
+func _team_positions() -> Dictionary:
+	var grid: Array = F1_2026.race_grid(player_team)
+	var pts: Dictionary = {}
+	for g in grid.size():
+		var ti: int = int(grid[g]["team_idx"])
+		pts[ti] = int(pts.get(ti, 0)) + int(standings.get(g, 0))
+	var order: Array = pts.keys()
+	order.sort_custom(func(a, b):
+		if int(pts[a]) != int(pts[b]):
+			return int(pts[a]) > int(pts[b])
+		return int(a) < int(b))
+	var out: Dictionary = {}
+	for i in order.size():
+		out[int(order[i])] = i + 1
+	return out
+
+# Advance one round of AI development for every rival team (called at the round bump).
+func _advance_ai_dev() -> void:
+	var positions: Dictionary = _team_positions()
+	for ti in F1_2026.team_count():
+		if ti == player_team:
+			continue
+		var pos: int = int(positions.get(ti, 6))
+		var rate: float = _atr_for_position(pos)
+		# deterministic ±AI_DEV_JITTER jitter (seeded by team + round)
+		var dev_seed: int = (AI_DEV_SEED_MIX ^ (ti * 2654435761) ^ (round_index * 40503)) & 0xFFFFFFFF
+		var res: Array = _lcg_step(dev_seed)
+		var jitter: float = 1.0 + (float(res[1]) - 0.5) * 2.0 * AI_DEV_JITTER
+		var g: float = rate * jitter
+		var key: String = str(ti)
+		var dd: Dictionary = ai_dev.get(key, _zero_dev())
+		dd["d_aero"]    = float(dd["d_aero"])    + AI_DEV_BASELINE_AERO   * g
+		dd["d_power"]   = float(dd["d_power"])   + AI_DEV_BASELINE_POWER  * g
+		dd["d_energy"]  = float(dd["d_energy"])  + AI_DEV_BASELINE_ENERGY * g
+		dd["d_ch_rel"]  = float(dd["d_ch_rel"])  + AI_DEV_AERO_REL * g
+		dd["d_eng_rel"] = float(dd["d_eng_rel"]) + AI_DEV_PWT_REL  * g
+		ai_dev[key] = dd
+
+# Fresh zeroed development dict.
+func _zero_dev() -> Dictionary:
+	return {"d_aero": 0.0, "d_power": 0.0, "d_energy": 0.0, "d_ch_rel": 0.0, "d_eng_rel": 0.0}
+
+# Prime F1_2026 with the rivals' accumulated development (int-keyed for team_car()).
+func apply_ai_dev() -> void:
+	var out: Dictionary = {}
+	for key: String in ai_dev:
+		out[int(key)] = (ai_dev[key] as Dictionary).duplicate()
+	F1_2026.apply_ai_dev(out)
+
 # Powertrain R&D display helpers (kept for season_hub.gd compatibility).
 # Note: energy_bonus is now a display mirror of car_pwt_steps * 0.06 (max 0.30).
 func team_soc_max() -> float:
@@ -2387,6 +2465,8 @@ func apply_results(order_ids: Array, dnf_ids: Array = [], fl_id: int = -1,
 	# M3: integration penalty burns down one round per race.
 	brake_integration = maxi(0, brake_integration - 1)
 	fuel_integration = maxi(0, fuel_integration - 1)
+	# AI development: rivals improve their cars this round (ATR catch-up curve).
+	_advance_ai_dev()
 	round_index += 1
 	# META-3: pay driver salaries and evaluate cap after each round
 	_pay_salaries()
