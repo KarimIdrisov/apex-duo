@@ -4,6 +4,17 @@ extends Control
 # Apex Duo — paddock hub (between races). Reads Season.active.
 # Shows championship standings, budget, R&D upgrades, and starts the next race.
 #
+# Layout (tabbed):
+#   Persistent header: team name, round info, money/RP chips, action buttons.
+#   Online status/feed line (when networked).
+#   Tab bar: ОБЗОР | БОЛИД | СПОНСОРЫ | ШТАБ | ПИЛОТЫ
+#   Page area: ScrollContainer + VBox populated from _build_* helpers.
+#
+# Tab state: _active_tab (int, 0-based) is a plain member var.
+# _rebuild() rebuilds the whole UI; the active tab index is written to
+# Season.active.hub_tab before rebuild and restored from it — survives
+# scene re-entry because Season.active persists across scene changes.
+#
 # Online-season networking:
 #   Host: authoritative — buys/upgrades, saves, broadcasts via Net RPC.
 #   Client: mirror — buttons send net_season_* RPCs instead of mutating Season.
@@ -18,6 +29,19 @@ const BG       := Palette.BG
 const PANEL    := Palette.PANEL
 const MUTED    := Palette.MUTED_HEX
 
+# Tab indices
+const TAB_OVERVIEW  := 0
+const TAB_CAR       := 1
+const TAB_SPONSORS  := 2
+const TAB_STAFF     := 3
+const TAB_PILOTS    := 4
+
+const TAB_NAMES: Array = ["ОБЗОР", "БОЛИД", "СПОНСОРЫ", "ШТАБ", "ПИЛОТЫ"]
+
+# Active tab — static so it survives scene re-entry (the script class persists
+# in memory even after scene change; reset to 0 when season starts fresh).
+static var _active_tab: int = 0
+
 # Feed lines for the partner-action log (newest-first, max 5 entries).
 var _feed_lines: Array = []
 var _feed_label: Label
@@ -30,6 +54,8 @@ func _ready() -> void:
 		return
 	# Register with the "season_hub" group so Net can deliver callbacks here.
 	add_to_group("season_hub")
+	# Clamp active tab in case TAB_NAMES length changes across updates.
+	_active_tab = clampi(_active_tab, 0, TAB_NAMES.size() - 1)
 	# Only the host autosaves; clients never write the season file (spec §0.6).
 	if Net.role() != "client":
 		Season.active.save_to_disk()
@@ -67,146 +93,131 @@ func _update_feed_label() -> void:
 		return
 	_feed_label.text = "\n".join(_feed_lines)
 
+# ---------------------------------------------------------------- rebuild
+# Full rebuild: clears children, builds header + tab bar + active page.
 func _rebuild() -> void:
 	for c in get_children():
 		c.queue_free()
 	_feed_label = null   # reset reference — will be reassigned below
+
+	var s := Season.active
 
 	var bg := ColorRect.new()
 	bg.color = BG
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
 
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 10)
-	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(col)
-	var outer := VBoxContainer.new()
-	outer.add_theme_constant_override("separation", 10)
-	outer.add_child(scroll)
+	# Root margin + outer column
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	for side in ["left", "right", "top", "bottom"]:
 		margin.add_theme_constant_override("margin_" + side, 26)
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 8)
 	margin.add_child(outer)
 	add_child(margin)
 
-	var s := Season.active
+	# ---- PERSISTENT HEADER ----
+	var header := _build_header(s)
+	outer.add_child(header)
 
-	# Online-season status bar (only when networked).
+	# ---- ONLINE STATUS / FEED (when networked) ----
 	var net_role: String = Net.role()
 	if net_role != "":
-		var net_status_col := Palette.INFO_HEX if net_role == "host" else Palette.GOLD_HEX
+		var net_status_col: String = Palette.INFO_HEX if net_role == "host" else Palette.GOLD_HEX
 		var partner_status: String
 		if net_role == "host":
 			partner_status = "партнёр в игре" if Net.partner_connected else "ожидание партнёра…"
-			col.add_child(_label("ОНЛАЙН-СЕЗОН · хост · %s" % partner_status, 14, net_status_col))
+			outer.add_child(_label("ОНЛАЙН-СЕЗОН · хост · %s" % partner_status, 13, net_status_col))
 		else:
-			col.add_child(_label("ОНЛАЙН-СЕЗОН · клиент (зеркало)", 14, net_status_col))
-		# Partner feed (online actions log).
-		_feed_label = _label("", 13, Palette.MUTED_HEX)
+			outer.add_child(_label("ОНЛАЙН-СЕЗОН · клиент (зеркало)", 13, net_status_col))
+		_feed_label = _label("", 12, Palette.MUTED_HEX)
 		_feed_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		col.add_child(_feed_label)
+		outer.add_child(_feed_label)
 		_update_feed_label()
 
-	var title := _hlabel("ПАДДОК · %s" % s.team_name, 30, Palette.GOLD_HEX, 2)
-	col.add_child(title)
+	# ---- TAB BAR ----
+	var tab_bar := _build_tab_bar()
+	outer.add_child(tab_bar)
 
-	var round_txt := ""
+	# ---- PAGE AREA ----
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var page_vbox := VBoxContainer.new()
+	page_vbox.add_theme_constant_override("separation", 10)
+	page_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(page_vbox)
+	outer.add_child(scroll)
+
+	_populate_page(page_vbox, s)
+
+# ---- Persistent header ----
+# Contains: team name + round info, money/RP/cost-cap chips, action buttons.
+func _build_header(s: Season) -> Control:
+	var pc := _panel()
+	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+
+	# Team name + round line
+	var title := _hlabel("ПАДДОК · %s" % s.team_name, 28, Palette.GOLD_HEX, 2)
+	v.add_child(title)
+
+	var round_txt: String
 	if s.is_complete():
 		round_txt = "Сезон завершён · чемпион: %s" % s.champion_name()
 	else:
 		round_txt = "Этап %d из %d — %s" % [s.round_index + 1, s.total_rounds(), s.round_name()]
-	col.add_child(_label(round_txt, 18, MUTED))
-	col.add_child(_label("Сложность: %s · цель команды: %s" % [
-		s.difficulty_name(), s.goal], 15, Palette.INFO_HEX))
+	v.add_child(_label(round_txt, 16, MUTED))
+
 	if not s.is_complete():
-		col.add_child(_label("Следующая трасса: %s · %s" % [
-			s.round_name(), _arch_ru(s.round_archetype())], 15, Palette.WARN_HEX))
+		v.add_child(_label("Следующая трасса: %s · %s" % [
+			s.round_name(), _arch_ru(s.round_archetype())], 13, Palette.WARN_HEX))
 
-	col.add_child(_label("Бюджет: $%s   ·   R&D очки: %d   ·   очки конструкторов: %d" % [
-		_money(s.money), s.rp, s.constructor_points()], 16, Palette.GOOD_HEX))
-	col.add_child(_label("Прогресс автоматически сохранён — можно выйти и продолжить позже.",
-		13, Palette.FINE_HEX))
+	# Budget / RP / constructor points chips row
+	var chips := HBoxContainer.new()
+	chips.add_theme_constant_override("separation", 14)
+	chips.add_child(_label("Бюджет: $%s" % _money(s.money), 15, Palette.GOOD_HEX))
+	chips.add_child(_label("R&D: %d оч." % s.rp, 15, Palette.INFO_HEX))
+	chips.add_child(_label("Конструкторы: %d оч." % s.constructor_points(), 15, Palette.CREAM_HEX))
+	# Cost-cap chip
+	var cap_col: String
+	if s.cumulative_salary_spend > s.SALARY_CAP:
+		cap_col = Palette.DANG_HEX
+	elif s.cumulative_salary_spend > s.SALARY_CAP * 3 / 4:
+		cap_col = Palette.WARN_HEX
+	else:
+		cap_col = Palette.FINE_HEX
+	chips.add_child(_label(s.cap_status_text(), 13, cap_col))
+	v.add_child(chips)
 
-	# team drivers: portrait cards (morale + development)
-	var drow := HBoxContainer.new()
-	drow.add_theme_constant_override("separation", 12)
-	var dslot := 0
-	for id in Season.TEAM_IDS:
-		drow.add_child(_driver_card(s, int(id), dslot))
-		dslot += 1
-	col.add_child(drow)
+	v.add_child(_label("Прогресс автоматически сохранён — можно выйти и продолжить позже.",
+		12, Palette.FINE_HEX))
 
-	# FM-style season statistics
-	col.add_child(_label("Статистика сезона:", 14, Palette.MUTED_HEX))
-	for id in Season.TEAM_IDS:
-		var st := s.stat_of(id)
-		var best_txt := "—" if int(st["best"]) == 0 else str(int(st["best"]))
-		col.add_child(_label("%s — гонок %d · побед %d · подиумов %d · обгонов %d · лучший P%s · мест +%d" % [
-			s.driver_name(id), int(st["races"]), int(st["wins"]), int(st["podiums"]),
-			int(st["overtakes"]), best_txt, int(st["gained"])], 13, Palette.CREAM_HEX))
-	var lw := s.stats_leader("wins")
-	if not lw.is_empty() and int(lw["val"]) > 0:
-		var lo := s.stats_leader("overtakes")
-		col.add_child(_label("Лидеры сезона: побед — %s (%d) · обгонов — %s (%d)" % [
-			lw["name"], int(lw["val"]), lo["name"], int(lo["val"])], 13, Palette.INFO_HEX))
-
-	if not s.last_summary.is_empty():
-		var ls: Dictionary = s.last_summary
-		col.add_child(_label("Прошлый этап: команда +%d очк., +$%s призовых." % [
-			ls["pts"], _money(ls["money"])], 15, Palette.INFO_HEX))
-
-	# M1: income-per-round summary line
-	var inc: int = s.income_per_round()
-	var cpos: int = s.constructor_position()
-	var prize_line: int = s.constructor_prize(cpos)
-	col.add_child(_label(
-		"Доход/этап (прогноз): $%s  (призовые P%d: $%s + спонсоры: $%s)" % [
-			_money(inc), cpos, _money(prize_line), _money(inc - prize_line)],
-		15, Palette.GOOD_HEX))
-
-	# main area: standings (left) + R&D (right) + contracts (below) + sponsors
-	var mid := HBoxContainer.new()
-	mid.add_theme_constant_override("separation", 18)
-	col.add_child(mid)
-	mid.add_child(_build_standings(s))
-	mid.add_child(_build_rnd(s))
-	col.add_child(_build_contracts(s))
-	col.add_child(_build_suppliers(s))
-	col.add_child(_build_pitcrew(s))
-	col.add_child(_build_academy(s))
-	col.add_child(_build_staff(s))
-	col.add_child(_build_sponsors(s))
-
-	# bottom actions — pinned below the scroll so they're always visible
+	# ---- ACTION BUTTONS ----
 	var bar := HBoxContainer.new()
 	bar.add_theme_constant_override("separation", 10)
-	outer.add_child(bar)
 
 	var net_role2: String = Net.role()
 	if s.is_complete():
-		var to_menu := _button("В главное меню", 17)
+		var to_menu := _button("В главное меню", 16)
 		to_menu.pressed.connect(func():
-			Season.delete_save()       # season over: clear the save slot
+			Season.delete_save()
 			Season.active = null
 			if net_role2 != "":
 				Net.disconnect_peer()
 			get_tree().change_scene_to_file("res://main.tscn"))
 		bar.add_child(to_menu)
 	elif net_role2 == "client":
-		# Client mirror: only a "Ready" ping and "Quit" — no start/simulate.
-		var ready_btn := _button("✔ Готов к старту", 16)
+		var ready_btn := _button("✔ Готов к старту", 15)
 		ready_btn.pressed.connect(func():
 			Net.net_season_ready.rpc_id(1, true))
 		bar.add_child(ready_btn)
 		var spacer_c := Control.new()
 		spacer_c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		bar.add_child(spacer_c)
-		var quit_c := _button("Выйти в меню", 15)
+		var quit_c := _button("Выйти в меню", 14)
 		quit_c.pressed.connect(func():
 			Net.disconnect_peer()
 			Season.active = null
@@ -221,40 +232,161 @@ func _rebuild() -> void:
 			mode_txt = "лок. кооп"
 		else:
 			mode_txt = "соло"
-		var start := _button("Старт гонки →  (%s)" % mode_txt, 18)
-		start.custom_minimum_size = Vector2(260, 44)
+		var start := _button("Старт гонки →  (%s)" % mode_txt, 17)
+		start.custom_minimum_size = Vector2(240, 40)
 		start.pressed.connect(func():
 			s.race_pending = true
 			if net_role2 == "host":
-				# Notify the client to enter the race scene.
 				var track_name: String = s.round_name()
 				Net.net_season_start_race.rpc(track_name, 0)
 			get_tree().change_scene_to_file("res://main.tscn"))
 		bar.add_child(start)
 		if net_role2 != "host":
-			# Quick-sim only available offline.
-			var quick := _button("⏩ Симулировать этап", 15)
+			var quick := _button("⏩ Симулировать этап", 14)
 			quick.pressed.connect(func():
 				s.race_pending = true
 				s.race_quick = true
 				get_tree().change_scene_to_file("res://main.tscn"))
 			bar.add_child(quick)
-		var profile := _button("Пилоты", 15)
+		var profile := _button("Пилоты", 14)
 		profile.pressed.connect(func(): get_tree().change_scene_to_file("res://driver_profile.tscn"))
 		bar.add_child(profile)
-		var statsb := _button("Статистика", 15)
+		var statsb := _button("Статистика", 14)
 		statsb.pressed.connect(func(): get_tree().change_scene_to_file("res://stats.tscn"))
 		bar.add_child(statsb)
 		var spacer := Control.new()
 		spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		bar.add_child(spacer)
-		var quit := _button("Выйти в меню", 15)
+		var quit := _button("Выйти в меню", 14)
 		quit.pressed.connect(func():
 			Season.active = null
 			if net_role2 != "":
 				Net.disconnect_peer()
 			get_tree().change_scene_to_file("res://main.tscn"))
 		bar.add_child(quit)
+
+	v.add_child(bar)
+	pc.add_child(v)
+	return pc
+
+# ---- Tab bar ----
+# Gold underline on active tab; PANEL2 fill; muted text on inactive tabs.
+func _build_tab_bar() -> Control:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 2)
+	for i in TAB_NAMES.size():
+		var tab_name: String = String(TAB_NAMES[i])
+		var btn := Button.new()
+		btn.text = tab_name
+		btn.add_theme_font_size_override("font_size", 14)
+		btn.add_theme_font_override("font", Palette.display_font(600, 1))
+		btn.custom_minimum_size = Vector2(110, 36)
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var is_active: bool = i == _active_tab
+		var sb_normal := StyleBoxFlat.new()
+		sb_normal.bg_color = Palette.PANEL2 if is_active else Palette.PANEL
+		sb_normal.set_corner_radius_all(0)
+		sb_normal.set_border_width_all(1)
+		sb_normal.border_color = Palette.DIV
+		if is_active:
+			# Gold bottom border = active indicator
+			sb_normal.border_color = Palette.GOLD
+			sb_normal.set_content_margin_all(6)
+		else:
+			sb_normal.set_content_margin_all(6)
+		btn.add_theme_stylebox_override("normal", sb_normal)
+		btn.add_theme_stylebox_override("pressed", sb_normal)
+		var hover_sb := StyleBoxFlat.new()
+		hover_sb.bg_color = Palette.PANEL2
+		hover_sb.set_corner_radius_all(0)
+		hover_sb.set_border_width_all(1)
+		hover_sb.border_color = Palette.GOLD_D
+		hover_sb.set_content_margin_all(6)
+		btn.add_theme_stylebox_override("hover", hover_sb)
+		var text_col: String = Palette.GOLD_HEX if is_active else Palette.MUTED_HEX
+		btn.add_theme_color_override("font_color", Color(text_col))
+		btn.add_theme_color_override("font_hover_color", Color(Palette.CREAM_HEX))
+		btn.add_theme_color_override("font_pressed_color", Color(Palette.GOLD_HEX))
+		var tab_idx := i   # capture for closure
+		btn.pressed.connect(func():
+			_active_tab = tab_idx
+			_rebuild())
+		hb.add_child(btn)
+	return hb
+
+# ---- Page content dispatcher ----
+func _populate_page(v: VBoxContainer, s: Season) -> void:
+	match _active_tab:
+		TAB_OVERVIEW:
+			_build_page_overview(v, s)
+		TAB_CAR:
+			_build_page_car(v, s)
+		TAB_SPONSORS:
+			v.add_child(_build_sponsors(s))
+		TAB_STAFF:
+			_build_page_staff(v, s)
+		TAB_PILOTS:
+			_build_page_pilots(v, s)
+
+# ================================================================ PAGE: ОБЗОР
+func _build_page_overview(v: VBoxContainer, s: Season) -> void:
+	# Driver portrait cards
+	var drow := HBoxContainer.new()
+	drow.add_theme_constant_override("separation", 12)
+	var dslot := 0
+	for id in Season.TEAM_IDS:
+		drow.add_child(_driver_card(s, int(id), dslot))
+		dslot += 1
+	v.add_child(drow)
+
+	# FM-style season statistics
+	v.add_child(_label("Статистика сезона:", 14, Palette.MUTED_HEX))
+	for id in Season.TEAM_IDS:
+		var st: Dictionary = s.stat_of(id)
+		var best_txt: String = "—" if int(st["best"]) == 0 else str(int(st["best"]))
+		v.add_child(_label("%s — гонок %d · побед %d · подиумов %d · обгонов %d · лучший P%s · мест +%d" % [
+			s.driver_name(id), int(st["races"]), int(st["wins"]), int(st["podiums"]),
+			int(st["overtakes"]), best_txt, int(st["gained"])], 13, Palette.CREAM_HEX))
+	var lw: Dictionary = s.stats_leader("wins")
+	if not lw.is_empty() and int(lw["val"]) > 0:
+		var lo: Dictionary = s.stats_leader("overtakes")
+		v.add_child(_label("Лидеры сезона: побед — %s (%d) · обгонов — %s (%d)" % [
+			lw["name"], int(lw["val"]), lo["name"], int(lo["val"])], 13, Palette.INFO_HEX))
+
+	if not s.last_summary.is_empty():
+		var ls: Dictionary = s.last_summary
+		v.add_child(_label("Прошлый этап: команда +%d очк., +$%s призовых." % [
+			ls["pts"], _money(ls["money"])], 15, Palette.INFO_HEX))
+
+	# M1: income-per-round summary line
+	var inc: int = s.income_per_round()
+	var cpos: int = s.constructor_position()
+	var prize_line: int = s.constructor_prize(cpos)
+	v.add_child(_label(
+		"Доход/этап (прогноз): $%s  (призовые P%d: $%s + спонсоры: $%s)" % [
+			_money(inc), cpos, _money(prize_line), _money(inc - prize_line)],
+		15, Palette.GOOD_HEX))
+
+	v.add_child(_label("Сложность: %s · цель команды: %s" % [
+		s.difficulty_name(), s.goal], 14, Palette.INFO_HEX))
+
+	# Championship standings table
+	v.add_child(_build_standings(s))
+
+# ================================================================ PAGE: БОЛИД
+func _build_page_car(v: VBoxContainer, s: Season) -> void:
+	v.add_child(_build_rnd(s))
+	v.add_child(_build_suppliers(s))
+
+# ================================================================ PAGE: ШТАБ
+func _build_page_staff(v: VBoxContainer, s: Season) -> void:
+	v.add_child(_build_staff(s))
+	v.add_child(_build_pitcrew(s))
+
+# ================================================================ PAGE: ПИЛОТЫ
+func _build_page_pilots(v: VBoxContainer, s: Season) -> void:
+	v.add_child(_build_contracts(s))
+	v.add_child(_build_academy(s))
 
 # ---------------------------------------------------------------- standings
 func _build_standings(s: Season) -> Control:
@@ -265,19 +397,19 @@ func _build_standings(s: Season) -> Control:
 	v.add_child(_hlabel("ЧЕМПИОНАТ ПИЛОТОВ", 18, Palette.CREAM_HEX))
 	v.add_child(HSeparator.new())
 
-	var rows := s.standings_sorted()
+	var rows: Array = s.standings_sorted()
 	for i in rows.size():
 		var r: Dictionary = rows[i]
 		var box := HBoxContainer.new()
 		box.add_theme_constant_override("separation", 8)
-		var col := Color.WHITE
+		var row_col := Color.WHITE
 		if r["team"]:
-			col = TEAM_COL if int(r["id"]) == 4 else ENGI_COL
-		var pos_cell := _cell("P%d" % (i + 1), 50, col)
+			row_col = TEAM_COL if int(r["id"]) == 4 else ENGI_COL
+		var pos_cell := _cell("P%d" % (i + 1), 50, row_col)
 		pos_cell.add_theme_font_override("font", Palette.display_font(600, 0))
 		box.add_child(pos_cell)
-		box.add_child(_cell(r["name"], 160, col))
-		var pts_cell := _cell("%d очк." % r["points"], 90, col)
+		box.add_child(_cell(r["name"], 160, row_col))
+		var pts_cell := _cell("%d очк." % r["points"], 90, row_col)
 		pts_cell.add_theme_font_override("font", Palette.display_font(600, 0))
 		box.add_child(pts_cell)
 		v.add_child(box)
@@ -290,7 +422,7 @@ func _build_standings(s: Season) -> Control:
 # row beneath the parts (unchanged mechanic).
 func _build_rnd(s: Season) -> Control:
 	var pc := _panel()
-	pc.custom_minimum_size = Vector2(380, 0)
+	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 8)
 	v.add_child(_hlabel("R&D — РАЗВИТИЕ МАШИНЫ", 18, Palette.CREAM_HEX))
@@ -477,7 +609,7 @@ func _build_rnd(s: Season) -> Control:
 
 	# META-3: cap status line
 	v.add_child(_spacer(6))
-	var cap_col := Palette.GOOD_HEX
+	var cap_col: String = Palette.GOOD_HEX
 	if s.cumulative_salary_spend > s.SALARY_CAP:
 		cap_col = Palette.DANG_HEX
 	elif s.cumulative_salary_spend > s.SALARY_CAP * 3 / 4:
@@ -500,7 +632,7 @@ func _build_contracts(s: Season) -> Control:
 		var driver_id: int = s.TEAM_IDS[idx]
 		var c: Dictionary = s.contract_of(driver_id)
 		var dname: String = s.driver_name(driver_id)
-		var role_txt := "Директор · P5" if driver_id == 4 else "Инженер · P6"
+		var role_txt: String = "Директор · P5" if driver_id == 4 else "Инженер · P6"
 
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
@@ -510,15 +642,15 @@ func _build_contracts(s: Season) -> Control:
 		else:
 			var sal: int = int(c.get("salary_per_round", 0))
 			var rem: int = int(c.get("rounds_remaining", 0))
-			var contract_col := Palette.CREAM_HEX
+			var contract_col: String = Palette.CREAM_HEX
 			if rem <= 1:
 				contract_col = Palette.DANG_HEX
 			elif rem <= 2:
 				contract_col = Palette.WARN_HEX
-			var rem_txt := "контракт истёк!" if rem <= 0 else "%d эт. осталось" % rem
+			var rem_txt: String = "контракт истёк!" if rem <= 0 else "%d эт. осталось" % rem
 			# M4: driver status (Первый/Второй) + podium bonus clause readout
 			var status: String = s.driver_status(driver_id)
-			var status_txt := "статус не назначен"
+			var status_txt: String = "статус не назначен"
 			if status == "first":
 				status_txt = "● Первый пилот"
 			elif status == "second":
@@ -582,7 +714,7 @@ func _build_contracts(s: Season) -> Control:
 	# Salary cap summary
 	v.add_child(_spacer(6))
 	v.add_child(HSeparator.new())
-	var cap_col := Palette.GOOD_HEX
+	var cap_col: String = Palette.GOOD_HEX
 	if s.cumulative_salary_spend > s.SALARY_CAP:
 		cap_col = Palette.DANG_HEX
 	elif s.cumulative_salary_spend > s.SALARY_CAP * 3 / 4:
@@ -598,7 +730,7 @@ func _build_contracts(s: Season) -> Control:
 	# Basic transfer market: list available rival drivers to sign
 	v.add_child(_spacer(8))
 	v.add_child(_label("Трансферный рынок:", 15, Palette.CREAM_HEX))
-	var grid := F1_2026.race_grid(s.player_team)
+	var grid: Array = F1_2026.race_grid(s.player_team)
 	var shown := 0
 	for gi in grid.size():
 		if shown >= 5:
@@ -661,8 +793,8 @@ func _driver_card(s: Season, id: int, slot: int) -> PanelContainer:
 	var nm := _label(s.driver_name(id).to_upper(), 18, Palette.CREAM_HEX)
 	nm.add_theme_font_override("font", Palette.display_font(600, 1))
 	v.add_child(nm)
-	var mor := s.morale_of(id)
-	var mcol := Palette.GOOD_HEX
+	var mor: int = s.morale_of(id)
+	var mcol: String = Palette.GOOD_HEX
 	if mor < 40:
 		mcol = Palette.DANG_HEX
 	elif mor < 66:
@@ -1118,7 +1250,7 @@ func _build_staff(s: Season) -> Control:
 
 	v.add_child(_label("Скорость R&D (аэро): ×%.2f — техдиректор и конструктор" % s.rd_speed_mult(),
 		14, Palette.GOOD_HEX))
-	var payroll_txt := "Зарплаты персонала: $%s/этап · топ-3 (★) вне кост-кэпа" % _money(
+	var payroll_txt: String = "Зарплаты персонала: $%s/этап · топ-3 (★) вне кост-кэпа" % _money(
 		s.staff_payroll_per_round())
 	v.add_child(_label(payroll_txt, 13, Palette.MUTED_HEX))
 
