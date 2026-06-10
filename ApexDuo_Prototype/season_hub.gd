@@ -23,6 +23,7 @@ var _feed_lines: Array = []
 var _feed_label: Label
 
 func _ready() -> void:
+	theme = Palette.base_theme()
 	if Season.active == null:
 		get_tree().change_scene_to_file("res://main.tscn")
 		return
@@ -110,7 +111,7 @@ func _rebuild() -> void:
 		col.add_child(_feed_label)
 		_update_feed_label()
 
-	var title := _label("ПАДДОК · %s" % s.team_name, 30, Palette.GOLD_HEX)
+	var title := _hlabel("ПАДДОК · %s" % s.team_name, 30, Palette.GOLD_HEX, 2)
 	col.add_child(title)
 
 	var round_txt := ""
@@ -259,7 +260,7 @@ func _build_standings(s: Season) -> Control:
 	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 4)
-	v.add_child(_label("ЧЕМПИОНАТ ПИЛОТОВ", 18, Palette.CREAM_HEX))
+	v.add_child(_hlabel("ЧЕМПИОНАТ ПИЛОТОВ", 18, Palette.CREAM_HEX))
 	v.add_child(HSeparator.new())
 
 	var rows := s.standings_sorted()
@@ -270,9 +271,13 @@ func _build_standings(s: Season) -> Control:
 		var col := Color.WHITE
 		if r["team"]:
 			col = TEAM_COL if int(r["id"]) == 4 else ENGI_COL
-		box.add_child(_cell("P%d" % (i + 1), 50, col))
+		var pos_cell := _cell("P%d" % (i + 1), 50, col)
+		pos_cell.add_theme_font_override("font", Palette.display_font(600, 0))
+		box.add_child(pos_cell)
 		box.add_child(_cell(r["name"], 160, col))
-		box.add_child(_cell("%d очк." % r["points"], 90, col))
+		var pts_cell := _cell("%d очк." % r["points"], 90, col)
+		pts_cell.add_theme_font_override("font", Palette.display_font(600, 0))
+		box.add_child(pts_cell)
 		v.add_child(box)
 	pc.add_child(v)
 	return pc
@@ -286,7 +291,7 @@ func _build_rnd(s: Season) -> Control:
 	pc.custom_minimum_size = Vector2(380, 0)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 8)
-	v.add_child(_label("R&D — РАЗВИТИЕ МАШИНЫ", 18, Palette.CREAM_HEX))
+	v.add_child(_hlabel("R&D — РАЗВИТИЕ МАШИНЫ", 18, Palette.CREAM_HEX))
 	v.add_child(_label("Доступно R&D очков: %d" % s.rp, 15, Palette.GOOD_HEX))
 	v.add_child(_spacer(4))
 
@@ -426,7 +431,7 @@ func _build_contracts(s: Season) -> Control:
 	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 8)
-	v.add_child(_label("КОНТРАКТЫ ПИЛОТОВ", 18, Palette.CREAM_HEX))
+	v.add_child(_hlabel("КОНТРАКТЫ ПИЛОТОВ", 18, Palette.CREAM_HEX))
 	v.add_child(HSeparator.new())
 
 	for idx in s.TEAM_IDS.size():
@@ -552,6 +557,12 @@ func _label(txt: String, sz: int, col: String) -> Label:
 	l.add_theme_color_override("font_color", Color(col))
 	return l
 
+# Heading label — Oswald display font (caps, weight 600).
+func _hlabel(txt: String, sz: int, col: String, tracking: int = 2) -> Label:
+	var l := _label(txt, sz, col)
+	l.add_theme_font_override("font", Palette.display_font(600, tracking))
+	return l
+
 func _cell(txt: String, w: int, col: Color) -> Label:
 	var l := Label.new()
 	l.text = txt
@@ -578,7 +589,7 @@ func _build_sponsors(s: Season) -> Control:
 	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 8)
-	v.add_child(_label("СПОНСОРЫ", 18, Palette.CREAM_HEX))
+	v.add_child(_hlabel("СПОНСОРЫ", 18, Palette.CREAM_HEX))
 	v.add_child(HSeparator.new())
 
 	# Active sponsor slots
@@ -685,7 +696,7 @@ func _build_staff(s: Season) -> Control:
 	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 6)
-	v.add_child(_label("ПЕРСОНАЛ", 18, Palette.CREAM_HEX))
+	v.add_child(_hlabel("ПЕРСОНАЛ", 18, Palette.CREAM_HEX))
 	v.add_child(HSeparator.new())
 
 	v.add_child(_label("Скорость R&D (аэро): ×%.2f — техдиректор и конструктор" % s.rd_speed_mult(),

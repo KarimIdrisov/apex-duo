@@ -15,6 +15,7 @@ var sel_diff := 1
 var sel_coop := false
 
 func _ready() -> void:
+	theme = Palette.base_theme()
 	_rebuild()
 
 func _rebuild() -> void:
@@ -35,10 +36,14 @@ func _rebuild() -> void:
 	margin.add_child(col)
 	add_child(margin)
 
-	col.add_child(_label("НОВЫЙ СЕЗОН — НАСТРОЙКА", 30, Palette.GOLD_HEX))
+	var setup_heading := _label("НОВЫЙ СЕЗОН — НАСТРОЙКА", 30, Palette.GOLD_HEX)
+	setup_heading.add_theme_font_override("font", Palette.display_font(600, 2))
+	col.add_child(setup_heading)
 
 	# --- team ---
-	col.add_child(_label("Команда (карьерный старт):", 18, Palette.CREAM_HEX))
+	var team_hdr := _label("КОМАНДА (КАРЬЕРНЫЙ СТАРТ):", 18, Palette.CREAM_HEX)
+	team_hdr.add_theme_font_override("font", Palette.display_font(600, 2))
+	col.add_child(team_hdr)
 	var trow := HBoxContainer.new()
 	trow.add_theme_constant_override("separation", 8)
 	col.add_child(trow)
@@ -46,7 +51,9 @@ func _rebuild() -> void:
 		trow.add_child(_team_card(i))
 
 	# --- difficulty ---
-	col.add_child(_label("Сложность (сила соперников):", 18, Palette.CREAM_HEX))
+	var diff_hdr := _label("СЛОЖНОСТЬ (СИЛА СОПЕРНИКОВ):", 18, Palette.CREAM_HEX)
+	diff_hdr.add_theme_font_override("font", Palette.display_font(600, 2))
+	col.add_child(diff_hdr)
 	var drow := HBoxContainer.new()
 	drow.add_theme_constant_override("separation", 8)
 	col.add_child(drow)
@@ -60,7 +67,9 @@ func _rebuild() -> void:
 		drow.add_child(b)
 
 	# --- mode ---
-	col.add_child(_label("Режим:", 18, Palette.CREAM_HEX))
+	var mode_hdr := _label("РЕЖИМ:", 18, Palette.CREAM_HEX)
+	mode_hdr.add_theme_font_override("font", Palette.display_font(600, 2))
+	col.add_child(mode_hdr)
 	var mrow := HBoxContainer.new()
 	mrow.add_theme_constant_override("separation", 8)
 	col.add_child(mrow)
@@ -114,7 +123,9 @@ func _team_card(i: int) -> Control:
 
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 6)
-	v.add_child(_label(String(t["name"]), 20, Palette.GOLD_HEX))
+	var tname_lbl := _label(String(t["name"]), 20, Palette.GOLD_HEX)
+	tname_lbl.add_theme_font_override("font", Palette.display_font(600, 2))
+	v.add_child(tname_lbl)
 	var desc := _label(String(t["desc"]), 14, MUTED)
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(desc)

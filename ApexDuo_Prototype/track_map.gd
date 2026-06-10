@@ -417,7 +417,7 @@ func _draw_zones(pts: PackedVector2Array, tw: float) -> void:
 # Position numbers over the cars (drawn last so they sit on top). Team cars and
 # the leader get a bigger, colour-coded number; everyone else a small white one.
 func _draw_pos_labels(area: Vector2, off: Vector2, l: float) -> void:
-	var font := get_theme_default_font()
+	var font: Font = Palette.display_font(600, 0)
 	if font == null:
 		return
 	for c in cars:
@@ -468,11 +468,9 @@ func _draw_legend() -> void:
 func _draw_label() -> void:
 	if _key == "":
 		return
-	var font := get_theme_default_font()
-	if font == null:
-		return
+	var font: Font = Palette.display_font(600, 2)
 	draw_string(font, Vector2(PAD + 4.0, PAD + 22.0), _key.to_upper(),
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color("#c8d0db"))
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Palette.CREAM)
 
 func _draw_trails(area: Vector2, off: Vector2, carlen: float) -> void:
 	for c in cars:

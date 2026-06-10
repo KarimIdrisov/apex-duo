@@ -67,6 +67,7 @@ var view_is_3d := false          # which race view is currently shown
 
 # ---------------------------------------------------------------- lifecycle
 func _ready() -> void:
+	theme = Palette.base_theme()
 	_build_bg()
 	race_root = Control.new()
 	race_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -925,6 +926,7 @@ func _build_menu() -> void:
 	title.text = "APEX DUO"
 	title.add_theme_font_size_override("font_size", 52)
 	title.add_theme_color_override("font_color", ACCENT)
+	title.add_theme_font_override("font", Palette.display_font(700, 6))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	center.add_child(title)
 
@@ -1041,6 +1043,7 @@ func _build_race_ui(root: Control) -> void:
 	title.text = "APEX DUO — гонка"
 	title.add_theme_font_size_override("font_size", 26)
 	title.add_theme_color_override("font_color", ACCENT)
+	title.add_theme_font_override("font", Palette.display_font(600, 3))
 	col.add_child(title)
 
 	status_label = _mklabel(16, "#9aa4b2")
@@ -1102,7 +1105,9 @@ func _build_track_map() -> Control:
 	v.add_theme_constant_override("separation", 6)
 	v.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	# Configure v fully before add_child so _ready fires after all children are set.
-	v.add_child(_mklabel(16, "#9aa4b2", "ГОНКА"))
+	var map_hdr := _mklabel(16, Palette.CREAM_HEX, "ГОНКА")
+	map_hdr.add_theme_font_override("font", Palette.display_font(600, 2))
+	v.add_child(map_hdr)
 	track_map = TrackMap.new()
 	track_map.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	track_map.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -1195,16 +1200,11 @@ func _build_leaderboard() -> Control:
 	v.add_theme_constant_override("separation", 4)
 
 	var header := _row_box()
-	_cell(header, "", 46, "#7c8694")
-	_cell(header, "ПИЛОТ", 150, "#7c8694")
-	_cell(header, "ОТРЫВ", 90, "#7c8694")
-	_cell(header, "ИНТ", 72, "#7c8694")
-	_cell(header, "КМ/Ч", 66, "#7c8694")
-	_cell(header, "ШИНА", 78, "#7c8694")
-	_cell(header, "ИЗНОС", 70, "#7c8694")
-	_cell(header, "БАТ", 56, "#7c8694")
-	_cell(header, "ПИТ", 46, "#7c8694")
-	_cell(header, "Л.КРУГ", 80, "#7c8694")
+	var hdr_specs: Array = [["", 46], ["ПИЛОТ", 150], ["ОТРЫВ", 90], ["ИНТ", 72],
+		["КМ/Ч", 66], ["ШИНА", 78], ["ИЗНОС", 70], ["БАТ", 56], ["ПИТ", 46], ["Л.КРУГ", 80]]
+	for hs in hdr_specs:
+		var hcell := _cell(header, String(hs[0]), int(hs[1]), Palette.FINE_HEX)
+		hcell.add_theme_font_override("font", Palette.display_font(600, 1))
 	v.add_child(header)
 	v.add_child(HSeparator.new())
 
@@ -1270,7 +1270,9 @@ func _make_team_panel() -> Control:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 8)
 	# Configure v fully before add_child so _ready fires after all children are set.
-	v.add_child(_mklabel(18, "#ff8c42", "КОМАНДНАЯ ТАКТИКА"))
+	var tact_hdr := _mklabel(18, Palette.GOLD_HEX, "КОМАНДНАЯ ТАКТИКА")
+	tact_hdr.add_theme_font_override("font", Palette.display_font(600, 2))
+	v.add_child(tact_hdr)
 	team_gap_label = _mklabel(15, "#cccccc", "Разрыв P5–P6: —")
 	v.add_child(team_gap_label)
 
@@ -1303,6 +1305,7 @@ func _make_panel(car_id: int, role: String, dname: String) -> Control:
 	head.text = "P%d · %s — %s" % [car_id + 1, dname, role]
 	head.add_theme_font_size_override("font_size", 18)
 	head.add_theme_color_override("font_color", col)
+	head.add_theme_font_override("font", Palette.display_font(600, 1))
 	v.add_child(head)
 
 	var tire := _mklabel(15, "#cccccc")
@@ -1363,7 +1366,9 @@ func _make_panel(car_id: int, role: String, dname: String) -> Control:
 	v.add_child(soc_bar)
 
 	# 2026 per-lap deploy budget bar — shows how much electric deployment remains this lap.
-	v.add_child(_mklabel(14, Palette.MUTED_HEX, "ЗАПАС ДЕПЛОЯ (КРУГ):"))
+	var deploy_hdr := _mklabel(14, Palette.MUTED_HEX, "ЗАПАС ДЕПЛОЯ (КРУГ):")
+	deploy_hdr.add_theme_font_override("font", Palette.display_font(600, 1))
+	v.add_child(deploy_hdr)
 	var deploy_bar := ProgressBar.new()
 	deploy_bar.min_value = 0.0
 	deploy_bar.max_value = RaceSim.DEPLOY_BUDGET_BASE   # default; updated each frame via max_value
@@ -1575,6 +1580,7 @@ func _show_prerace_modal() -> void:
 	title.text = "КВАЛИФИКАЦИЯ И СТАРТОВАЯ РЕЗИНА — %s" % tname
 	title.add_theme_font_size_override("font_size", 20)
 	title.add_theme_color_override("font_color", ACCENT)
+	title.add_theme_font_override("font", Palette.display_font(600, 2))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	inner.add_child(title)
 
@@ -1596,7 +1602,8 @@ func _show_prerace_modal() -> void:
 	var quali_header := Label.new()
 	quali_header.text = "КВАЛИФИКАЦИЯ"
 	quali_header.add_theme_font_size_override("font_size", 16)
-	quali_header.add_theme_color_override("font_color", Color("#9aa4b2"))
+	quali_header.add_theme_color_override("font_color", Palette.MUTED)
+	quali_header.add_theme_font_override("font", Palette.display_font(600, 2))
 	inner.add_child(quali_header)
 
 	# ScrollContainer caps the list height so the modal stays on screen.
@@ -1625,7 +1632,8 @@ func _show_prerace_modal() -> void:
 	var tyre_header := Label.new()
 	tyre_header.text = "СТАРТОВАЯ РЕЗИНА"
 	tyre_header.add_theme_font_size_override("font_size", 16)
-	tyre_header.add_theme_color_override("font_color", Color("#9aa4b2"))
+	tyre_header.add_theme_color_override("font_color", Palette.MUTED)
+	tyre_header.add_theme_font_override("font", Palette.display_font(600, 2))
 	inner.add_child(tyre_header)
 
 	# One row per team car. In online: host edits id=4, client edits id=5.
@@ -1744,7 +1752,8 @@ func _build_feed_panel() -> Control:
 	var pc := _panel_container()
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 2)
-	var hdr := _mklabel(13, "#7c8694", "ЛЕНТА ГОНКИ")
+	var hdr := _mklabel(13, Palette.FINE_HEX, "ЛЕНТА ГОНКИ")
+	hdr.add_theme_font_override("font", Palette.display_font(600, 1))
 	v.add_child(hdr)
 	feed_rows.clear()
 	for _i in 7:
