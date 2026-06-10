@@ -16,6 +16,7 @@ var sel_coop := false
 
 func _ready() -> void:
 	theme = Palette.base_theme()
+	add_child(Palette.vignette_layer())
 	_rebuild()
 
 func _rebuild() -> void:

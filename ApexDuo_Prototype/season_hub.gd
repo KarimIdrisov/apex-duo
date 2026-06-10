@@ -24,6 +24,7 @@ var _feed_label: Label
 
 func _ready() -> void:
 	theme = Palette.base_theme()
+	add_child(Palette.vignette_layer())
 	if Season.active == null:
 		get_tree().change_scene_to_file("res://main.tscn")
 		return

@@ -68,6 +68,7 @@ var view_is_3d := false          # which race view is currently shown
 # ---------------------------------------------------------------- lifecycle
 func _ready() -> void:
 	theme = Palette.base_theme()
+	add_child(Palette.vignette_layer())
 	_build_bg()
 	race_root = Control.new()
 	race_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)

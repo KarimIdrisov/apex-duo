@@ -78,6 +78,18 @@ const TYRE_WET_HEX    := "#3F6FA8"
 const _OSWALD := preload("res://fonts/Oswald.ttf")
 const _JOST   := preload("res://fonts/Jost.ttf")
 
+# Пост-слой §6 — шейдер виньетки (только затемнение краёв, без сепия-грейда).
+# Не читает SCREEN_TEXTURE (совместимо с gl_compatibility). См. vignette_layer().
+const _VIGNETTE_SHADER := """shader_type canvas_item;
+uniform float strength : hint_range(0.0, 1.0) = 0.30;
+uniform float inner : hint_range(0.0, 1.0) = 0.55;
+void fragment() {
+	vec2 d = UV - vec2(0.5);
+	float r = length(d) * 1.41421356;
+	float v = smoothstep(inner, 1.0, r);
+	COLOR = vec4(0.0, 0.0, 0.0, v * strength);
+}"""
+
 # Тело/данные — Jost (по умолчанию Regular).
 static func body_font(weight: int = 400) -> FontVariation:
 	var fv := FontVariation.new()
@@ -100,6 +112,24 @@ static func base_theme() -> Theme:
 	t.default_font = body_font(400)
 	t.default_font_size = 14
 	return t
+
+# Полноэкранный слой-виньетка (§6). mouse_filter=IGNORE, чтобы не перехватывать
+# ввод; центр кадра прозрачный. Добавлять на корень сцены: add_child(Palette.vignette_layer()).
+static func vignette_layer(strength: float = 0.30) -> CanvasLayer:
+	var cl := CanvasLayer.new()
+	cl.layer = 100
+	var cr := ColorRect.new()
+	cr.set_anchors_preset(Control.PRESET_FULL_RECT)
+	cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cr.color = Color(0, 0, 0, 0)
+	var sh := Shader.new()
+	sh.code = _VIGNETTE_SHADER
+	var mat := ShaderMaterial.new()
+	mat.shader = sh
+	mat.set_shader_parameter("strength", strength)
+	cr.material = mat
+	cl.add_child(cr)
+	return cl
 
 # ============================================================================
 # Хелперы
