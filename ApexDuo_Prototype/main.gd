@@ -32,6 +32,23 @@ var speed := 1.0
 var paused := false
 var seed_value := 12345
 
+# interactive qualifying phase
+var quali_sim: QualiSim               # active qualifying session (null when not running)
+var quali_phase := false              # true while interactive qualifying is live
+var quali_accum := 0.0               # sim-time accumulator for the quali tick
+var _player_choices: Dictionary = {} # car_id (int) -> {window, mode, second_requested}
+var _quali_overlay: Control           # the full-screen qualifying UI overlay
+var _quali_tower_rows: Array = []     # Label rows in the timing tower (built once per session)
+var _quali_p5_status: Label           # status line inside P5 card
+var _quali_p6_status: Label           # status line inside P6 card
+var _quali_clock_label: Label         # segment clock label
+var _quali_seg_label: Label           # Q1/Q2/Q3 header label
+var _quali_prog_bar: ProgressBar      # segment progress bar under the tower header
+var _quali_snapshot: Dictionary = {}  # client: latest quali snapshot from host
+var _quali_p5_card: Control           # P5 player card (for window/mode buttons)
+var _quali_p6_card: Control           # P6 player card (for window/mode buttons)
+var _quali_result_timer: float = 0.0  # countdown (2 s) between quali finish and modal
+
 # pre-race tyre modal
 var pre_race_open := false            # true while the modal is visible
 var pre_race_panel: Control           # reference to the modal (freed on close)
@@ -112,6 +129,23 @@ func _process(delta: float) -> void:
 		if season_race:
 			_on_to_paddock()
 			return
+	# interactive qualifying tick (host/solo/local)
+	if quali_phase and not paused and game_mode != "client":
+		if _quali_result_timer > 0.0:
+			_quali_result_timer -= delta
+			if _quali_result_timer <= 0.0:
+				_finish_quali_phase()
+		elif quali_sim != null and not quali_sim.finished:
+			quali_accum += delta * speed
+			var guard2 := 0
+			while quali_accum >= STEP and not quali_sim.finished and guard2 < 4000:
+				quali_sim.tick(STEP)
+				quali_accum -= STEP
+				guard2 += 1
+			_update_quali_hud()
+			if quali_sim.finished:
+				_quali_result_timer = 2.0
+				_on_quali_finished_display()
 	# run authoritative sim (solo / local / host) — gated while pre-race modal open
 	if game_mode != "client" and sim != null and not paused and not sim.finished and not pre_race_open:
 		sim_accum += delta * speed
@@ -125,7 +159,10 @@ func _process(delta: float) -> void:
 		net_accum += delta
 		if net_accum >= 1.0 / SNAPSHOT_HZ:
 			net_accum = 0.0
-			net_snapshot.rpc(_make_snapshot())
+			if quali_phase and quali_sim != null:
+				net_quali_snapshot.rpc(quali_sim.make_snapshot())
+			else:
+				net_snapshot.rpc(_make_snapshot())
 	_update_hud()
 
 # ============================================================================
@@ -173,10 +210,13 @@ func _start(m: String) -> void:
 			Season.active.round_index + 1, Season.active.total_rounds(),
 			Season.active.round_name()]
 	_set_msg(hello)
-	# Show pre-race tyre choice modal (host/solo/local only; client waits for the host).
+	# Start interactive qualifying (host/solo/local), or wait for host snapshot (client).
 	if m != "client" and sim != null:
 		start_comp_choices = {4: "medium", 5: "medium"}
-		_show_prerace_modal()
+		_start_quali_phase()
+	elif m == "client":
+		# Client blocks race-sim until the host sends net_prerace_done.
+		pre_race_open = true
 
 func _make_sim(coop: bool) -> void:
 	var track: RaceSim.Track
@@ -368,6 +408,24 @@ func net_quali_rows(rows: Array) -> void:
 	_client_quali_rows = rows
 	if pre_race_open and _quali_list_container != null:
 		_refresh_quali_section(_client_quali_rows)
+
+# Client → host: qualifying window/mode choice.
+@rpc("any_peer", "call_remote", "reliable")
+func net_quali_choice(car_id: int, window: String, mode: String) -> void:
+	if multiplayer.is_server() and quali_sim != null:
+		quali_sim.set_player_choice(car_id, window, mode)
+
+# Client → host: request a second qualifying run.
+@rpc("any_peer", "call_remote", "reliable")
+func net_quali_second_run(car_id: int) -> void:
+	if multiplayer.is_server() and quali_sim != null:
+		quali_sim.request_second_run(car_id)
+
+# Host → client: compact qualifying session snapshot (~12 Hz, unreliable_ordered).
+@rpc("authority", "call_remote", "unreliable_ordered")
+func net_quali_snapshot(payload: Dictionary) -> void:
+	_quali_snapshot = payload
+	_apply_quali_snapshot(payload)
 
 @rpc("authority", "call_remote", "unreliable_ordered")
 func net_snapshot(payload: Dictionary) -> void:
@@ -855,10 +913,10 @@ func _on_restart() -> void:
 	_make_sim(game_mode != "solo")
 	paused = false
 	_set_msg("Новая гонка.")
-	# Re-open the pre-race compound modal for the new race.
+	# Re-open qualifying for the new race.
 	if sim != null:
 		start_comp_choices = {4: "medium", 5: "medium"}
-		_show_prerace_modal()
+		_start_quali_phase()
 		# In host mode push fresh quali rows to any connected partner (new sim → new quali).
 		if game_mode == "host" and partner_connected:
 			net_quali_rows.rpc(build_quali_rows(sim))
@@ -1480,6 +1538,513 @@ func _make_panel(car_id: int, role: String, dname: String) -> Control:
 	return pc
 
 # ============================================================================
+#  INTERACTIVE QUALIFYING PHASE
+# ============================================================================
+
+func _start_quali_phase() -> void:
+	_player_choices = {}
+	quali_accum = 0.0
+	quali_phase = true
+	pre_race_open = true   # blocks race-sim ticking during the whole quali phase
+	# Create the QualiSim with our sim's field + seed.
+	quali_sim = QualiSim.new(sim.drivers, seed_value)
+	quali_sim.set_track(sim.track)
+	# Apply default player choices (mid/bank).
+	for d in sim.drivers:
+		if d.team:
+			var did: int = int(d.id)
+			_player_choices[did] = {"window": "mid", "mode": "bank", "second_requested": false}
+			quali_sim.set_player_choice(did, "mid", "bank")
+	_build_quali_overlay()
+
+func _build_quali_overlay() -> void:
+	if _quali_overlay != null:
+		_quali_overlay.queue_free()
+	_quali_tower_rows.clear()
+	_quali_p5_status = null
+	_quali_p6_status = null
+	_quali_clock_label = null
+	_quali_seg_label = null
+	_quali_prog_bar = null
+	_quali_p5_card = null
+	_quali_p6_card = null
+
+	var overlay := ColorRect.new()
+	overlay.color = Color(0.0, 0.0, 0.0, 0.72)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_quali_overlay = overlay
+	race_root.add_child(overlay)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 12)
+	center.add_child(outer)
+
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Palette.PANEL
+	sb.set_corner_radius_all(2)
+	sb.set_border_width_all(1)
+	sb.border_color = Palette.DIV
+	sb.set_content_margin_all(18)
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", sb)
+	outer.add_child(pc)
+
+	var inner := VBoxContainer.new()
+	inner.add_theme_constant_override("separation", 8)
+	pc.add_child(inner)
+
+	# Session header
+	var header_row := HBoxContainer.new()
+	header_row.add_theme_constant_override("separation", 16)
+	inner.add_child(header_row)
+
+	_quali_seg_label = Label.new()
+	_quali_seg_label.text = "КВАЛИФИКАЦИЯ — Q1"
+	_quali_seg_label.add_theme_font_size_override("font_size", 22)
+	_quali_seg_label.add_theme_color_override("font_color", Palette.GOLD)
+	_quali_seg_label.add_theme_font_override("font", Palette.display_font(600, 3))
+	header_row.add_child(_quali_seg_label)
+
+	var tname: String = sim.track.name if sim != null else "Трасса"
+	var tname_lbl := Label.new()
+	tname_lbl.text = tname
+	tname_lbl.add_theme_font_size_override("font_size", 16)
+	tname_lbl.add_theme_color_override("font_color", Palette.MUTED)
+	header_row.add_child(tname_lbl)
+
+	var sp := Control.new()
+	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header_row.add_child(sp)
+
+	_quali_clock_label = Label.new()
+	_quali_clock_label.text = "04:00"
+	_quali_clock_label.add_theme_font_size_override("font_size", 20)
+	_quali_clock_label.add_theme_color_override("font_color", Palette.CREAM)
+	header_row.add_child(_quali_clock_label)
+
+	# Segment progress bar
+	_quali_prog_bar = ProgressBar.new()
+	_quali_prog_bar.min_value = 0.0
+	_quali_prog_bar.max_value = QualiSim.SEG_DURATION
+	_quali_prog_bar.value = 0.0
+	_quali_prog_bar.show_percentage = false
+	_quali_prog_bar.custom_minimum_size = Vector2(0, 4)
+	_quali_prog_bar.add_theme_stylebox_override("fill", Palette.bar_fill(Palette.GOLD))
+	_quali_prog_bar.add_theme_stylebox_override("background", Palette.bar_bg())
+	inner.add_child(_quali_prog_bar)
+
+	inner.add_child(HSeparator.new())
+
+	# Two-column body: timing tower (60%) + player cars (40%)
+	var body := HBoxContainer.new()
+	body.add_theme_constant_override("separation", 16)
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	inner.add_child(body)
+
+	# Timing tower (left)
+	var tower_col := VBoxContainer.new()
+	tower_col.add_theme_constant_override("separation", 2)
+	tower_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tower_col.size_flags_stretch_ratio = 0.60
+	body.add_child(tower_col)
+
+	var tower_hdr := HBoxContainer.new()
+	tower_hdr.add_theme_constant_override("separation", 4)
+	tower_col.add_child(tower_hdr)
+	for spec in [["POS", 46], ["ПИЛОТ", 130], ["ВРЕМЯ", 100], ["ОТР", 80]]:
+		var lbl := Label.new()
+		lbl.text = String(spec[0])
+		lbl.custom_minimum_size = Vector2(int(spec[1]), 0)
+		lbl.add_theme_font_size_override("font_size", 12)
+		lbl.add_theme_color_override("font_color", Palette.FINE)
+		tower_hdr.add_child(lbl)
+	tower_col.add_child(HSeparator.new())
+
+	# Tower rows — one per driver (22 max)
+	var tower_scroll := ScrollContainer.new()
+	tower_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	tower_scroll.custom_minimum_size = Vector2(0, 340)
+	tower_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	tower_col.add_child(tower_scroll)
+	var tower_vbox := VBoxContainer.new()
+	tower_vbox.add_theme_constant_override("separation", 1)
+	tower_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tower_scroll.add_child(tower_vbox)
+
+	_quali_tower_rows.clear()
+	var n_drivers: int = sim.drivers.size() if sim != null else 22
+	for i in n_drivers:
+		var row := RichTextLabel.new()
+		row.bbcode_enabled = true
+		row.fit_content = true
+		row.scroll_active = false
+		row.add_theme_font_size_override("normal_font_size", 13)
+		row.text = ""
+		tower_vbox.add_child(row)
+		_quali_tower_rows.append(row)
+
+	# Player car column (right)
+	var cars_col := VBoxContainer.new()
+	cars_col.add_theme_constant_override("separation", 10)
+	cars_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cars_col.size_flags_stretch_ratio = 0.40
+	body.add_child(cars_col)
+
+	var cars_hdr := Label.new()
+	cars_hdr.text = "МОИ МАШИНЫ"
+	cars_hdr.add_theme_font_size_override("font_size", 14)
+	cars_hdr.add_theme_color_override("font_color", Palette.MUTED)
+	cars_hdr.add_theme_font_override("font", Palette.display_font(600, 1))
+	cars_col.add_child(cars_hdr)
+
+	var is_client: bool = (game_mode == "client")
+	# P5 card
+	if game_mode in ["solo", "local", "host"] or (is_client and my_car_id == 4):
+		_quali_p5_card = _build_quali_car_card(4, is_client)
+		cars_col.add_child(_quali_p5_card)
+	# P6 card
+	if game_mode in ["local", "host"] or (is_client and my_car_id == 5):
+		_quali_p6_card = _build_quali_car_card(5, is_client)
+		cars_col.add_child(_quali_p6_card)
+
+	inner.add_child(HSeparator.new())
+
+	# Bottom bar: speed + simulate
+	var bot := HBoxContainer.new()
+	bot.add_theme_constant_override("separation", 8)
+	inner.add_child(bot)
+
+	if not is_client:
+		for sv in [1.0, 4.0, 8.0]:
+			var sb2 := _small_button("x%d" % int(sv))
+			var sv2: float = sv
+			sb2.pressed.connect(func(): _on_speed(sv2))
+			bot.add_child(sb2)
+		var sim_btn := _small_button("Симулировать до конца")
+		sim_btn.pressed.connect(_on_quali_simulate_to_end)
+		bot.add_child(sim_btn)
+	var skip_btn := _small_button("Пропустить квалу (instant)")
+	if is_client:
+		skip_btn.disabled = true
+	skip_btn.pressed.connect(_on_quali_skip)
+	bot.add_child(skip_btn)
+
+func _build_quali_car_card(car_id: int, is_client: bool) -> Control:
+	var did: int = int(car_id)
+	var pc2 := PanelContainer.new()
+	var sb3 := StyleBoxFlat.new()
+	sb3.bg_color = Palette.PANEL2
+	sb3.set_border_width_all(1)
+	sb3.border_color = Palette.P5 if car_id == 4 else Palette.P6
+	sb3.set_content_margin_all(10)
+	pc2.add_theme_stylebox_override("panel", sb3)
+
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	pc2.add_child(v)
+
+	var dname: String = _driver_name(car_id)
+	var head := Label.new()
+	head.text = "МАШИНА P%d · %s" % [car_id + 1, dname]
+	head.add_theme_font_size_override("font_size", 16)
+	head.add_theme_color_override("font_color", Palette.P5 if car_id == 4 else Palette.P6)
+	head.add_theme_font_override("font", Palette.display_font(600, 1))
+	v.add_child(head)
+
+	var status_lbl := Label.new()
+	status_lbl.text = "Ожидает старта сегмента"
+	status_lbl.add_theme_font_size_override("font_size", 13)
+	status_lbl.add_theme_color_override("font_color", Palette.MUTED)
+	v.add_child(status_lbl)
+	if car_id == 4:
+		_quali_p5_status = status_lbl
+	else:
+		_quali_p6_status = status_lbl
+
+	v.add_child(HSeparator.new())
+	v.add_child(_mklabel(12, Palette.MUTED_HEX, "ОКНО ВЫЕЗДА"))
+
+	var win_row := HBoxContainer.new()
+	win_row.add_theme_constant_override("separation", 4)
+	v.add_child(win_row)
+	for wspec in [["early", "Рано"], ["mid", "Середина"], ["late", "Поздно"]]:
+		var wb := _small_button(String(wspec[1]))
+		wb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		wb.toggle_mode = true
+		if String(wspec[0]) == "mid":
+			wb.set_pressed_no_signal(true)
+		wb.disabled = is_client
+		var wval: String = String(wspec[0])
+		var cid_w: int = did
+		wb.pressed.connect(func(): _on_quali_window(cid_w, wval, win_row))
+		win_row.add_child(wb)
+
+	v.add_child(_mklabel(12, Palette.MUTED_HEX, "РЕЖИМ"))
+	var mode_row := HBoxContainer.new()
+	mode_row.add_theme_constant_override("separation", 4)
+	v.add_child(mode_row)
+	for mspec in [["bank", "Банк"], ["attack", "Атака"]]:
+		var mb := _small_button(String(mspec[1]))
+		mb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		mb.toggle_mode = true
+		if String(mspec[0]) == "bank":
+			mb.set_pressed_no_signal(true)
+		mb.disabled = is_client
+		var mval: String = String(mspec[0])
+		var cid_m: int = did
+		mb.pressed.connect(func(): _on_quali_mode(cid_m, mval, mode_row))
+		mode_row.add_child(mb)
+
+	var best_lbl := _mklabel(13, Palette.CREAM_HEX, "Лучшее: —")
+	v.add_child(best_lbl)
+
+	return pc2
+
+# Called when the qualifying overlay tower data needs refreshing.
+func _update_quali_hud() -> void:
+	if quali_sim == null or _quali_overlay == null:
+		return
+	var seg_idx: int = int(quali_sim.segment)
+	if _quali_seg_label != null:
+		var seg_name: String = "Q%d" % (seg_idx + 1)
+		if quali_sim.finished:
+			seg_name = "КВАЛИФИКАЦИЯ ЗАВЕРШЕНА"
+		_quali_seg_label.text = "КВАЛИФИКАЦИЯ — " + seg_name
+	if _quali_clock_label != null:
+		var rem: float = maxf(0.0, QualiSim.SEG_DURATION - quali_sim.elapsed)
+		var m: int = int(rem) / 60
+		var s: int = int(rem) % 60
+		_quali_clock_label.text = "%d:%02d" % [m, s]
+	if _quali_prog_bar != null:
+		_quali_prog_bar.value = quali_sim.elapsed
+
+	# Build sorted tower list
+	if sim == null:
+		return
+	var entry_list: Array = []
+	for d in sim.drivers:
+		var did: int = int(d.id)
+		if quali_sim.eliminated.has(did):
+			continue   # already eliminated — don't show unless finished
+		var t: float = float(quali_sim.times.get(did, -1.0))
+		entry_list.append({"id": did, "name": d.name, "color": d.color,
+			"team": d.team, "time": t,
+			"time_set_at": float(quali_sim._time_set_at.get(did, 1e9))})
+	# Sort: drivers with times first (fastest), then no-time drivers
+	entry_list.sort_custom(func(a, b):
+		var ta: float = float(a["time"])
+		var tb: float = float(b["time"])
+		if ta < 0.0 and tb >= 0.0: return false
+		if ta >= 0.0 and tb < 0.0: return true
+		if ta < 0.0 and tb < 0.0:  return false
+		return ta < tb
+	)
+	# If session is finished, show all 22 from grid_ids
+	if quali_sim.finished:
+		entry_list.clear()
+		for gp in quali_sim.grid_ids.size():
+			var did: int = int(quali_sim.grid_ids[gp])
+			var d: RaceSim.Driver = sim.get_driver_by_id(did)
+			if d == null:
+				continue
+			var t: float = float(quali_sim.times.get(did, -1.0))
+			entry_list.append({"id": did, "name": d.name, "color": d.color,
+				"team": d.team, "time": t, "pos": gp + 1})
+
+	# Find leader time
+	var leader_time: float = -1.0
+	for e in entry_list:
+		var et: float = float(e["time"])
+		if et >= 0.0 and (leader_time < 0.0 or et < leader_time):
+			leader_time = et
+
+	# Determine cut-line index (P10 for Q3 display, P16 for Q1/Q2)
+	var cut_pos: int = 16 if seg_idx < 2 else 10
+
+	for i in _quali_tower_rows.size():
+		var lbl: RichTextLabel = _quali_tower_rows[i]
+		if i >= entry_list.size():
+			lbl.text = ""
+			continue
+		var e: Dictionary = entry_list[i]
+		var pos: int = int(e.get("pos", i + 1))
+		var dname: String = String(e["name"])
+		var dcol: String  = String(e["color"])
+		var dteam: bool   = bool(e["team"])
+		var et: float     = float(e["time"])
+
+		var time_txt: String
+		var gap_txt: String
+		if et < 0.0:
+			time_txt = "—"
+			gap_txt  = ""
+		elif i == 0:
+			time_txt = _fmt_laptime(sim.track.base_laptime + et) if sim != null else "—"
+			gap_txt  = ""
+		else:
+			time_txt = "—" if et < 0.0 else ("+%.3f" % (et - leader_time))
+			gap_txt  = ""
+
+		var display_col: String
+		if dteam:
+			display_col = Palette.GOLD_HEX if int(e["id"]) == 4 else Palette.P6_HEX
+		else:
+			display_col = dcol
+
+		# Dimmer colour for below-cut-line entries
+		if i >= cut_pos:
+			display_col = Palette.FINE_HEX
+
+		lbl.text = "[color=%s]P%-2d  %-14s  %-12s[/color]" % [
+			display_col, pos, dname.substr(0, 14), time_txt]
+
+	# Update status labels on the player cards
+	_update_quali_car_status()
+
+func _update_quali_car_status() -> void:
+	for car_id in [4, 5]:
+		var slbl: Label = _quali_p5_status if car_id == 4 else _quali_p6_status
+		if slbl == null:
+			continue
+		var did: int = car_id
+		var t: float = float(quali_sim.times.get(did, -1.0))
+		var rc: int  = int(quali_sim._run_count.get(did, 0))
+		var is_elim: bool = quali_sim.eliminated.has(did)
+		var txt: String
+		var col: String
+		if is_elim:
+			txt = "Выбыли"
+			col = Palette.FINE_HEX
+		elif rc == 0:
+			var rt: float = float(quali_sim._run_time.get(did, QualiSim.SEG_DURATION))
+			if quali_sim.elapsed >= rt:
+				txt = "На круге…"
+				col = Palette.INFO_HEX
+			else:
+				txt = "Ожидает старта сегмента"
+				col = Palette.MUTED_HEX
+		elif rc >= 1 and t >= 0.0:
+			if t < 0.0:
+				txt = "Испорченная попытка!"
+				col = Palette.DANG_HEX
+			else:
+				txt = "Лучшее: %s" % _fmt_laptime(sim.track.base_laptime + t if sim != null else t)
+				col = Palette.GOOD_HEX
+		else:
+			txt = "На круге…"
+			col = Palette.INFO_HEX
+		slbl.text = "Статус: " + txt
+		slbl.add_theme_color_override("font_color", Color(col))
+
+# Called when quali_sim.finished is set — freeze the display, start 2-s delay.
+func _on_quali_finished_display() -> void:
+	if _quali_seg_label != null:
+		_quali_seg_label.text = "КВАЛИФИКАЦИЯ ЗАВЕРШЕНА"
+		_quali_seg_label.add_theme_color_override("font_color", Palette.GOLD)
+
+# Apply a quali snapshot received from the host (client side).
+func _apply_quali_snapshot(payload: Dictionary) -> void:
+	# On the client we just store it; the HUD update is minimal (no local QualiSim).
+	# We update the clock label and overlay if visible.
+	if _quali_clock_label == null:
+		return
+	var rem: float = maxf(0.0, float(payload.get("seg_duration", 240.0)) - float(payload.get("elapsed", 0.0)))
+	var m: int = int(rem) / 60
+	var s: int = int(rem) % 60
+	_quali_clock_label.text = "%d:%02d" % [m, s]
+	if _quali_prog_bar != null:
+		_quali_prog_bar.value = float(payload.get("elapsed", 0.0))
+	var seg_idx: int = int(payload.get("segment", 0))
+	if _quali_seg_label != null:
+		_quali_seg_label.text = "КВАЛИФИКАЦИЯ — Q%d" % (seg_idx + 1)
+	if bool(payload.get("finished", false)) and quali_phase:
+		_finish_quali_phase()
+
+func _finish_quali_phase() -> void:
+	if not quali_phase:
+		return
+	quali_phase = false
+	if quali_sim != null:
+		# Apply interactive results to the sim (overwrites _run_qualifying output).
+		quali_sim.apply_to_sim(sim)
+		# Broadcast final classification to client.
+		if game_mode == "host" and partner_connected:
+			net_quali_rows.rpc(build_quali_rows(sim))
+	# Remove the quali overlay.
+	if _quali_overlay != null:
+		_quali_overlay.queue_free()
+		_quali_overlay = null
+	quali_sim = null
+	# Open the tyre-choice modal (pre_race_open remains true until the user clicks GO).
+	_show_prerace_modal()
+
+func _on_quali_window(car_id: int, window: String, row: HBoxContainer) -> void:
+	if not _player_choices.has(car_id):
+		_player_choices[car_id] = {"window": "mid", "mode": "bank", "second_requested": false}
+	_player_choices[car_id]["window"] = window
+	if quali_sim != null:
+		var mode: String = String(_player_choices[car_id].get("mode", "bank"))
+		quali_sim.set_player_choice(car_id, window, mode)
+	if game_mode == "client":
+		var mode2: String = String(_player_choices[car_id].get("mode", "bank"))
+		net_quali_choice.rpc_id(1, car_id, window, mode2)
+	# Highlight active button
+	for b in row.get_children():
+		if b is Button:
+			b.set_pressed_no_signal(false)
+	# The pressed button is already toggled by Godot; refresh to ensure exclusivity
+	for i in row.get_child_count():
+		var b: Node = row.get_child(i)
+		if b is Button:
+			var labels: Array = [["Рано", "early"], ["Середина", "mid"], ["Поздно", "late"]]
+			var lbl_txt: String = String((b as Button).text)
+			for ls in labels:
+				if String(ls[0]) == lbl_txt:
+					(b as Button).set_pressed_no_signal(String(ls[1]) == window)
+
+func _on_quali_mode(car_id: int, mode: String, row: HBoxContainer) -> void:
+	if not _player_choices.has(car_id):
+		_player_choices[car_id] = {"window": "mid", "mode": "bank", "second_requested": false}
+	_player_choices[car_id]["mode"] = mode
+	if quali_sim != null:
+		var window2: String = String(_player_choices[car_id].get("window", "mid"))
+		quali_sim.set_player_choice(car_id, window2, mode)
+	if game_mode == "client":
+		var window3: String = String(_player_choices[car_id].get("window", "mid"))
+		net_quali_choice.rpc_id(1, car_id, window3, mode)
+	for i in row.get_child_count():
+		var b: Node = row.get_child(i)
+		if b is Button:
+			var labels2: Array = [["Банк", "bank"], ["Атака", "attack"]]
+			var lbl_txt2: String = String((b as Button).text)
+			for ls2 in labels2:
+				if String(ls2[0]) == lbl_txt2:
+					(b as Button).set_pressed_no_signal(String(ls2[1]) == mode)
+
+func _on_quali_simulate_to_end() -> void:
+	if quali_sim == null:
+		return
+	while not quali_sim.finished:
+		quali_sim.tick(STEP)
+	_update_quali_hud()
+	_on_quali_finished_display()
+	_quali_result_timer = 2.0
+
+func _on_quali_skip() -> void:
+	# Instant path: use _run_qualifying results already computed in RaceSim._init.
+	# Remove the overlay and go straight to the tyre-choice modal.
+	quali_phase = false
+	quali_sim = null
+	if _quali_overlay != null:
+		_quali_overlay.queue_free()
+		_quali_overlay = null
+	_show_prerace_modal()
+
+# ============================================================================
 #  PRE-RACE TYRE MODAL  («Квалификация и стартовая резина»)
 # ============================================================================
 
@@ -1627,7 +2192,13 @@ func _show_prerace_modal() -> void:
 	# ---- Modal title ----
 	var tname: String = sim.track.name if sim != null else "Трасса"
 	var title := Label.new()
-	title.text = "КВАЛИФИКАЦИЯ И СТАРТОВАЯ РЕЗИНА — %s" % tname
+	# When reached via interactive qualifying, show only the tyre section title.
+	var modal_title: String
+	if quali_sim == null and not quali_phase:
+		modal_title = "СТАРТОВАЯ РЕЗИНА — %s" % tname
+	else:
+		modal_title = "КВАЛИФИКАЦИЯ И СТАРТОВАЯ РЕЗИНА — %s" % tname
+	title.text = modal_title
 	title.add_theme_font_size_override("font_size", 20)
 	title.add_theme_color_override("font_color", ACCENT)
 	title.add_theme_font_override("font", Palette.display_font(600, 2))

@@ -1383,6 +1383,26 @@ func _on_lap_complete(d: Driver) -> void:
 		d.pit_count += 1
 		d.ai_pit_wear = _strat_pit_wear(d)
 
+# Apply results from an interactive QualiSim session to this sim.
+# Overwrites quali_times, quali_grid and per-driver positional state exactly
+# like the tail of _run_qualifying.  Guard: only callable before the first tick.
+# Does NOT consume rng — reads/writes only the qualifying result fields.
+func apply_quali_results(grid_ids: Array, times_dict: Dictionary) -> void:
+	if _started:
+		return
+	quali_times = times_dict.duplicate()
+	quali_grid  = []
+	var n: int = grid_ids.size()
+	for gp in n:
+		var did: int = int(grid_ids[gp])
+		quali_grid.append(did)
+		var d: Driver = get_driver_by_id(did)
+		if d == null:
+			continue
+		d.grid_pos  = gp + 1
+		d.lap_frac  = float(n - 1 - gp) * GRID_GAP
+		d.tyre_temp = TYRE_TEMP_GRID
+
 # Pre-race starting compound (the co-directors' joint call). Only before the
 # first tick, only team cars, slicks only (races always start dry).
 func set_start_compound(car_id: int, comp: String) -> void:
