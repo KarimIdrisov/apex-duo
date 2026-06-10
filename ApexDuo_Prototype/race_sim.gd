@@ -292,6 +292,15 @@ class Driver:
 	var mini_entry_time: float = -1.0     # elapsed when entered current mini-sector
 	var mini_times_this_lap: Array = []   # size 17; -1.0 = not yet done this lap
 	var mini_best: Array = []             # size 17; personal best per mini
+	# --- AI brain v2 (Phase 1): attack patience ---
+	var attack_laps: int = 0       # consecutive laps camped within attack range
+	var attack_backed: bool = false  # stalled attack abandoned — strike at the stops
+	var atk_latch: bool = false    # fight is live: hysteresis floor stays at the
+	                               # release threshold across non-DRS (banking) sectors
+	var follow_pen: float = 0.0    # this tick's net following term (dirty air − slipstream)
+	var da_pen: float = 0.0        # dirty-air part only — excluded from the M-A2 stall
+	                               # edge (an armed Overtake waives it); the tow stays in
+	var edge_ema: float = 0.0      # lap-smoothed fight pace edge on the car ahead
 	func progress() -> float:
 		return float(lap) + lap_frac
 	# 0..1 progress through the pit stop (for the minimap pit-lane animation).
@@ -637,14 +646,16 @@ func _race_start() -> void:
 # the corners (worse on high-downforce / low-overtaking tracks) unless its Overtake
 # boost is firing. Models the 2026 following deficit the hold-up model only implied.
 func _m_following(d: Driver, ahead_gap: float) -> float:
+	d.da_pen = 0.0
 	if ahead_gap < 0.0:
 		return 0.0
 	var net := 0.0
 	# Dirty air: corner-downforce loss in the close zone (high-downforce / low-
 	# overtaking tracks), unless the Overtake boost is firing.
 	if ahead_gap < DA_THRESH and not _ot_effective(d, ahead_gap):
-		net += (DA_THRESH - ahead_gap) * DA_COEF \
+		d.da_pen = (DA_THRESH - ahead_gap) * DA_COEF \
 			* maxf(0.0, 0.5 + track.downforce * 1.4 - track.overtaking)
+		net += d.da_pen
 	# Slipstream tow: a straight-line GAIN in a wider zone on high-power / high-
 	# overtaking tracks (Monza/Baku). The chaser closes up and gets a run — this is
 	# what actually creates wheel-to-wheel racing there, instead of the field
@@ -700,7 +711,8 @@ func current_laptime(d: Driver, ahead_gap: float = -1.0) -> float:
 	# car character: a power-biased car gains on power circuits and loses on
 	# downforce ones (and vice-versa) — net zero on an average track.
 	lt -= (d.car_power - d.car_aero) * (track.power - track.downforce) * CAR_K
-	lt += _m_following(d, ahead_gap)
+	d.follow_pen = _m_following(d, ahead_gap)
+	lt += d.follow_pen
 	lt += d.aero_damage * DMG_K        # floor/wing damage until repaired in the pits
 	lt += COMPOUNDS[d.compound]["pace"]
 	lt += PACE_MODES[d.pace_mode]["pace"]
@@ -874,9 +886,31 @@ func _situational_pace(d: Driver, ahead_gap: float) -> String:
 	var c: Dictionary = COMPOUNDS[d.compound]
 	if d.tire_wear > c["cliff"] - 6.0 or (d.tire_wear > 55.0 and _attr(d, "tyre") < 0.55):
 		return "conserve"
+	# M-A2: attack abandoned — drop out of the dirty air, bank tyre life for the stops.
+	if d.attack_backed:
+		return "conserve" if d.tire_wear > 30.0 else "balanced"
 	if ahead_gap >= 0.0 and ahead_gap < 1.6 and _attr(d, "aggression") > 0.62:
 		return "push"
 	return "balanced"
+
+# True where arming Overtake/attack pays off: in a DRS sector or on the run-up
+# to one (the boost itself is sector-gated in _ot_effective; arming elsewhere
+# just burns SoC for nothing).
+func _drs_armable(d: Driver) -> bool:
+	if track.sector_chars.is_empty():
+		return true
+	if bool(track.sector_chars[d.cur_sector].get("drs", false)):
+		return true
+	var nsi: int = (d.cur_sector + 1) % 3
+	return bool(track.sector_chars[nsi].get("drs", false)) and _sector_frac(d) > 0.8
+
+# Laps a driver will sit in attack range before giving up a stalled attack.
+# Patient racers (race_iq + composure) wait long; overcommitters (aggression
+# over discipline — and most rookies) keep lunging every lap.
+func _patience_laps(d: Driver) -> int:
+	var p := 2.0 + _attr(d, "race_iq") * 2.0 + _attr(d, "composure") * 2.0 \
+		- clampf(_attr(d, "aggression") - _attr(d, "discipline"), 0.0, 1.0) * 2.0
+	return maxi(1, int(p))
 
 # Natural energy / overtake choice from the race situation.
 func _situational_energy(d: Driver, ahead_gap: float, behind_gap: float) -> void:
@@ -886,22 +920,59 @@ func _situational_energy(d: Driver, ahead_gap: float, behind_gap: float) -> void
 	# at ~39% and toggle boost mode constantly). Aggressive drivers attack on a
 	# thinner reserve and hold the boost longer; cautious drivers bank more.
 	var aggr := _attr(d, "aggression")
-	var attacking := d.ers_mode == "attack"
+	# atk_latch keeps the fight "live" across non-DRS (banking) sectors, where
+	# M-A1 parks ers_mode at balanced — without it the engage threshold would
+	# reset every sector and the attack could never re-arm on drained tracks.
+	var attacking := d.ers_mode == "attack" or d.atk_latch
 	var atk_on := 56.0 - aggr * 10.0          # engage attack: ~46..56
 	var atk_off := 34.0 - aggr * 8.0          # release attack: ~26..34
 	var floor_soc := atk_off if attacking else atk_on
-	if d.soc_avg < 24.0:
+	var hard_floor := 24.0
+	# M-A3: final laps — banked energy is worthless at the flag. The reserve
+	# floor melts away: 3 laps left -> 50%, 2 -> 25%, last lap -> all-in (12%).
+	var laps_left := track.laps - d.lap
+	if laps_left <= 3:
+		var dump_k := maxf(0.0, float(laps_left) - 1.0) / 4.0
+		floor_soc = 12.0 + (floor_soc - 12.0) * dump_k
+		hard_floor = 14.0
+	# Committed fighters (camped 1+ laps) work with a lower SoC bar and a
+	# slightly wider window: the engage thresholds were tuned for cruising,
+	# but a driver already in the fight commits deliberately (2026: harvest
+	# in the tow, then deploy in the zone).
+	var committed := d.attack_laps >= 1
+	if committed:
+		floor_soc = minf(floor_soc, atk_off + 10.0)
+	var window := OT_GAP_S * (1.3 if committed else 1.0)
+	var in_fight := ahead_gap >= 0.0 and ahead_gap < window \
+		and aggr > 0.45 and not d.attack_backed
+	if d.soc_avg < hard_floor:
 		d.ers_mode = "harvest"
 		d.overtake = false
-	elif ahead_gap >= 0.0 and ahead_gap < OT_GAP_S and d.soc_avg > floor_soc and aggr > 0.45:
-		d.ers_mode = "attack"
-		d.overtake = true
+		d.atk_latch = false
+	elif in_fight:
+		# M-A1: arm the attack only where the boost can fire (DRS sectors +
+		# the run-up to one) and with the battery ready.
+		if _drs_armable(d) and d.soc_avg > floor_soc:
+			d.ers_mode = "attack"
+			d.overtake = true
+			d.atk_latch = true
+		else:
+			# Not attacking right now (banking sector or battery not ready):
+			# actively charge for the zone; the latch keeps the fight live —
+			# unless the spell's charge is spent (below atk_off): then the
+			# next engage must climb the full bar again (no flapping).
+			if d.soc_avg <= atk_off:
+				d.atk_latch = false
+			d.ers_mode = "harvest" if d.soc_avg < atk_on else "balanced"
+			d.overtake = false
 	elif behind_gap >= 0.0 and behind_gap < OT_GAP_S and d.soc_avg > floor_soc + 12.0:
 		d.ers_mode = "attack"
 		d.overtake = false
+		d.atk_latch = false
 	else:
 		d.ers_mode = "balanced"
 		d.overtake = false
+		d.atk_latch = false
 	# Sector lookahead: approaching end of sector, next sector is DRS, SoC low → harvest now.
 	if not track.sector_chars.is_empty() and not d.clipped:
 		var next_si: int = (d.cur_sector + 1) % 3
@@ -1533,6 +1604,41 @@ func _on_lap_complete(d: Driver) -> void:
 		d.trust_last_pos = pos
 		_driver_radio(d)
 	d.had_incident = false
+	# M-A2: attack patience — count laps camped in attack range; a stalled
+	# attack (pass credit not building toward the track's resistance) gets
+	# abandoned: sit back, save the car, strike at the stops. Re-engage when
+	# the picture changes (target pits/errs, fresh-tyre edge, race runs out).
+	var ahd := _car_ahead(d)
+	var fight_gap := -1.0
+	var raw_edge := 0.0            # + = faster in fight terms: dirty air removed
+	if ahd != null:                # (Overtake waives it) but the tow kept — at Monza
+		# the slipstream is exactly what makes a pass possible without a clean edge
+		fight_gap = (ahd.progress() - d.progress()) * track.base_laptime
+		raw_edge = (ahd.last_lt - ahd.power_cut_pen - ahd.da_pen) \
+			- (d.last_lt - d.power_cut_pen - d.da_pen)
+	if fight_gap >= 0.0 and fight_gap < OT_GAP_S * 1.5:
+		d.edge_ema = d.edge_ema * 0.5 + raw_edge * 0.5
+	else:
+		d.edge_ema = 0.0
+	# Stall threshold scales with how hard passing is here: at Monaco only a
+	# big clean edge justifies grinding past patience; at Monza near-parity
+	# plus the tow is enough to keep working the car ahead.
+	var stall_edge := maxf(0.0, 0.30 - track.overtaking * 0.30)
+	if d.attack_backed:
+		if ahd == null or fight_gap > 3.0 or ahd.pit_timer > 0.0 \
+				or d.tyre_laps <= 2 or ahd.tire_wear - d.tire_wear >= 15.0 \
+				or raw_edge >= 0.5 or track.laps - d.lap <= 3:
+			d.attack_backed = false
+			d.attack_laps = 0
+	elif fight_gap >= 0.0 and fight_gap < OT_GAP_S * 1.5:
+		d.attack_laps += 1
+		if d.attack_laps > _patience_laps(d) and d.edge_ema < stall_edge:
+			d.attack_backed = true
+			if d.team and d.radio_cd <= 0:
+				_emit("%s по радио: «его не пройти — возьмём на питах»" % d.name, "radio")
+				d.radio_cd = 5
+	else:
+		d.attack_laps = 0
 	if d.is_player:
 		d.obey = _roll_obey(d)        # decide compliance for the new lap
 	var do_pit := false
