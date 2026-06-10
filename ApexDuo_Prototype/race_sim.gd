@@ -239,6 +239,9 @@ class Driver:
 	var pit_request_compound: String = ""
 	var finished: bool = false
 	var finish_time: float = -1.0
+	var finish_key: float = 0.0    # classification: shared-timeline instant the
+	                               # finish line was crossed (sub-tick precise);
+	                               # finish_time is kept for gap display only
 	var pit_timer: float = 0.0     # >0 = in pit lane / stalled, distance frozen
 	var ai_pit_wear: float = 0.0
 	var yield_laps: int = 0        # team order: ease off to let teammate through
@@ -299,6 +302,8 @@ class Driver:
 	                               # release threshold across non-DRS (banking) sectors
 	var pressure: float = 0.0      # 0..1 hunted-pressure: builds under a sustained
 	                               # threat behind, decays by composure; raises error risk
+	var cover_pit: bool = false    # M-S1: strategist calls a stop to cover a rival's pit
+	var pit_plan: int = 1          # M-S2: planned stops (2 where wear maths demand it)
 	var follow_pen: float = 0.0    # this tick's net following term (dirty air − slipstream)
 	var da_pen: float = 0.0        # dirty-air part only — excluded from the M-A2 stall
 	                               # edge (an armed Overtake waives it); the tow stays in
@@ -424,6 +429,7 @@ var sc_active: bool = false
 var wetness: float = 0.0             # 0..1 track wetness (0 = dry)
 var race_frac: float = 0.0           # 0..1 race completion (leader) — drives track rubbering-in
 var passes_on_straight: int = 0      # diagnostics: how many completed passes happened on a straight
+var covers_called: int = 0           # diagnostics: undercut-cover calls made (M-S1)
 var wet_start: float = 1.1           # race fraction the rain starts (>1 = stays dry)
 var wet_end: float = 1.2             # race fraction the rain stops
 var wet_peak: float = 0.7            # peak wetness of the shower
@@ -460,6 +466,14 @@ func _init(track_in: Track, drivers_in: Array, seed_value: int = 12345) -> void:
 	for d in drivers:
 		d.fuel_laps = float(track.laps)
 		d.ai_pit_wear = _strat_pit_wear(d)
+		# M-S2: plan two stops where the wear maths demand it (abrasive track
+		# identity); only a competent strategist commits to the aggressive plan.
+		# The 2-stop target splits the race into ~3 stints (flat -12 was not
+		# enough: stint 2 never reached the standard window before the flag).
+		var wpl: float = COMPOUNDS[d.compound]["wear"] * track.abrasion * d.wear_mult
+		if float(track.laps) * wpl / 62.0 > 1.6 and d.strat_skill > 0.55:
+			d.pit_plan = 2
+			d.ai_pit_wear = clampf(float(track.laps) * wpl / 3.0 * 1.15, 36.0, d.ai_pit_wear)
 		# initialise per-lap deploy budget for this track (energy rework v0.4)
 		d.deploy_budget = DEPLOY_BUDGET_BASE * track.energy_limit
 	# Run qualifying (populates quali_times, quali_grid, grid_pos, lap_frac, tyre_temp).
@@ -882,6 +896,15 @@ func _ai_energy(d: Driver, ahead_gap: float, behind_gap: float) -> void:
 		return
 	d.pace_mode = _situational_pace(d, ahead_gap)
 	_situational_energy(d, ahead_gap, behind_gap)
+	# M-S3: the race leader manages the gap, not flat-out — with a 4s+ cushion
+	# and healthy tyres he cruises (saves tyres, banks battery); racing resumes
+	# when the cushion shrinks. Never in the final laps.
+	if ahead_gap < 0.0 and behind_gap > 4.0 and track.laps - d.lap > 5 \
+			and d.tire_wear < float(COMPOUNDS[d.compound]["cliff"]) - 12.0:
+		if d.pace_mode == "balanced":
+			d.pace_mode = "conserve"
+		if d.ers_mode == "balanced" and d.soc_avg < 70.0:
+			d.ers_mode = "harvest"
 
 # Natural pace choice from tyres + chasing + aggression.
 func _situational_pace(d: Driver, ahead_gap: float) -> String:
@@ -1255,17 +1278,32 @@ func speed_kmh(d: Driver) -> float:
 # Returns drivers sorted by race position. Finished cars rank by finish time;
 # the rest by track progress.
 func order() -> Array:
-	var arr := drivers.duplicate()
-	arr.sort_custom(_cmp_position)
+	# Manual insertion sort. On Godot 4.6.3 BOTH sort_custom(bound-method
+	# Callable) and Array.sort() over nested-array keys came back UNSORTED
+	# here (lambda comparators do work — see _update_safety_car); plain
+	# method calls are always safe. n=22 → O(n²) is nothing; deterministic
+	# via the id tie-break in _cmp_position.
+	var arr: Array = []
+	for d in drivers:
+		var i := 0
+		while i < arr.size() and not _cmp_position(d, arr[i]):
+			i += 1
+		arr.insert(i, d)
 	return arr
 
-# Race-position comparator: finished cars by finish time, then by track progress.
+# Race-position comparator (strict total order): finished cars by the
+# crossing instant (finish_key — finish_time is display-only), then running
+# cars by track progress; unique id breaks all ties.
 func _cmp_position(a: Driver, b: Driver) -> bool:
-	if a.finished and b.finished:
-		return a.finish_time < b.finish_time
 	if a.finished != b.finished:
 		return a.finished
-	return a.progress() > b.progress()
+	if a.finished:
+		if a.finish_key != b.finish_key:
+			return a.finish_key < b.finish_key
+		return a.id < b.id
+	if a.progress() != b.progress():
+		return a.progress() > b.progress()
+	return a.id < b.id
 
 func step(dt: float) -> void:
 	if finished:
@@ -1314,6 +1352,7 @@ func step(dt: float) -> void:
 				d.finished = true
 				d.dnf = true
 				d.finish_time = 100000.0 - float(d.lap)   # classified behind finishers
+				d.finish_key = 1.0e9 - float(d.lap)
 				_emit("%s: сход — отказ техники." % d.name, "dnf")
 				continue
 		var _sector_prev := d.lap_frac
@@ -1366,6 +1405,10 @@ func step(dt: float) -> void:
 				d.yield_laps -= 1
 			if d.lap >= track.laps:
 				d.finished = true
+				# Classification key: back out the overshoot to the sub-tick
+				# instant the line was crossed. finish_time (own elapsed) is
+				# distorted by the SC catch-up physics — display only.
+				d.finish_key = elapsed - clampf(d.lap_frac, 0.0, 1.0) * maxf(d.last_lt, 1.0)
 				d.lap_frac = 0.0
 				d.finish_time = elapsed
 				# Two-compound rule: in a dry race, at least two different slick
@@ -1378,6 +1421,7 @@ func step(dt: float) -> void:
 							slicks_used += 1
 					if slicks_used < 2:
 						d.finish_time += 20.0
+						d.finish_key += 20.0
 						_emit("%s: +20 с — не использованы два состава шин (правило)." % d.name, "penalty")
 				break
 			_on_lap_complete(d)
@@ -1518,6 +1562,7 @@ func _driver_incident(d: Driver) -> void:
 		d.finished = true
 		d.dnf = true
 		d.finish_time = 100000.0 - float(d.lap)
+		d.finish_key = 1.0e9 - float(d.lap)
 		_emit("%s: тяжёлый вылет — сход!" % d.name, "dnf")
 		_trigger_incident_sc(d.lap, "%s — тяжёлый сход, уборка машины" % d.name)
 
@@ -1684,8 +1729,9 @@ func _on_lap_complete(d: Driver) -> void:
 			d.pitting = false
 	else:
 		var laps_left := track.laps - d.lap
-		var want_pit := (d.tire_wear >= d.ai_pit_wear and laps_left > 6 and d.pit_count == 0) \
-				or (d.tire_wear >= 92.0 and laps_left > 3)
+		var want_pit := (d.tire_wear >= d.ai_pit_wear and laps_left > 6 and d.pit_count < d.pit_plan) \
+				or (d.tire_wear >= 92.0 and laps_left > 3) \
+				or d.cover_pit
 		# Mandatory-stop rule (dry): the AI never runs flag-to-flag on low wear —
 		# it banks the required stop late (two-compound rule, sim side; player-side
 		# enforcement arrives with the pre-race tyre-choice UI).
@@ -1706,6 +1752,10 @@ func _on_lap_complete(d: Driver) -> void:
 				new_comp = "medium"
 			else:
 				new_comp = "soft"
+			# M-S2: a 2-stop first stop fits rubber for the STINT, not the
+			# flag — a hard here would last to the end and eat the plan.
+			if d.pit_plan == 2 and d.pit_count == 0:
+				new_comp = "medium" if laps_left > 16 else "soft"
 			if wetness > 0.70:
 				new_comp = "wet"
 			elif wetness > 0.38:
@@ -1748,7 +1798,28 @@ func _on_lap_complete(d: Driver) -> void:
 			d.compounds_used.append(new_comp)
 		_emit("%s — пит-стоп (%s)" % [d.name, new_comp.capitalize()], "pit")
 		d.pit_count += 1
+		d.cover_pit = false
 		d.ai_pit_wear = _strat_pit_wear(d)
+		# M-S2: while the 2-stop plan still owes a stop, keep the stint-sized
+		# target (the standard ~62 window would not come around again in time).
+		if d.pit_count < d.pit_plan:
+			var wpl_now: float = COMPOUNDS[d.compound]["wear"] * track.abrasion * d.wear_mult
+			d.ai_pit_wear = clampf(float(track.laps) * wpl_now / 3.0 * 1.15, 36.0, d.ai_pit_wear)
+		# M-S1: undercut cover — rivals in this car's pit window may react
+		# (chance scales with their strategist; a weak one misses the call).
+		# Player cars never auto-cover: their stops are their own call.
+		var lapsleft_now := track.laps - d.lap
+		for o in drivers:
+			if o == d or o.finished or o.is_player or o.cover_pit:
+				continue
+			if o.pit_count > 0 or o.tire_wear < 38.0 or lapsleft_now <= 8:
+				continue
+			var gp: float = absf(o.progress() - d.progress()) * track.base_laptime
+			if gp < 3.0 and rng.unit() < 0.35 + 0.55 * o.strat_skill:
+				o.cover_pit = true
+				covers_called += 1
+				if o.team:
+					_emit("%s: накрываем андеркат — в боксы на следующем круге!" % o.name, "pit")
 
 # Apply results from an interactive QualiSim session to this sim.
 # Overwrites quali_times, quali_grid and per-driver positional state exactly
