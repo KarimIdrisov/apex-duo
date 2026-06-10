@@ -25,8 +25,9 @@ func _initialize() -> void:
 	print("=== done ===")
 	quit()
 
-func _setup(d, track) -> void:
+func _setup(d, _track) -> void:
 	d.soc = 55.0
+	d.soc_avg = 55.0       # v0.6: attack ERS pace gates on soc_avg, not a budget
 	d.clipped = false
 	d.tyre_temp = 0.55
 	d.tire_wear = 25.0
@@ -39,7 +40,6 @@ func _setup(d, track) -> void:
 	d.car_power = 0.78
 	d.car_aero = 0.78
 	d.skill = 0.80
-	d.deploy_budget = 8.5 * track.energy_limit
 	d.attrs["wet"] = 13.0
 
 func _avg(sim, d) -> float:

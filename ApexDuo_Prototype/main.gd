@@ -469,10 +469,8 @@ func _make_snapshot() -> Dictionary:
 				"dir_pace": d.dir_pace, "dir_intent": d.dir_intent,
 			"soc": d.soc, "ers": d.ers_mode, "overtake": d.overtake, "clipped": d.clipped,
 			"color": d.color, "slot": d.slot, "state": _car_state(d), "dnf": d.dnf, "pit_phase": d.pit_phase(),
-			"deploy_budget": d.deploy_budget,
-			"deploy_budget_max": RaceSim.DEPLOY_BUDGET_BASE * sim.track.energy_limit,
 			"last_lap": d.last_lap, "best_lap": d.best_lap, "tyre_laps": d.tyre_laps, "speed": sim.speed_kmh(d),
-				"trust": d.trust, "mood": d.mood, "power_cut": d.power_cut,
+				"trust": d.trust, "mood": d.mood,
 			# Task B: partner-intent fields for the co-op transparency HUD.
 			"pitting": d.pitting, "pit_request_compound": d.pit_request_compound,
 		})
@@ -516,10 +514,8 @@ func _collect_entries() -> Array:
 				"dir_pace": d.dir_pace, "dir_intent": d.dir_intent,
 			"soc": d.soc, "ers": d.ers_mode, "overtake": d.overtake, "clipped": d.clipped,
 			"color": d.color, "slot": d.slot, "state": _car_state(d), "dnf": d.dnf, "pit_phase": d.pit_phase(),
-			"deploy_budget": d.deploy_budget,
-			"deploy_budget_max": RaceSim.DEPLOY_BUDGET_BASE * sim.track.energy_limit,
 			"last_lap": d.last_lap, "best_lap": d.best_lap, "tyre_laps": d.tyre_laps, "speed": sim.speed_kmh(d),
-				"trust": d.trust, "mood": d.mood, "power_cut": d.power_cut,
+				"trust": d.trust, "mood": d.mood,
 			# Task B: partner-intent fields.
 			"pitting": d.pitting, "pit_request_compound": d.pit_request_compound,
 		})
@@ -606,8 +602,8 @@ func _update_hud() -> void:
 		else:
 			row["speed"].text = str(spd)
 			var scol: Color = Color("#cdd4df")
-			if e.get("power_cut", false):
-				scol = Color("#ff8c42")            # power-limited on the straight (out of deploy budget)
+			if e.get("clipped", false):
+				scol = Color("#ff8c42")            # battery spent (clipping) — no electric boost
 			elif e.get("overtake", false):
 				scol = Color("#5dd17a")
 			row["speed"].add_theme_color_override("font_color", scol)
@@ -766,21 +762,6 @@ func _update_panels(entries: Array) -> void:
 		if p.has("soc_bar"):
 			p["soc_bar"].value = float(e.get("soc", 0.0))
 			p["soc_bar"].modulate = _soc_color(e)
-			# per-lap deploy budget bar
-			if p.has("deploy_bar"):
-				var db: ProgressBar = p["deploy_bar"]
-				var dmax: float = float(e.get("deploy_budget_max", RaceSim.DEPLOY_BUDGET_BASE))
-				var dval: float = float(e.get("deploy_budget", dmax))
-				if dmax > 0.0:
-					db.max_value = dmax
-					db.value = dval
-					var dfrac: float = dval / dmax
-					if dfrac >= 0.60:
-						db.modulate = Color("#5dd17a")
-					elif dfrac >= 0.20:
-						db.modulate = Color("#f2c14e")
-					else:
-						db.modulate = Color("#e23b3b")
 			for em in p["ers_buttons"]:
 				var eb: Button = p["ers_buttons"][em]
 				eb.modulate = Color.WHITE if String(e.get("ers", "")) == em else Color(0.55, 0.55, 0.55)
@@ -1658,20 +1639,8 @@ func _make_panel(car_id: int, role: String, dname: String) -> Control:
 	soc_bar.add_theme_stylebox_override("fill", Palette.bar_fill(Palette.GOOD))
 	soc_bar.add_theme_stylebox_override("background", Palette.bar_bg())
 	v.add_child(soc_bar)
-
-	# 2026 per-lap deploy budget bar — shows how much electric deployment remains this lap.
-	var deploy_hdr := _mklabel(14, Palette.MUTED_HEX, "ЗАПАС ДЕПЛОЯ (КРУГ):")
-	deploy_hdr.add_theme_font_override("font", Palette.display_font(600, 1))
-	v.add_child(deploy_hdr)
-	var deploy_bar := ProgressBar.new()
-	deploy_bar.min_value = 0.0
-	deploy_bar.max_value = RaceSim.DEPLOY_BUDGET_BASE   # default; updated each frame via max_value
-	deploy_bar.value = RaceSim.DEPLOY_BUDGET_BASE
-	deploy_bar.show_percentage = false
-	deploy_bar.custom_minimum_size = Vector2(0, 12)
-	deploy_bar.add_theme_stylebox_override("fill", Palette.bar_fill(Palette.INFO))
-	deploy_bar.add_theme_stylebox_override("background", Palette.bar_bg())
-	v.add_child(deploy_bar)
+	# (v0.6: per-lap deploy budget bar removed — the SoC gauge above is the single
+	# energy readout now; the store cycles continuously instead of a per-lap budget.)
 
 	v.add_child(_mklabel(14, "#9aa4b2", "Режим ERS:"))
 	var ers_row := _row_box()
@@ -1717,7 +1686,7 @@ func _make_panel(car_id: int, role: String, dname: String) -> Control:
 		"id": car_id, "role": role, "tire_label": tire,
 		"wear_bar": bar, "call_buttons": call_buttons,
 		"trust_label": trust_label, "trust_bar": trust_bar, "mood_label": mood_label,
-		"soc_bar": soc_bar, "deploy_bar": deploy_bar,
+		"soc_bar": soc_bar,
 		"ers_buttons": ers_buttons, "ot_button": ot_btn,
 		"partner_label": partner_label, "crew_label": crew_label, "stack_label": stack_label,
 	})

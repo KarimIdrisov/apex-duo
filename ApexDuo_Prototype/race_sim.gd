@@ -43,29 +43,44 @@ const ERS_MODES := {
 }
 
 # Energy tuning (locked by the Python balance harness).
-const CLIP_PENALTY := 0.55     # s/lap lost when battery spent  (× 0.6 + 0.8·power)
+const CLIP_PENALTY := 0.32     # s/lap lost when battery spent  (× 0.6 + 0.8·power)
+								# v0.6: clipping is now a RARE event, so the sting is
+								# "annoying, not race-ending" (was 0.55).
 const OT_PACE := -0.55         # s/lap Overtake boost           (× 0.6 + 0.8·power)
 const SETUP_PEN := 0.45        # s/lap at setup_q=0 — car-setup miss penalty
                                # (max < CAR_K track-character swing: setup matters,
                                # never dominates; perfect setup = 0)
-# --- 2026 store dynamics (energy rework v0.5) --------------------------------
-# The 4 MJ store cycles WITHIN a lap (real 2026: full deploy empties it in
-# ~11 s; braking regen refills it more than once per lap), so the battery
-# visibly "breathes": down the straights, up through the braking zones.
-# Rates below are %/s of the store (× dt) — NOT %/lap like the old model.
-const SOC_DEPLOY_PS := {"harvest": 0.8, "balanced": 3.6, "attack": 5.5}
-const SOC_EL_SCALE0 := 0.4     # deploy-rate floor of the energy_limit scaling
+# --- 2026 store dynamics (energy rework v0.6) --------------------------------
+# ONE cycling store (the v0.4 deploy_budget counter was DELETED — it double-
+# counted deploy and disagreed with soc, the diagnosed root cause). The 4 MJ
+# store cycles WITHIN a lap so the battery visibly "breathes": down the
+# straights (deploy), up through the braking zones (regen). Rates are %/s (× dt).
+# v0.6 fix: deploy is rationed HARD on low-energy_limit power tracks via a
+# squared el_scale, and regen has a floor so power tracks aren't double-starved —
+# so balanced no longer pins at zero on Монца (was 40% of the lap clipped).
+const SOC_DEPLOY_PS := {"harvest": 0.6, "balanced": 2.7, "attack": 4.6}
+const SOC_EL_SCALE0 := 0.20    # deploy-rate floor of the energy_limit scaling
+const SOC_EL_EXP := 2.0        # square the el term → power tracks ration deploy hard,
+								# technical (high-el) tracks stay near-unaffected
 const SOC_REGEN_PS := 1.6      # %/s braking regen (× harvest char × intensity)
-const SOC_HARVEST_REGEN := 1.5 # harvest mode: extra regen (lift & coast)
+const SOC_HARVEST_REGEN := 1.6 # harvest mode: extra regen (lift & coast)
+const SOC_HARVEST_FLOOR := 0.60 # floor on the (0.5+harvest) regen factor so power/
+								# street tracks that already ration deploy via el
+								# don't ALSO get starved of regen (double penalty)
 const OT_DRAIN_PS := 1.6       # extra SoC %/s while the Overtake boost fires
 								# (kept cheap: the real MOM recharges every braking
 								# zone, so a chaser can press for laps on end)
-const CLIP_TRICKLE_PS := 0.4   # small straight-line recharge while clipped
+const CLIP_TRICKLE_PS := 1.0   # straight-line recharge while clipped (was 0.4 —
+								# too slow to escape a clip within one straight+brake)
 const OT_MIN_SOC := 8.0        # below this the Overtake boost can't fire (v0.5:
 								# raw SoC dips low at the end of straights — the
 								# boost must stay alive deeper into the discharge)
 const OT_GAP_S := 1.0          # Overtake works only within 1.0s of the car ahead
-const SOC_RECOVER := 12.0      # SoC to exit a clip (fast-cycle hysteresis)
+const SOC_RECOVER := 15.0      # SoC to exit a clip (hysteresis). ABOVE OT_MIN_SOC=8
+								# so a car leaving a clip has a usable boost reserve;
+								# fast recovery comes from CLIP_TRICKLE_PS + regen.
+const SOC_ATTACK_GATE := 40.0  # attack ERS pace gets full benefit at/above this SoC,
+								# scaling to 0 at empty (replaces the deleted budget gate)
 const SOC_AVG_TAU := 20.0      # s — soc_avg smoothing for AI/radio decisions
 const DA_THRESH := 0.7         # dirty-air time gap (s) — smaller than pre-2026
 const DA_COEF := 0.42          # dirty-air strength (× 0.5 + downforce × 1.4 − overtaking)
@@ -75,13 +90,10 @@ const PASS_OT_BASE := 0.48     # pass-credit accrual floor (raised v0.5: the fas
 								# store cycle interrupts OT pressure more often)
 const PASS_OT_K := 1.6         # pass-credit accrual gain per unit track.overtaking
 
-# 2026 per-lap deploy budget + high-speed taper (energy rework v0.4).
-# DEPLOY_BUDGET_BASE: abstract budget units per lap at a neutral track.
-# At low-energy_limit tracks (Monza) the budget = BASE×energy_limit is exhausted
-# before the end of the lap, gating the ERS attack benefit to 0 late-lap.
+# 2026 high-speed taper (energy rework v0.4 budget DELETED in v0.6 — the attack
+# pace gate now reads live soc_avg, not a separate per-lap counter).
 # TAPER_K: high-speed taper — attack mode is worth less on high-power tracks
 # (electric power wasted above ~290 km/h where the MGU-K output tapers to zero).
-const DEPLOY_BUDGET_BASE := 8.5  # abstract deploy units per lap at energy_limit=1.0
 const TAPER_K            := 0.35 # attack pace scaling loss per unit of track.power
 # Active-aero (Straight Mode zones) — low-drag straights give a small per-lap
 # pace gain (proportional to car power). The old per-zone SoC bonus was folded
@@ -152,10 +164,9 @@ const DNF_BASE := 0.005        # per-lap mechanical-failure scale × (1−reliab
 const INCIDENT_K := 0.00010   # base per-tick driver-error scale (× situational risk)
 const MOOD_PACE := 0.004      # in-the-zone pace swing as a fraction of base laptime (±0.4%)
 const EVO_MAX := 0.8          # max grip gain from a fully rubbered-in track (s/lap, ×evolution)
-const CORNER_DEPLOY_REGEN := 4.0  # per-lap deploy budget regen under braking (corners) — segment model
-const STRAIGHT_CLIP := 1.2        # 2026 straight-line power-cut penalty (s) when starved on a straight
-const STRAIGHT_CLIP_DEADZONE := 0.22  # only power-cut below this much remaining budget
-const HARVEST_BUDGET_REGEN := 5.0 # extra deploy-budget regen while harvesting (lift-and-coast lever)
+# (v0.6: CORNER_DEPLOY_REGEN / STRAIGHT_CLIP / STRAIGHT_CLIP_DEADZONE /
+# HARVEST_BUDGET_REGEN deleted with the per-lap deploy_budget counter. Clipping
+# is now a pure raw-SoC event; lift-and-coast banks energy via harvest-mode SoC regen.)
 # Segment-aware overtaking: pass-credit builds far faster on straights (where the
 # slipstream run + Overtake make the move) than in corners. Normalized per track so
 # the lap-average is 1 → passes concentrate at braking zones WITHOUT changing the
@@ -297,10 +308,7 @@ class Driver:
 	var soc_max: float = 100.0         # usable battery (energy R&D can raise it)
 	var harvest_mult: float = 1.0      # >1 = better regen (energy R&D)
 	var clipped: bool = false          # battery spent: no deploy until recovered
-	# per-lap deploy budget (energy rework v0.4): reset each lap to
-	# DEPLOY_BUDGET_BASE × track.energy_limit. When exhausted, attack/OT pace
-	# benefit is gated to 0 for the rest of the lap (independent of SoC store).
-	var deploy_budget: float = 8.5
+	# (v0.6: deploy_budget / power_cut / power_cut_pen DELETED — one cycling store)
 	var fuel_laps: float = 0.0
 	var lap: int = 0
 	var lap_frac: float = 0.0
@@ -341,8 +349,6 @@ class Driver:
 	var car_aero: float = 0.78
 	var reliability: float = 0.80
 	var dnf: bool = false               # retired (mechanical failure)
-	var power_cut: bool = false         # out of deploy budget on a straight (2026 straight-line cut)
-	var power_cut_pen: float = 0.0      # this tick's straight-line cut penalty (kept out of the combat edge)
 	# team personnel (Wave 2): staff skills 0..1 that feed the race
 	var strat_skill: float = 0.5        # strategist → AI pit/strategy quality
 	var pit_speed: float = 0.5          # pit crew → faster stops
@@ -555,8 +561,6 @@ func _init(track_in: Track, drivers_in: Array, seed_value: int = 12345) -> void:
 		if float(track.laps) * wpl / 62.0 > 1.6 and d.strat_skill > 0.55:
 			d.pit_plan = 2
 			d.ai_pit_wear = clampf(float(track.laps) * wpl / 3.0 * 1.15, 36.0, d.ai_pit_wear)
-		# initialise per-lap deploy budget for this track (energy rework v0.4)
-		d.deploy_budget = DEPLOY_BUDGET_BASE * track.energy_limit
 	# Run qualifying (populates quali_times, quali_grid, grid_pos, lap_frac, tyre_temp).
 	_run_qualifying()
 	# Global best arrays sized to match mini_sector_bounds
@@ -824,34 +828,14 @@ func current_laptime(d: Driver, ahead_gap: float = -1.0) -> float:
 			# taper: attack is worth less on high-power/low-downforce tracks (energy
 			# "wasted" above the ~290 km/h high-speed taper threshold).
 			ers_pace *= (1.0 - TAPER_K * track.power)
-			# budget gate: ERS attack benefit scales to 0 when the per-lap deploy
-			# budget is exhausted (independent of the SoC store).
-			var budget_max: float = DEPLOY_BUDGET_BASE * track.energy_limit
-			if budget_max > 0.0:
-				ers_pace *= clampf(d.deploy_budget / budget_max, 0.0, 1.0)
+			# v0.6 SoC gate: attack pace scales with the live store (a flat battery
+			# genuinely can't deploy). Full benefit at/above SOC_ATTACK_GATE, → 0 empty.
+			ers_pace *= clampf(d.soc_avg / SOC_ATTACK_GATE, 0.0, 1.0)
 		lt += ers_pace
 	# Active-aero Straight Mode zones: low-drag designated zones give a small
 	# per-lap pace gain that scales with the car's power bias — power-biased cars
 	# carry more speed on those straights and benefit more.
 	lt -= AERO_ZONE_K * float(track.aero_zones) * (0.5 + 0.5 * d.car_power)
-	# 2026 straight-line power cut: low on the per-lap deploy budget while ON a
-	# straight = you can't match cars still deploying down the straight ("power
-	# limit pending"). Only bites when genuinely starved (deadzone) so full-energy
-	# laps keep their calibration; worst on long-straight / high-power tracks.
-	d.power_cut = false
-	d.power_cut_pen = 0.0
-	if not d.clipped and not sc_active:
-		var bmax: float = DEPLOY_BUDGET_BASE * track.energy_limit
-		if bmax > 0.0:
-			var starve: float = 1.0 - clampf(d.deploy_budget / bmax, 0.0, 1.0)
-			var seg2: Dictionary = track.seg_at(d.lap_frac)
-			var on_str: bool = seg2.is_empty() or String(seg2.get("kind", "")) == "straight"
-			if starve > STRAIGHT_CLIP_DEADZONE and on_str:
-				var inten: float = 1.0 if seg2.is_empty() else float(seg2.get("intensity", 1.0))
-				var pen: float = STRAIGHT_CLIP * (starve - STRAIGHT_CLIP_DEADZONE) * inten * (0.4 + 0.6 * track.power)
-				lt += pen
-				d.power_cut_pen = pen     # slows the advance/speed/lap-time, but kept out of the combat edge
-				d.power_cut = true
 	if d.yield_laps > 0:
 		lt += 0.8                # team order: ease off so the teammate can pass
 	var c: Dictionary = COMPOUNDS[d.compound]
@@ -881,12 +865,12 @@ func _ot_effective(d: Driver, ahead_gap: float) -> bool:
 	return d.overtake and not d.clipped and d.soc > OT_MIN_SOC \
 		and ahead_gap >= 0.0 and ahead_gap < OT_GAP_S
 
-# Battery update for one tick (store dynamics v0.5). The 4 MJ store cycles
-# WITHIN a lap, like the real 2026 cars: deploy drains it fast on the straights
-# (scaled by track.energy_limit — low-el tracks like Monza ration deploy) and
-# braking regen refills it fast in the corners (scaled by the track's harvest
-# character and corner intensity). Rates are %/s (× dt), not %/lap. The per-lap
-# deploy_budget keeps its v0.4 accounting unchanged (pace gates / power-cut).
+# Battery update for one tick (store dynamics v0.6 — ONE cycling store). The 4 MJ
+# store cycles WITHIN a lap: deploy drains it on the straights (rationed by a
+# SQUARED track.energy_limit — low-el power tracks like Монца cut deploy hard) and
+# braking regen refills it in the corners (scaled by the track's harvest character,
+# floored so power tracks aren't double-starved, and corner intensity). Rates are
+# %/s (× dt). Clipping is a pure raw-SoC event now (no separate budget counter).
 # AI and radio read the smoothed soc_avg so intra-lap pulses don't flap them.
 func _update_soc(d: Driver, dt: float, lt: float, ahead_gap: float) -> void:
 	var seg: Dictionary = track.seg_at(d.lap_frac)
@@ -896,35 +880,24 @@ func _update_soc(d: Driver, dt: float, lt: float, ahead_gap: float) -> void:
 		if d.clipped:
 			rate = CLIP_TRICKLE_PS        # limp down the straight, recover at braking
 		else:
-			var el_scale: float = SOC_EL_SCALE0 + (1.0 - SOC_EL_SCALE0) * track.energy_limit
+			# v0.6: squared energy_limit scaling rations deploy HARD on low-el power
+			# tracks (Монца el=0.55 → el_scale 0.44, a 55% cut vs the old 27%), so the
+			# store no longer bottoms out in balanced. High-el tracks ~unaffected.
+			var el_scale: float = SOC_EL_SCALE0 + (1.0 - SOC_EL_SCALE0) * pow(track.energy_limit, SOC_EL_EXP)
 			rate = -float(SOC_DEPLOY_PS[d.ers_mode]) * el_scale
 			if _ot_effective(d, ahead_gap):
 				rate -= OT_DRAIN_PS
 	else:
 		var inten: float = float(seg.get("intensity", 0.7))
-		rate = SOC_REGEN_PS * (0.5 + track.harvest) * d.harvest_mult * (0.5 + inten)
+		# v0.6: floor the harvest-character factor so power/street tracks that already
+		# ration deploy via el aren't ALSO starved of regen (the diagnosed double penalty).
+		var hfac: float = maxf(SOC_HARVEST_FLOOR, 0.5 + track.harvest)
+		rate = SOC_REGEN_PS * hfac * d.harvest_mult * (0.5 + inten)
 		if d.ers_mode == "harvest":
 			rate *= SOC_HARVEST_REGEN     # lift & coast: bank the braking energy
 		# dirty air hurts cooling → worse energy recovery while stuck behind a car
 		if ahead_gap >= 0.0 and ahead_gap < DA_THRESH:
 			rate *= 0.9
-	# per-lap deploy budget (v0.4 accounting, unchanged: pace gate + power-cut).
-	if not d.clipped:
-		if (d.ers_mode == "attack" or _ot_effective(d, ahead_gap)) and on_straight:
-			# keyed to the attack-mode soc value by design (the budget is in
-			# attack-equivalent units) — keep in sync if ERS_MODES changes.
-			var deploy_drain: float = absf(float(ERS_MODES["attack"]["soc"])) \
-				* (0.6 + 0.8 * track.deploy) * (dt / lt) / maxf(0.25, track.straight_frac)
-			d.deploy_budget = maxf(0.0, d.deploy_budget - deploy_drain)
-		elif not on_straight:
-			var budget_max: float = DEPLOY_BUDGET_BASE * track.energy_limit
-			d.deploy_budget = minf(budget_max, d.deploy_budget \
-				+ CORNER_DEPLOY_REGEN * float(seg.get("intensity", 0.5)) * (dt / lt))
-		# lift-and-coast: harvesting deliberately banks the per-lap deploy budget
-		# back up (coast to save energy for the straights) — the engineer's lever.
-		if d.ers_mode == "harvest":
-			var bmaxh: float = DEPLOY_BUDGET_BASE * track.energy_limit
-			d.deploy_budget = minf(bmaxh, d.deploy_budget + HARVEST_BUDGET_REGEN * (dt / lt))
 	d.soc = clampf(d.soc + rate * dt, 0.0, d.soc_max)
 	d.soc_avg += (d.soc - d.soc_avg) * minf(1.0, dt / SOC_AVG_TAU)
 	if d.soc <= 0.0:
@@ -1543,7 +1516,7 @@ func _resolve_combat(dt: float) -> void:
 		# Combat edge uses the CLEAN pace (straight-line power-cut removed): the cut
 		# still slows a car's advance and lap time (it falls back over a stint) but
 		# must not scramble the tuned pass-credit — energy cost is the budget gate.
-		var edge := ((a.last_lt - a.power_cut_pen) - (b.last_lt - b.power_cut_pen)) + boost
+		var edge := (a.last_lt - b.last_lt) + boost
 		var atkf := 0.7 + _attr(b, "overtaking") * 0.5 + _attr(b, "aggression") * 0.2
 		# segment-aware: credit builds on the straight (slipstream run / Overtake), not
 		# mid-corner. seg_mult is normalized so its lap-average is 1 (corridor-preserving).
@@ -1743,8 +1716,7 @@ func _on_lap_complete(d: Driver) -> void:
 	d.mini_times_this_lap = []
 	for _ri in _nm:
 		d.mini_times_this_lap.append(-1.0)
-	# reset per-lap deploy budget (energy rework v0.4)
-	d.deploy_budget = DEPLOY_BUDGET_BASE * track.energy_limit
+	# (v0.6: no per-lap deploy budget to reset — the SoC store cycles continuously)
 	# tyre age: count every completed lap on the current set
 	d.tyre_laps += 1
 	# engineer↔driver loop: review the lap just finished (trust + mood from the
@@ -1770,8 +1742,7 @@ func _on_lap_complete(d: Driver) -> void:
 	if ahd != null:                # (Overtake waives it) but the tow kept — at Monza
 		# the slipstream is exactly what makes a pass possible without a clean edge
 		fight_gap = (ahd.progress() - d.progress()) * track.base_laptime
-		raw_edge = (ahd.last_lt - ahd.power_cut_pen - ahd.da_pen) \
-			- (d.last_lt - d.power_cut_pen - d.da_pen)
+		raw_edge = (ahd.last_lt - ahd.da_pen) - (d.last_lt - d.da_pen)
 	if fight_gap >= 0.0 and fight_gap < OT_GAP_S * 1.5:
 		d.edge_ema = d.edge_ema * 0.5 + raw_edge * 0.5
 	else:
