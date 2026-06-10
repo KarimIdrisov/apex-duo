@@ -210,7 +210,8 @@ static var _rd_delta_eng_rel: float = 0.0
 static var _dev_deltas: Dictionary = {}
 
 # Primes the per-team AI-development state. `deltas` maps team_idx (int) ->
-# {d_aero, d_power, d_energy, d_ch_rel, d_eng_rel}. Pass {} to disable.
+# {d_aero, d_power, d_energy, d_ch_rel, d_eng_rel}. This REPLACES the whole store
+# (it does not merge) — always pass the full accumulated dict. Pass {} to disable.
 static func apply_ai_dev(deltas: Dictionary) -> void:
 	_dev_deltas = deltas
 
@@ -348,6 +349,7 @@ static func team_car(team_idx: int) -> Dictionary:
 		ch_rel      = minf(0.99, ch_rel + _rd_delta_ch_rel)
 	# AI development for rival teams (never overlaps the player's _rd_* path).
 	if _dev_deltas.has(ti):
+		assert(ti != _rd_team_idx, "ai_dev must never contain the player team")
 		var dv: Dictionary = _dev_deltas[ti]
 		eng_power  += float(dv.get("d_power", 0.0))
 		eng_energy += float(dv.get("d_energy", 0.0))
