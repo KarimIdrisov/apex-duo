@@ -250,6 +250,62 @@ func net_season_buy_supplier_part(part_key: String) -> void:
 		net_season_feed.rpc("Партнёр: куплена деталь «%s» у поставщика" % part_name)
 		get_tree().call_group("season_hub", "_on_season_updated")
 
+# client → host: sign a scouting-market junior (M5).
+@rpc("any_peer", "call_remote", "reliable")
+func net_season_sign_junior(junior_id: int) -> void:
+	if not multiplayer.is_server():
+		return
+	if Season.active == null:
+		return
+	if Season.active.sign_junior(junior_id):
+		Season.active.save_to_disk()
+		net_season_full.rpc(Season.active.to_dict())
+		net_season_feed.rpc("Партнёр: подписан юниор в академию")
+		get_tree().call_group("season_hub", "_on_season_updated")
+
+# client → host: promote a junior (>=40 superlicense pts) into an F1 seat (M5).
+@rpc("any_peer", "call_remote", "reliable")
+func net_season_promote_junior(ji: int, driver_id: int) -> void:
+	if not multiplayer.is_server():
+		return
+	if Season.active == null:
+		return
+	if Season.active.promote_junior(ji, driver_id):
+		Season.active.save_to_disk()
+		net_season_full.rpc(Season.active.to_dict())
+		net_season_feed.rpc("Партнёр: юниор повышен в Формулу-1 (%s)" %
+			Season.active.driver_name(driver_id))
+		get_tree().call_group("season_hub", "_on_season_updated")
+
+# client → host: loan a junior to the PU-alliance client team (M5).
+@rpc("any_peer", "call_remote", "reliable")
+func net_season_loan_junior(ji: int) -> void:
+	if not multiplayer.is_server():
+		return
+	if Season.active == null:
+		return
+	if Season.active.loan_junior(ji):
+		Season.active.save_to_disk()
+		net_season_full.rpc(Season.active.to_dict())
+		net_season_feed.rpc("Партнёр: юниор одолжен клиентской команде")
+		get_tree().call_group("season_hub", "_on_season_updated")
+
+# client → host: schedule/clear the test-driver stand-in for next race (M5).
+@rpc("any_peer", "call_remote", "reliable")
+func net_season_set_testdrive(driver_id: int) -> void:
+	if not multiplayer.is_server():
+		return
+	if Season.active == null:
+		return
+	if Season.active.set_test_drive(driver_id):
+		Season.active.save_to_disk()
+		net_season_full.rpc(Season.active.to_dict())
+		var msg: String = "Партнёр: тест-пилот отменён"
+		if driver_id >= 0:
+			msg = "Партнёр: тест-пилот заменит %s" % Season.active.driver_name(driver_id)
+		net_season_feed.rpc(msg)
+		get_tree().call_group("season_hub", "_on_season_updated")
+
 # client → host: train one pit-crew role for $25k (M4).
 @rpc("any_peer", "call_remote", "reliable")
 func net_season_train_pit(role: String) -> void:

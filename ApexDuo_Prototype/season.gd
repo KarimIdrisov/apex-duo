@@ -215,6 +215,35 @@ const STATUS_MORALE_SECOND: int = -3      # «Второй»
 const SECOND_SALARY_DISCOUNT: int = 50_000   # the second driver is cheaper
 const BONUS_CLAUSE_PODIUM: int = 50_000      # extra driver pay per podium finish
 
+# ============================================================
+# M5: ACADEMY — juniors, F2/F3/F4 aggregate sim, superlicense + test driver
+# ---------------------------------------------------------------
+# Juniors race their junior series in an AGGREGATE per-round roll (no race
+# engine): score = attrs/15 × 0.55 + potential × 0.30 + seeded noise × 0.15;
+# win/podium/points thresholds award series points + superlicense points
+# (F2 champion = 40 over 5 rounds, F3 = 30 — real FIA proportions). The
+# 40-point superlicense is a HARD GATE for promotion to F1 (real rule).
+# The test driver closes the long-dangling test_feedback channel: his
+# dev_feedback speeds LTC (aero) R&D by up to +15% via cost_part(), and he
+# can stand in for a race at −0.030 skill (paying +3 RP of feedback).
+# Verified numerically in meta_m5_academy_check.py (16/16 PASS).
+const JUNIOR_SEED_MIX: int = 0xACADE01
+const JUNIOR_MARKET_SIZE: int = 3
+const JUNIOR_MAX_SIGNED: int = 2
+const JUNIOR_ATTR_KEYS := ["pace", "overtaking", "starts", "wet", "consistency"]
+const SUPERLICENSE_GATE: int = 40
+# per-round superlicense points [win, podium, points-finish] per series
+const SL_POINTS := {"F2": [8, 4, 2], "F3": [6, 3, 1], "F4": [2, 1, 0]}
+const SERIES_PTS := [25, 15, 8]       # junior series race points per round
+const SCORE_WIN: float = 0.72
+const SCORE_PODIUM: float = 0.58
+const SCORE_POINTS: float = 0.45
+const TESTDRIVE_SKILL_PEN: float = 0.030   # stand-in is slower than the driver
+const TESTDRIVE_RP_BONUS: int = 3          # development feedback from the race
+const TEST_RD_MULT_K: float = 0.15         # rd mult = 1 + 0.15 × dev_feedback01
+const JUNIOR_LOAN_INCOME: int = 100_000
+const PROMOTE_ATTR_DIV: float = 250.0      # dev delta = (attr − 10) / 250
+
 const NAMES := ["Норрис", "Пиастри", "Ферстаппен", "Леклер", "Антонелли",
 	"Расселл", "Хэмилтон", "Сайнс", "Албон", "Алонсо"]   # default grid (Mercedes player)
 const TEAM_IDS := [4, 5]
@@ -377,6 +406,16 @@ var dhl_points: Dictionary = {}    # str(team_idx) -> season points
 var dhl_best: Dictionary = {}      # player's best stop: {time, track, round}
 var dhl_awarded: bool = false      # season prize paid (guard)
 
+# M5: Academy state
+# juniors: signed juniors; junior_market: this season's scouting offers;
+# test_driver_slot: driver id the test driver replaces NEXT race (-1 = none);
+# custom_driver_names: id -> name (promoted juniors survive save/load —
+# grid_names is rebuilt from F1_2026 on load and would otherwise reset them).
+var juniors: Array = []
+var junior_market: Array = []
+var test_driver_slot: int = -1
+var custom_driver_names: Dictionary = {}
+
 func _init() -> void:
 	for id in TEAM_IDS:
 		driver_dev[id] = 0.0
@@ -411,6 +450,11 @@ func _init() -> void:
 	dhl_points = {}
 	dhl_best = {}
 	dhl_awarded = false
+	# M5: fresh academy
+	juniors = []
+	junior_market = []
+	test_driver_slot = -1
+	custom_driver_names = {}
 
 func _new_stat() -> Dictionary:
 	return {"races": 0, "wins": 0, "podiums": 0, "poles": 0, "fl": 0,
@@ -545,13 +589,15 @@ func _init_part_levels() -> void:
 # rd_speed_mult() (0.85 weak .. 1.20 top TD+designer) — verified in
 # meta_m2_staff_check.py (gap ≈ 1 extra R&D step over a 5-round season).
 # M3: the ATR catch-up multiplier stacks on top: research speed 0.75× for the
-# constructors leader … 1.15× for P10+ (cost = base / (staff × ATR)).
+# constructors leader … 1.15× for P10+. M5: the test driver's dev_feedback
+# adds up to +15% more speed. cost = base / (staff × ATR × test driver).
 func cost_part(part_key: String) -> int:
 	var lvl: int = int(part_levels.get(part_key, 0))
 	var base: int = 5 + lvl * 3
 	var pdef: Dictionary = F1_2026.PARTS.get(part_key, {})
 	if String(pdef.get("group", "")) == "aero":
-		return maxi(1, int(round(float(base) / (rd_speed_mult() * atr_speed()))))
+		return maxi(1, int(round(float(base)
+			/ (rd_speed_mult() * atr_speed() * test_rd_mult()))))
 	return base
 
 # CAR-1: Buy one level for a part. Deducts RP, updates part_levels, mirrors
@@ -1730,6 +1776,239 @@ func _status_morale_offset(id: int) -> int:
 			return STATUS_MORALE_SECOND
 	return 0
 
+# ---------------------------------------------------------------- M5: academy
+
+# Generate one scouting-market junior. LCG draw order is FIXED (mirrored in
+# meta_m5_academy_check.py): age, 5 attrs, potential, series — the name comes
+# AFTER so the mirrored stats are unaffected by the name draws.
+func _gen_junior(idx: int) -> Dictionary:
+	var state: int = (int(cal_seed) ^ JUNIOR_SEED_MIX ^ ((idx * 7919) & 0xFFFFFFFF)) & 0xFFFFFFFF
+	var res: Array = _lcg_step(state)
+	state = int(res[0])
+	var age: int = 17 + int(float(res[1]) * 6.0)
+	var attrs: Dictionary = {}
+	for k in JUNIOR_ATTR_KEYS:
+		res = _lcg_step(state)
+		state = int(res[0])
+		attrs[k] = clampi(int(round(6.0 + float(res[1]) * 8.0)), 1, 15)
+	res = _lcg_step(state)
+	state = int(res[0])
+	var potential: float = 0.3 + float(res[1]) * 0.7
+	res = _lcg_step(state)
+	state = int(res[0])
+	var series_arr := ["F4", "F3", "F2"]
+	var series: String = series_arr[clampi(int(float(res[1]) * 3.0), 0, 2)]
+	var cost: int = int(round((50_000.0 + potential * 150_000.0) / 10_000.0)) * 10_000
+	# Name (drawn after the mirrored stats)
+	res = _lcg_step(state)
+	state = int(res[0])
+	var fi: int = clampi(int(float(res[1]) * float(STAFF_FIRST_NAMES.size())),
+		0, STAFF_FIRST_NAMES.size() - 1)
+	res = _lcg_step(state)
+	state = int(res[0])
+	var li: int = clampi(int(float(res[1]) * float(STAFF_LAST_NAMES.size())),
+		0, STAFF_LAST_NAMES.size() - 1)
+	return {
+		"id": idx,
+		"name": STAFF_FIRST_NAMES[fi] + " " + STAFF_LAST_NAMES[li],
+		"age": age,
+		"series": series,
+		"season_progress": 0,
+		"superlicense_points": 0,
+		"attrs": attrs,
+		"potential": potential,
+		"cost": cost,
+		"loaned": false,
+	}
+
+# Generate the season's scouting market once (deterministic from cal_seed).
+func ensure_junior_market() -> void:
+	if not junior_market.is_empty() or not juniors.is_empty():
+		return
+	junior_market = []
+	for i in JUNIOR_MARKET_SIZE:
+		junior_market.append(_gen_junior(i))
+
+# Sign a market junior into the academy (max 2; one-time stipend cost).
+func sign_junior(junior_id: int) -> bool:
+	if juniors.size() >= JUNIOR_MAX_SIGNED:
+		return false
+	for i in junior_market.size():
+		var j: Dictionary = junior_market[i]
+		if int(j.get("id", -1)) != junior_id:
+			continue
+		var cost: int = int(j.get("cost", 0))
+		if money < cost:
+			return false
+		money -= cost
+		juniors.append(j.duplicate(true))
+		junior_market.remove_at(i)
+		_staff_log_add("Академия: подписан юниор %s (%s)" % [
+			String(j.get("name", "?")), String(j.get("series", "?"))])
+		return true
+	return false
+
+# One academy round for one junior: [series_points, superlicense_points].
+# Deterministic per (cal_seed, round, junior index) — mirrored in the harness.
+func _junior_round(j: Dictionary, jidx: int) -> Array:
+	var seed_v: int = (int(cal_seed) ^ JUNIOR_SEED_MIX
+		^ ((round_index * 2654435761) & 0xFFFFFFFF)
+		^ ((jidx * 97003) & 0xFFFFFFFF)) & 0xFFFFFFFF
+	var res: Array = _lcg_step(seed_v)
+	var attrs: Dictionary = j.get("attrs", {})
+	var a_sum: float = 0.0
+	for k in JUNIOR_ATTR_KEYS:
+		a_sum += float(attrs.get(k, 8))
+	var base: float = a_sum / float(JUNIOR_ATTR_KEYS.size()) / 15.0
+	var score: float = base * 0.55 + float(j.get("potential", 0.5)) * 0.30 \
+		+ float(res[1]) * 0.15
+	var sl: Array = SL_POINTS.get(String(j.get("series", "F4")), [0, 0, 0])
+	if score >= SCORE_WIN:
+		return [int(SERIES_PTS[0]), int(sl[0])]
+	if score >= SCORE_PODIUM:
+		return [int(SERIES_PTS[1]), int(sl[1])]
+	if score >= SCORE_POINTS:
+		return [int(SERIES_PTS[2]), int(sl[2])]
+	return [0, 0]
+
+# Advance every signed junior by one round (called from apply_results).
+func _simulate_academy_round() -> void:
+	for ji in juniors.size():
+		var j: Dictionary = juniors[ji]
+		var out: Array = _junior_round(j, ji)
+		j["season_progress"] = int(j.get("season_progress", 0)) + int(out[0])
+		j["superlicense_points"] = int(j.get("superlicense_points", 0)) + int(out[1])
+		if int(out[1]) > 0 and int(j.get("superlicense_points", 0)) >= SUPERLICENSE_GATE:
+			_staff_log_add("Академия: %s набрал суперлицензию (%d очков)!" % [
+				String(j.get("name", "?")), int(j.get("superlicense_points", 0))])
+
+# The superlicense GATE: promotion is possible only at >= 40 points (real rule).
+func can_promote_junior(ji: int) -> bool:
+	if ji < 0 or ji >= juniors.size():
+		return false
+	var j: Dictionary = juniors[ji]
+	return int(j.get("superlicense_points", 0)) >= SUPERLICENSE_GATE \
+		and not bool(j.get("loaned", false))
+
+# Promote a junior into an F1 seat: he replaces the driver in that slot.
+# His academy attrs become the slot's driver_attr_dev (5 keys mapped, the
+# rest zeroed) and he signs a cheap academy-graduate contract.
+func promote_junior(ji: int, driver_id: int) -> bool:
+	if not can_promote_junior(ji):
+		return false
+	if not (driver_id in TEAM_IDS):
+		return false
+	var j: Dictionary = juniors[ji]
+	var jname: String = String(j.get("name", "?"))
+	# Name follows the seat (and survives save/load via custom_driver_names).
+	grid_names[driver_id] = jname
+	custom_driver_names[str(driver_id)] = jname
+	# Academy attrs -> per-attribute dev of the slot.
+	var attrs: Dictionary = j.get("attrs", {})
+	var ad: Dictionary = _new_attr_dev()
+	for k in JUNIOR_ATTR_KEYS:
+		ad[k] = (float(attrs.get(k, 10)) - 10.0) / PROMOTE_ATTR_DIV
+	driver_attr_dev[driver_id] = ad
+	driver_dev[driver_id] = dev_of(driver_id)
+	driver_morale[driver_id] = 75   # debut buzz
+	# Cheap academy-graduate contract (stipend-level salary).
+	for i in contracts.size():
+		var c: Dictionary = contracts[i]
+		if int(c.get("driver_id", -1)) == driver_id:
+			c["salary_per_round"] = 60_000
+			c["rounds_remaining"] = CONTRACT_LENGTH_DEFAULT * 5
+			c["length_seasons"] = CONTRACT_LENGTH_DEFAULT
+	_staff_log_add("Академия: %s повышен в Формулу-1!" % jname)
+	juniors.remove_at(ji)
+	return true
+
+# True when a PU-alliance client team exists (loans need a customer team).
+func has_pu_client() -> bool:
+	var my_pu: String = F1_2026.team_pu(player_team)
+	for ti in F1_2026.team_count():
+		if ti != player_team and F1_2026.team_pu(ti) == my_pu:
+			return true
+	return false
+
+# Loan a junior to the PU-alliance client: instant income, but he cannot be
+# promoted while away (returns next season — i.e. not in this 5-round run).
+func loan_junior(ji: int) -> bool:
+	if ji < 0 or ji >= juniors.size() or not has_pu_client():
+		return false
+	var j: Dictionary = juniors[ji]
+	if bool(j.get("loaned", false)):
+		return false
+	j["loaned"] = true
+	money += JUNIOR_LOAN_INCOME
+	_staff_log_add("Академия: %s одолжен клиентской команде (+$%s)" % [
+		String(j.get("name", "?")), _format_money(JUNIOR_LOAN_INCOME)])
+	return true
+
+# ---- test driver ----
+
+func testdriver_name() -> String:
+	return String(staff_member("testdriver").get("name", "Тест-пилот"))
+
+# dev_feedback -> LTC R&D speed multiplier (1.0 … 1.15). Closes the
+# long-dangling Personnel.test_feedback channel.
+func test_rd_mult() -> float:
+	var m: Dictionary = staff_member("testdriver")
+	var fb: float = 10.0
+	if not m.is_empty():
+		fb = float((m.get("attrs", {}) as Dictionary).get("dev_feedback", 10))
+	return 1.0 + TEST_RD_MULT_K * (fb / 20.0)
+
+# Schedule the test driver to stand in for a driver next race (-1 clears).
+# Trade-off: −0.030 skill in the race, +3 RP of development feedback after.
+func set_test_drive(driver_id: int) -> bool:
+	if driver_id != -1 and not (driver_id in TEAM_IDS):
+		return false
+	test_driver_slot = driver_id
+	return true
+
+# ---- academy serialisation ----
+
+func _juniors_to_array(arr: Array) -> Array:
+	var out: Array = []
+	for j in arr:
+		var jd: Dictionary = (j as Dictionary).duplicate(true)
+		jd["age"] = int(jd.get("age", 18))
+		jd["season_progress"] = int(jd.get("season_progress", 0))
+		jd["superlicense_points"] = int(jd.get("superlicense_points", 0))
+		jd["cost"] = int(jd.get("cost", 0))
+		var attrs_out: Dictionary = {}
+		var attrs_in: Dictionary = jd.get("attrs", {})
+		for k in attrs_in:
+			attrs_out[String(k)] = int(attrs_in[k])
+		jd["attrs"] = attrs_out
+		out.append(jd)
+	return out
+
+func _juniors_from_array(raw: Array) -> Array:
+	var out: Array = []
+	for entry in raw:
+		if typeof(entry) != TYPE_DICTIONARY:
+			continue
+		var sd: Dictionary = entry as Dictionary
+		var attrs: Dictionary = {}
+		var raw_attrs: Variant = sd.get("attrs", {})
+		if typeof(raw_attrs) == TYPE_DICTIONARY:
+			for k in (raw_attrs as Dictionary):
+				attrs[String(k)] = clampi(int(float((raw_attrs as Dictionary)[k])), 1, 15)
+		out.append({
+			"id": int(float(sd.get("id", 0))),
+			"name": String(sd.get("name", "?")),
+			"age": int(float(sd.get("age", 18))),
+			"series": String(sd.get("series", "F4")),
+			"season_progress": int(float(sd.get("season_progress", 0))),
+			"superlicense_points": int(float(sd.get("superlicense_points", 0))),
+			"attrs": attrs,
+			"potential": float(sd.get("potential", 0.5)),
+			"cost": int(float(sd.get("cost", 0))),
+			"loaned": bool(sd.get("loaned", false)),
+		})
+	return out
+
 # Return a human-readable cap status string (for UI). Russian.
 func cap_status_text() -> String:
 	var over: int = maxi(0, cumulative_salary_spend - SALARY_CAP)
@@ -1781,6 +2060,8 @@ func configure(tier: int, diff: int, is_coop: bool) -> void:
 	# _apply_dict, which re-inits from the restored cal_seed when migrating).
 	if staff.is_empty():
 		_init_staff()
+	# M5: scouting market for the season (loads restore it directly).
+	ensure_junior_market()
 
 func difficulty_name() -> String:
 	return DIFFICULTY[difficulty]["name"]
@@ -1947,6 +2228,12 @@ func apply_results(order_ids: Array, dnf_ids: Array = [], fl_id: int = -1,
 		"rp": rp,
 	}
 	_update_drivers(order_ids)
+	# M5: the academy races its own round; a test-drive pays its feedback.
+	_simulate_academy_round()
+	if test_driver_slot >= 0:
+		rp += TESTDRIVE_RP_BONUS
+		_staff_log_add("Тест-пилот: фидбэк с трассы — +%d RP" % TESTDRIVE_RP_BONUS)
+		test_driver_slot = -1
 	# M4: DHL fastest-stop zachet; the season prize is decided at the finale.
 	if not best_stops.is_empty():
 		_record_dhl(best_stops)
@@ -2111,6 +2398,11 @@ func to_dict() -> Dictionary:
 		"dhl_points":  dhl_points.duplicate(true),
 		"dhl_best":    dhl_best.duplicate(true),
 		"dhl_awarded": dhl_awarded,
+		# M5: academy
+		"juniors":             _juniors_to_array(juniors),
+		"junior_market":       _juniors_to_array(junior_market),
+		"test_driver_slot":    test_driver_slot,
+		"custom_driver_names": custom_driver_names.duplicate(true),
 	}
 
 func save_to_disk() -> void:
@@ -2394,6 +2686,26 @@ static func _apply_dict(s: Season, data: Dictionary) -> void:
 			"round": int(float(dbd.get("round", 0))),
 		}
 	s.dhl_awarded = bool(data.get("dhl_awarded", false))
+	# M5: academy (defaults for pre-M5 saves: fresh market from the restored seed)
+	var jr_raw: Variant = data.get("juniors", null)
+	s.juniors = s._juniors_from_array(jr_raw as Array) if typeof(jr_raw) == TYPE_ARRAY else []
+	var jm_raw: Variant = data.get("junior_market", null)
+	if typeof(jm_raw) == TYPE_ARRAY:
+		s.junior_market = s._juniors_from_array(jm_raw as Array)
+	else:
+		s.junior_market = []
+		s.ensure_junior_market()
+	s.test_driver_slot = int(float(data.get("test_driver_slot", -1)))
+	# Promoted juniors keep their seats: re-apply custom names over the
+	# grid_names that configure() rebuilt from the F1_2026 roster.
+	s.custom_driver_names = {}
+	var cn_raw: Variant = data.get("custom_driver_names", null)
+	if typeof(cn_raw) == TYPE_DICTIONARY:
+		for ck in (cn_raw as Dictionary):
+			var cid: int = int(String(ck))
+			s.custom_driver_names[str(cid)] = String((cn_raw as Dictionary)[ck])
+			if cid >= 0 and cid < s.grid_names.size():
+				s.grid_names[cid] = String((cn_raw as Dictionary)[ck])
 	# Prime F1_2026's static R&D state so the loaded upgrades take effect immediately.
 	s.apply_car_rd()
 

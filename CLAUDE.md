@@ -109,12 +109,20 @@ Instances → 2*, host in one window, join `127.0.0.1` in the other.
 - **Meta layer (`season.gd`, class `Season`).** Calendar, standings, money, R&D,
   team tiers, difficulty, driver morale/development, and JSON save/load to
   `user://apex_duo_season.json`. A `static var active` holds the current season
-  across scene changes. **R&D is intentionally decoupled from the sim** (per the
-  design: R&D should develop the *car*, influencing races only through it). The
-  R&D branches still accumulate bonuses (`skill_bonus`/`wear_bonus`/`energy_bonus`)
-  but `_make_sim` no longer applies them — only the driver layer (development,
-  morale, directive trust) is added on top of the car. Re-wire R&D → car (the
-  `CHASSIS`/`ENGINES` tables) when reworking R&D; don't re-add team bonuses to the sim.
+  across scene changes. **R&D develops the car, not the sim** — part levels
+  (`part_levels`, 12 parts) compose into 5 scalars via
+  `F1_2026.compose_part_deltas()` → `apply_rd_upgrades()` → `team_car()`; never
+  re-add flat team bonuses to the sim. **Meta v2 (М1–М5, 2026-06-10) is fully
+  implemented** per `docs/META_DESIGN.md`: М1 income (constructor prizes +
+  sponsors), М2 personnel-as-people (persistent `staff`, `rd_speed_mult`, top-3
+  cap exemption, staff market), М3 deep car (suppliers brake/fuel + integration
+  penalty, buy-vs-develop for transferable parts, ATR catch-up), М4 pit crew
+  (5 roles → 3 sim scalars, training/fatigue/injury, DHL award, driver status),
+  М5 academy (juniors + F2/F3/F4 aggregate sim, superlicense gate 40,
+  test-driver R&D mult + race stand-in). All meta→sim influence flows through
+  `team_car()` scalars, `Personnel` scalars and `morale_mod()` only. Each
+  milestone has a self-contained Python mirror: `meta_m2_staff_check.py` …
+  `meta_m5_academy_check.py` (run before touching the math).
 - **UI + game loop (`main.gd`).** Builds the entire HUD in code (the `.tscn` is a
   near-empty root Control). Runs the authoritative sim in `_process`. This file
   is the **integration hotspot** — menu, race HUD, co-op panels, team tactics,
