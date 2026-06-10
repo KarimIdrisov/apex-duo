@@ -109,8 +109,10 @@ const EVENT_SEED_MIX: int = 0x10C0DE      # end-of-round departure rolls
 const HIRE_SEED_MIX: int = 0x5A1E         # hire/poach success rolls
 
 # Persisted roles (principal excluded — the two players ARE the co-directors).
+# M4: the four over-the-wall pit roles appended ("pitcrew" = chief mechanic).
 const STAFF_ROLE_ORDER := ["strategist", "engineer1", "engineer2", "pitcrew",
-	"techdir", "designer", "sporting", "testdriver"]
+	"techdir", "designer", "sporting", "testdriver",
+	"gunman_front", "gunman_rear", "jackman_front", "jackman_rear"]
 
 # Per-round salary range [min, max] per role. Scaled to the M1 income economy:
 # full payroll = ~150k (underdog) .. ~410k (contender) per round — verified.
@@ -123,6 +125,11 @@ const STAFF_SALARY_RANGE := {
 	"pitcrew":    [15_000,  40_000],
 	"sporting":   [10_000,  28_000],
 	"testdriver": [ 8_000,  25_000],
+	# M4: over-the-wall key roles
+	"gunman_front":  [10_000, 30_000],
+	"gunman_rear":   [10_000, 30_000],
+	"jackman_front": [ 9_000, 27_000],
+	"jackman_rear":  [ 9_000, 27_000],
 }
 
 # One trait per person (minimal M2 set; effects applied at generation/drift).
@@ -176,6 +183,37 @@ const ATR_SPEED_P1: float = 0.75
 const ATR_SPEED_P10: float = 1.15
 const BRAKE_DEFAULT := "ap"        # neutral mid option
 const FUEL_DEFAULT := "aramco"     # neutral mid option
+
+# ============================================================
+# M4: PIT CREW — training, key roles, DHL award + driver status
+# ---------------------------------------------------------------
+# The pit crew is 5 persistent staff roles (gunman×2, jackman×2, chief
+# mechanic = "pitcrew") whose attrs aggregate into the 3 existing sim scalars
+# (Personnel.pit_speed / pit_consistency / reliability_work). Training raises
+# attrs for money; 3+ sessions before one race fatigues the crew (next-race
+# pit_speed −0.15 ≈ +0.2 s on the stop) and each session risks an injury (5%:
+# the role sits out one round, stand-in at −2 attrs). DHL Fastest Pit Stop:
+# per-round 5/3/1 by fastest crew-box stop, season winner $300k + 5 RP.
+# Driver status Первый/Второй: morale offset via morale_mod() (+5 / −3),
+# the second driver is cheaper; podium bonus clause pays the driver extra.
+# Verified numerically in meta_m4_pitcrew_check.py (15/15 PASS).
+const PIT_CREW_ROLES := ["gunman_front", "gunman_rear", "jackman_front",
+	"jackman_rear", "pitcrew"]
+const PIT_TRAIN_COST: int = 25_000
+const PIT_TRAIN_MIN: float = 0.5
+const PIT_TRAIN_MAX: float = 1.0
+const PIT_FATIGUE_SESSIONS: int = 3       # 3+ sessions before one race -> fatigue
+const PIT_FATIGUE_SPEED_PEN: float = 0.15 # pit_speed malus next race (≈ +0.2 s stop)
+const PIT_INJURY_PROB: float = 0.05
+const PIT_POACH_BONUS_MULT: int = 5       # key-role signing bonus = ask × 5 ($150-400k top)
+const TRAIN_SEED_MIX: int = 0x77A14
+const DHL_POINTS := [5, 3, 1]
+const DHL_PRIZE_MONEY: int = 300_000
+const DHL_PRIZE_RP: int = 5
+const STATUS_MORALE_FIRST: int = 5        # «Первый» — morale offset (feeds pace)
+const STATUS_MORALE_SECOND: int = -3      # «Второй»
+const SECOND_SALARY_DISCOUNT: int = 50_000   # the second driver is cheaper
+const BONUS_CLAUSE_PODIUM: int = 50_000      # extra driver pay per podium finish
 
 const NAMES := ["Норрис", "Пиастри", "Ферстаппен", "Леклер", "Антонелли",
 	"Расселл", "Хэмилтон", "Сайнс", "Албон", "Алонсо"]   # default grid (Mercedes player)
@@ -333,6 +371,12 @@ var brake_integration: int = 0
 var fuel_integration: int = 0
 var bought_parts: Dictionary = {}
 
+# M4: DHL Fastest Pit Stop zachet. Per-role training state (sessions/fatigue/
+# injury) lives inside the staff member dicts themselves.
+var dhl_points: Dictionary = {}    # str(team_idx) -> season points
+var dhl_best: Dictionary = {}      # player's best stop: {time, track, round}
+var dhl_awarded: bool = false      # season prize paid (guard)
+
 func _init() -> void:
 	for id in TEAM_IDS:
 		driver_dev[id] = 0.0
@@ -363,6 +407,10 @@ func _init() -> void:
 	brake_integration = 0
 	fuel_integration = 0
 	bought_parts = {}
+	# M4: fresh DHL zachet
+	dhl_points = {}
+	dhl_best = {}
+	dhl_awarded = false
 
 func _new_stat() -> Dictionary:
 	return {"races": 0, "wins": 0, "podiums": 0, "poles": 0, "fl": 0,
@@ -565,6 +613,9 @@ func _new_contract(driver_id: int, tier: int) -> Dictionary:
 		"salary_per_round": sal,
 		"length_seasons": CONTRACT_LENGTH_DEFAULT,
 		"rounds_remaining": CONTRACT_LENGTH_DEFAULT * 5,
+		# M4: status (Первый/Второй, "" = not assigned) + podium bonus clause
+		"status": "",
+		"bonus_podium": BONUS_CLAUSE_PODIUM,
 	}
 
 # Initialise both driver contracts to tier defaults.
@@ -599,6 +650,9 @@ func _pay_salaries() -> void:
 	for i in contracts.size():
 		var c: Dictionary = contracts[i]
 		var sal: int = int(c.get("salary_per_round", 0))
+		# M4: the second driver is cheaper (status discount, applied at pay time)
+		if String(c.get("status", "")) == "second":
+			sal = maxi(sal / 2, sal - SECOND_SALARY_DISCOUNT)
 		var actual: int = mini(money, sal)
 		money -= actual
 		salary_this_round += actual
@@ -1132,6 +1186,23 @@ func _init_staff() -> void:
 		state = int(out[0])
 		staff.append(out[1])
 
+# M4 migration: generate any STAFF_ROLE_ORDER role missing from a loaded
+# save (pre-M4 saves lack the four over-the-wall pit roles). Deterministic
+# per (cal_seed, role index) — same save always grows the same people.
+func _ensure_staff_roles() -> void:
+	var taken: Array = []
+	for m in staff:
+		taken.append(String((m as Dictionary).get("name", "")))
+	var strength: float = _team_strength()
+	for ri in STAFF_ROLE_ORDER.size():
+		var role: String = STAFF_ROLE_ORDER[ri]
+		if not staff_member(role).is_empty():
+			continue
+		var seed_v: int = (int(cal_seed) ^ STAFF_SEED_MIX
+			^ ((ri * 2654435761) & 0xFFFFFFFF)) & 0xFFFFFFFF
+		var out: Array = _gen_staff_member(role, strength, seed_v, taken)
+		staff.append(out[1])
+
 # Persisted member for a role ({} if none).
 func staff_member(role: String) -> Dictionary:
 	for m in staff:
@@ -1223,7 +1294,10 @@ func ensure_staff_market() -> void:
 		cand["cur_salary"] = int(cand["salary"])
 		# Poach ask: +15% over the current salary (rounded to $1k).
 		cand["salary"] = int(round(float(cand["cur_salary"]) * 1.15 / 1000.0)) * 1000
-		cand["bonus"] = int(cand["salary"]) * 2   # one-time signing bonus
+		# M4: key pit roles are a rare resource — the signing bonus is steeper
+		# (top gunman ≈ $170k, chief ≈ $230k — the design's $150-400k corridor).
+		var bonus_mult: int = PIT_POACH_BONUS_MULT if (role in PIT_CREW_ROLES) else 2
+		cand["bonus"] = int(cand["salary"]) * bonus_mult
 		staff_market.append(cand)
 
 # Success probability for poaching a market candidate (0.05..0.95).
@@ -1294,6 +1368,10 @@ func _staff_end_of_round(gained_pts: int) -> void:
 	for i in staff.size():
 		var m: Dictionary = staff[i]
 		m["gardening"] = maxi(0, int(m.get("gardening", 0)) - 1)
+		# M4: pit-crew lifecycle — fatigue/injury burn down, sessions reset.
+		m["fatigue"] = maxi(0, int(m.get("fatigue", 0)) - 1)
+		m["injury"] = maxi(0, int(m.get("injury", 0)) - 1)
+		m["sessions"] = 0
 		# Loyalty drift from results.
 		var delta: float = -0.06
 		if gained_pts >= 8:
@@ -1353,6 +1431,12 @@ func staff_for_sim() -> Dictionary:
 			continue
 		if int(md.get("gardening", 0)) > 0:
 			out[role] = Personnel.neutral_staff(role)
+		elif int(md.get("injury", 0)) > 0:
+			# M4: injured pit role — the stand-in works at −2 to every attr.
+			var sub: Personnel.Staff = Personnel.staff_from_saved(md)
+			for k in sub.attrs:
+				sub.attrs[k] = maxf(1.0, float(sub.attrs[k]) - 2.0)
+			out[role] = sub
 		else:
 			out[role] = Personnel.staff_from_saved(md)
 	# Roles not persisted (principal) keep a neutral entry so lookups never miss.
@@ -1370,10 +1454,15 @@ func _staff_to_array(arr: Array) -> Array:
 		md["age"] = int(md.get("age", 40))
 		md["salary"] = int(md.get("salary", 0))
 		md["gardening"] = int(md.get("gardening", 0))
+		# M4: pit-crew lifecycle fields
+		md["sessions"] = int(md.get("sessions", 0))
+		md["fatigue"] = int(md.get("fatigue", 0))
+		md["injury"] = int(md.get("injury", 0))
 		var attrs_out: Dictionary = {}
 		var attrs_in: Dictionary = md.get("attrs", {})
 		for k in attrs_in:
-			attrs_out[String(k)] = int(attrs_in[k])
+			# float-preserving: M4 training accumulates fractional attr growth
+			attrs_out[String(k)] = float(attrs_in[k])
 		md["attrs"] = attrs_out
 		out.append(md)
 	return out
@@ -1388,7 +1477,8 @@ func _staff_from_array(raw: Array) -> Array:
 		var raw_attrs: Variant = sd.get("attrs", {})
 		if typeof(raw_attrs) == TYPE_DICTIONARY:
 			for k in (raw_attrs as Dictionary):
-				attrs[String(k)] = clampi(int(float((raw_attrs as Dictionary)[k])), 1, 20)
+				# float-preserving (M4 training); clampf keeps the 1..20 band
+				attrs[String(k)] = clampf(float((raw_attrs as Dictionary)[k]), 1.0, 20.0)
 		var md: Dictionary = {
 			"role":      String(sd.get("role", "")),
 			"name":      String(sd.get("name", "?")),
@@ -1398,6 +1488,10 @@ func _staff_from_array(raw: Array) -> Array:
 			"trait":     String(sd.get("trait", "")),
 			"dev_rate":  float(sd.get("dev_rate", 0.5)),
 			"gardening": int(float(sd.get("gardening", 0))),
+			# M4: pit-crew lifecycle fields (default 0 for pre-M4 saves)
+			"sessions":  int(float(sd.get("sessions", 0))),
+			"fatigue":   int(float(sd.get("fatigue", 0))),
+			"injury":    int(float(sd.get("injury", 0))),
 			"attrs":     attrs,
 		}
 		# Market candidates carry extra int fields — restore when present.
@@ -1501,6 +1595,140 @@ func buy_part_supplier(part_key: String) -> bool:
 	bought_parts[part_key] = true
 	apply_car_rd()
 	return true
+
+# ---------------------------------------------------------------- M4: pit crew
+
+# Train one pit role: $25k per session, +0.5..1.0 (deterministic) to the
+# role's weakest attribute. 3+ sessions before one race -> crew fatigue
+# (next race pit_speed −0.15); each session rolls a 5% injury (sit out 1 round).
+# Returns "ok" | "no_money" | "injured" | "bad_role".
+func train_pit_role(role: String) -> String:
+	if not (role in PIT_CREW_ROLES):
+		return "bad_role"
+	var m: Dictionary = staff_member(role)
+	if m.is_empty():
+		return "bad_role"
+	if int(m.get("injury", 0)) > 0:
+		return "injured"
+	if money < PIT_TRAIN_COST:
+		return "no_money"
+	money -= PIT_TRAIN_COST
+	var sessions: int = int(m.get("sessions", 0)) + 1
+	m["sessions"] = sessions
+	var role_idx: int = PIT_CREW_ROLES.find(role)
+	var seed_v: int = (int(cal_seed) ^ TRAIN_SEED_MIX
+		^ ((round_index * 2654435761) & 0xFFFFFFFF)
+		^ ((role_idx * 97003) & 0xFFFFFFFF)
+		^ ((sessions * 7919) & 0xFFFFFFFF)) & 0xFFFFFFFF
+	var res: Array = _lcg_step(seed_v)
+	var delta: float = PIT_TRAIN_MIN + float(res[1]) * (PIT_TRAIN_MAX - PIT_TRAIN_MIN)
+	# Grow the weakest attribute (keeps the UI to one button per role).
+	var attrs: Dictionary = m.get("attrs", {})
+	var weakest: String = ""
+	var weakest_val: float = 99.0
+	for k in attrs:
+		if float(attrs[k]) < weakest_val:
+			weakest_val = float(attrs[k])
+			weakest = String(k)
+	if weakest != "":
+		attrs[weakest] = minf(20.0, float(attrs[weakest]) + delta)
+	# Injury roll (second stream off the same seed).
+	var res2: Array = _lcg_step((seed_v ^ 0x9E3779B9) & 0xFFFFFFFF)
+	if float(res2[1]) < PIT_INJURY_PROB:
+		m["injury"] = 1
+		_staff_log_add("%s: травма на тренировке — пропустит этап" % String(m.get("name", "?")))
+	if sessions >= PIT_FATIGUE_SESSIONS and int(m.get("fatigue", 0)) == 0:
+		m["fatigue"] = 1
+		_staff_log_add("Пит-экипаж перетренирован — на следующем этапе стоп медленнее")
+	return "ok"
+
+# Next-race pit_speed malus when any crew role is fatigued (≈ +0.2 s a stop).
+func pit_fatigue_penalty() -> float:
+	for role in PIT_CREW_ROLES:
+		if int(staff_member(String(role)).get("fatigue", 0)) > 0:
+			return PIT_FATIGUE_SPEED_PEN
+	return 0.0
+
+# ---- DHL Fastest Pit Stop Award ----
+
+# Record one round's fastest stops ({team_idx: best_stop_seconds}) and award
+# 5/3/1 to the three fastest crews. Tracks the player's season-best stop.
+func _record_dhl(best_stops: Dictionary) -> void:
+	var entries: Array = []
+	for tidx in best_stops:
+		var t: float = float(best_stops[tidx])
+		if t < 900.0:
+			entries.append([t, int(tidx)])
+	entries.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
+	for i in mini(DHL_POINTS.size(), entries.size()):
+		var key: String = str(int(entries[i][1]))
+		dhl_points[key] = int(dhl_points.get(key, 0)) + int(DHL_POINTS[i])
+	# Player's best stop of the season (display + bragging rights).
+	if best_stops.has(player_team):
+		var pt: float = float(best_stops[player_team])
+		if pt < 900.0 and (dhl_best.is_empty() or pt < float(dhl_best.get("time", 999.0))):
+			dhl_best = {"time": pt, "track": round_name(), "round": round_index + 1}
+
+# Season finale: the crew with the most DHL points takes $300k + 5 RP
+# (paid only if it's the player team). Tie-break: order of accumulation.
+func _award_dhl() -> void:
+	if dhl_awarded or dhl_points.is_empty():
+		return
+	dhl_awarded = true
+	var best_key: String = ""
+	var best_pts: int = -1
+	var keys: Array = dhl_points.keys()
+	keys.sort()   # deterministic scan order
+	for k in keys:
+		if int(dhl_points[k]) > best_pts:
+			best_pts = int(dhl_points[k])
+			best_key = String(k)
+	if best_key == str(player_team):
+		money += DHL_PRIZE_MONEY
+		rp += DHL_PRIZE_RP
+		payout_log.append({"round": round_index + 1, "amount": DHL_PRIZE_MONEY,
+			"from": "DHL Fastest Pit Stop (сезонный зачёт)"})
+		_staff_log_add("Пит-экипаж выиграл DHL Fastest Pit Stop: +$%s и +%d RP" % [
+			_format_money(DHL_PRIZE_MONEY), DHL_PRIZE_RP])
+
+func dhl_player_points() -> int:
+	return int(dhl_points.get(str(player_team), 0))
+
+# Player's place in the DHL season zachet (1-based).
+func dhl_player_rank() -> int:
+	var mine: int = dhl_player_points()
+	var above: int = 0
+	for k in dhl_points:
+		if int(dhl_points[k]) > mine:
+			above += 1
+	return above + 1
+
+# ---- driver status (Первый/Второй) ----
+
+# Make driver_id the FIRST driver; the teammate becomes second.
+func set_first_driver(driver_id: int) -> bool:
+	if not (driver_id in TEAM_IDS):
+		return false
+	for i in contracts.size():
+		var c: Dictionary = contracts[i]
+		var cid: int = int(c.get("driver_id", -1))
+		if cid == driver_id:
+			c["status"] = "first"
+		elif cid in TEAM_IDS:
+			c["status"] = "second"
+	return true
+
+func driver_status(driver_id: int) -> String:
+	return String(contract_of(driver_id).get("status", ""))
+
+# Morale offset from contract status (feeds morale_mod -> race pace).
+func _status_morale_offset(id: int) -> int:
+	match driver_status(id):
+		"first":
+			return STATUS_MORALE_FIRST
+		"second":
+			return STATUS_MORALE_SECOND
+	return 0
 
 # Return a human-readable cap status string (for UI). Russian.
 func cap_status_text() -> String:
@@ -1672,16 +1900,25 @@ func team_harvest_mult() -> float:
 # order_ids: driver ids in finishing order (index 0 = P1).
 # dnf_ids: (optional) Array of driver ids that retired — used for sponsor goal eval.
 # fl_id:   (optional) driver id who set fastest lap (-1 = none).
-func apply_results(order_ids: Array, dnf_ids: Array = [], fl_id: int = -1) -> void:
+func apply_results(order_ids: Array, dnf_ids: Array = [], fl_id: int = -1,
+		best_stops: Dictionary = {}) -> void:
 	# META-3: apply any RP cap penalty accumulated from last round's salary evaluation
 	_apply_cap_penalty()
 	var gained_pts := 0
+	var clause_paid: int = 0
 	for i in order_ids.size():
 		var id: int = int(order_ids[i])
 		var pts: int = POINTS[i] if i < POINTS.size() else 0
 		standings[id] += pts
 		if id in TEAM_IDS:
 			gained_pts += pts
+			# M4: podium bonus clause — extra driver pay for P1-P3 (not on DNF)
+			if i < 3 and not (id in dnf_ids):
+				clause_paid += int(contract_of(id).get("bonus_podium", 0))
+	if clause_paid > 0:
+		var clause_actual: int = mini(money, clause_paid)
+		money -= clause_actual
+		cumulative_salary_spend += clause_paid
 
 	# M1: constructor-prize income (replaces old per-car positional formula)
 	var constructor_pos: int = constructor_position()
@@ -1705,10 +1942,16 @@ func apply_results(order_ids: Array, dnf_ids: Array = [], fl_id: int = -1) -> vo
 		"sponsor": sponsor_income,
 		"tech": tech_income,
 		"supply": supply_cost,
+		"clause": clause_paid,
 		"constructor_pos": constructor_pos,
 		"rp": rp,
 	}
 	_update_drivers(order_ids)
+	# M4: DHL fastest-stop zachet; the season prize is decided at the finale.
+	if not best_stops.is_empty():
+		_record_dhl(best_stops)
+	if round_index == total_rounds() - 1:
+		_award_dhl()
 	# M2: staff lifecycle (loyalty drift, gardening leave, departure rolls).
 	_staff_end_of_round(gained_pts)
 	# M3: integration penalty burns down one round per race.
@@ -1751,8 +1994,10 @@ func _update_drivers(order_ids: Array) -> void:
 		driver_morale[a] = clampi(driver_morale[a] - 5, 0, 100)
 
 # Pace bonus/penalty from morale (~±0.04 skill at the extremes).
+# M4: the contract status (Первый +5 / Второй −3) shifts the effective morale.
 func morale_mod(id: int) -> float:
-	return (float(driver_morale.get(id, 50)) - 50.0) / 1200.0
+	var eff: float = float(driver_morale.get(id, 50)) + float(_status_morale_offset(id))
+	return (eff - 50.0) / 1200.0
 
 # dev_of(id) — back-compat public API used by main.gd and season_hub.gd.
 # Returns the aggregate skill delta: sum of all per-attr deltas in skill units.
@@ -1862,6 +2107,10 @@ func to_dict() -> Dictionary:
 		"brake_integration": brake_integration,
 		"fuel_integration":  fuel_integration,
 		"bought_parts":      bought_parts.duplicate(true),
+		# M4: DHL zachet
+		"dhl_points":  dhl_points.duplicate(true),
+		"dhl_best":    dhl_best.duplicate(true),
+		"dhl_awarded": dhl_awarded,
 	}
 
 func save_to_disk() -> void:
@@ -2053,6 +2302,9 @@ static func _apply_dict(s: Season, data: Dictionary) -> void:
 					"salary_per_round":  int(float(cd.get("salary_per_round", fallback_sal))),
 					"length_seasons":    int(float(cd.get("length_seasons", CONTRACT_LENGTH_DEFAULT))),
 					"rounds_remaining":  int(float(cd.get("rounds_remaining", CONTRACT_LENGTH_DEFAULT * 5))),
+					# M4: status + podium clause (defaults for pre-M4 saves)
+					"status":            String(cd.get("status", "")),
+					"bonus_podium":      int(float(cd.get("bonus_podium", BONUS_CLAUSE_PODIUM))),
 				})
 		# If fewer contracts than expected (e.g. partially corrupt), pad with defaults
 		var padded: int = s.contracts.size()
@@ -2097,6 +2349,7 @@ static func _apply_dict(s: Season, data: Dictionary) -> void:
 	var staff_raw: Variant = data.get("staff", null)
 	if typeof(staff_raw) == TYPE_ARRAY and (staff_raw as Array).size() > 0:
 		s.staff = s._staff_from_array(staff_raw as Array)
+		s._ensure_staff_roles()   # M4: pre-M4 saves grow the pit roles
 	else:
 		s.staff = []
 		s._init_staff()
@@ -2125,6 +2378,22 @@ static func _apply_dict(s: Season, data: Dictionary) -> void:
 		for bk in (bp_raw as Dictionary):
 			if F1_2026.PARTS.has(String(bk)) and bool((bp_raw as Dictionary)[bk]):
 				s.bought_parts[String(bk)] = true
+	# M4: DHL zachet (defaults for pre-M4 saves)
+	s.dhl_points = {}
+	var dp_raw: Variant = data.get("dhl_points", null)
+	if typeof(dp_raw) == TYPE_DICTIONARY:
+		for dk in (dp_raw as Dictionary):
+			s.dhl_points[String(dk)] = int(float((dp_raw as Dictionary)[dk]))
+	s.dhl_best = {}
+	var db_raw: Variant = data.get("dhl_best", null)
+	if typeof(db_raw) == TYPE_DICTIONARY and not (db_raw as Dictionary).is_empty():
+		var dbd: Dictionary = db_raw as Dictionary
+		s.dhl_best = {
+			"time":  float(dbd.get("time", 999.0)),
+			"track": String(dbd.get("track", "?")),
+			"round": int(float(dbd.get("round", 0))),
+		}
+	s.dhl_awarded = bool(data.get("dhl_awarded", false))
 	# Prime F1_2026's static R&D state so the loaded upgrades take effect immediately.
 	s.apply_car_rd()
 

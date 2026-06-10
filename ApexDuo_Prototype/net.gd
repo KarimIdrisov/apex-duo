@@ -250,6 +250,34 @@ func net_season_buy_supplier_part(part_key: String) -> void:
 		net_season_feed.rpc("Партнёр: куплена деталь «%s» у поставщика" % part_name)
 		get_tree().call_group("season_hub", "_on_season_updated")
 
+# client → host: train one pit-crew role for $25k (M4).
+@rpc("any_peer", "call_remote", "reliable")
+func net_season_train_pit(role: String) -> void:
+	if not multiplayer.is_server():
+		return
+	if Season.active == null:
+		return
+	if Season.active.train_pit_role(role) == "ok":
+		Season.active.save_to_disk()
+		net_season_full.rpc(Season.active.to_dict())
+		net_season_feed.rpc("Партнёр: тренировка пит-экипажа (%s)" %
+			Season.active.staff_role_ru(role))
+		get_tree().call_group("season_hub", "_on_season_updated")
+
+# client → host: make a driver the team's FIRST driver (M4 status).
+@rpc("any_peer", "call_remote", "reliable")
+func net_season_set_first(driver_id: int) -> void:
+	if not multiplayer.is_server():
+		return
+	if Season.active == null:
+		return
+	if Season.active.set_first_driver(driver_id):
+		Season.active.save_to_disk()
+		net_season_full.rpc(Season.active.to_dict())
+		net_season_feed.rpc("Партнёр: первый пилот — %s" %
+			Season.active.driver_name(driver_id))
+		get_tree().call_group("season_hub", "_on_season_updated")
+
 # client → host: poach a staff-market candidate by id (M2).
 # Host applies (deterministic roll), autosaves, rebroadcasts state + feed.
 @rpc("any_peer", "call_remote", "reliable")

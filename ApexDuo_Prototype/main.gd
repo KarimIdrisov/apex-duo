@@ -219,6 +219,9 @@ func _make_sim(coop: bool) -> void:
 				# (Brembo +0.06 … CI +0.02, ×0.9 while integrating a new supplier).
 				d.pit_consistency = clampf(
 					d.pit_consistency + Season.active.brake_pit_bonus(), 0.0, 1.0)
+				# M4: overtrained crew is slower over the wall next race (≈ +0.2 s).
+				d.pit_speed = clampf(
+					d.pit_speed - Season.active.pit_fatigue_penalty(), 0.0, 1.0)
 			else:
 				d.skill += Season.active.rival_skill_offset
 	sim = RaceSim.new(track, field, seed_value)
@@ -1030,13 +1033,27 @@ func _on_to_paddock() -> void:
 	var ordered := sim.order()
 	var ids: Array = []
 	var results: Array = []
+	# M1 wiring fix + M4: collect DNFs, the fastest lap and each team's best
+	# pit stop so sponsor goals and the DHL zachet see real race data.
+	var dnf_ids: Array = []
+	var fl_id := -1
+	var fl_time := 1.0e9
+	var best_stops: Dictionary = {}
 	for i in ordered.size():
 		var d: RaceSim.Driver = ordered[i]
 		ids.append(d.id)
 		results.append({"id": d.id, "pos": i + 1, "grid": d.grid_pos,
 			"passes": d.passes_made, "best_lap": d.best_lap, "dnf": d.dnf})
+		if d.dnf:
+			dnf_ids.append(d.id)
+		if d.best_lap > 0.0 and d.best_lap < fl_time:
+			fl_time = d.best_lap
+			fl_id = d.id
+		if d.best_stop < 900.0 and d.team_idx >= 0:
+			if not best_stops.has(d.team_idx) or d.best_stop < float(best_stops[d.team_idx]):
+				best_stops[d.team_idx] = d.best_stop
 	Season.active.record_race(results)
-	Season.active.apply_results(ids)
+	Season.active.apply_results(ids, dnf_ids, fl_id, best_stops)
 	# Online-season: host saves and syncs updated state to client before scene change.
 	if Net.role() == "host":
 		Season.active.save_to_disk()
