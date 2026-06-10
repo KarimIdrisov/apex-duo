@@ -281,6 +281,17 @@ class Driver:
 	var aero_damage: float = 0.0        # 0..1 floor/wing damage → pace penalty until repaired
 	var pu_health: float = 1.0          # 1..0 component condition (drops with use → more DNF)
 	var compounds_used: Array = []      # strings (set): tracks which slick compounds this driver has used
+	# --- sector timing ---
+	var cur_sector: int = 0               # 0 / 1 / 2 — current macro sector
+	var sector_entry_time: float = -1.0   # elapsed when entered current sector
+	var sector_times: Array = [-1.0, -1.0, -1.0]   # last completed S1/S2/S3 (s)
+	var sector_best:  Array = [-1.0, -1.0, -1.0]   # personal best per sector (s)
+	var soc_at_sector: Array = [80.0, 80.0, 80.0]  # SoC when entering each sector
+	# --- mini-sector timing (17 total: 5+7+5) ---
+	var cur_mini: int = 0                 # index of next unfinished mini-sector
+	var mini_entry_time: float = -1.0     # elapsed when entered current mini-sector
+	var mini_times_this_lap: Array = []   # size 17; -1.0 = not yet done this lap
+	var mini_best: Array = []             # size 17; personal best per mini
 	func progress() -> float:
 		return float(lap) + lap_frac
 	# 0..1 progress through the pit stop (for the minimap pit-lane animation).
@@ -394,6 +405,8 @@ var last_event: String = ""          # one-shot race message for the UI to show
 var event_log: Array = []            # persistent feed: [{lap, text, kind}], capped at 24
 var fastest_lap: float = 0.0         # race fastest lap time (0 = none yet)
 var fastest_id: int = -1             # driver id that holds the fastest lap
+var sector_global_best: Array = [-1.0, -1.0, -1.0]  # track record per macro sector (s)
+var mini_global_best: Array = []                      # track record per mini-sector (17 floats)
 # safety car
 var erng: RNG                        # race-events RNG (hashed seed)
 var sc_active: bool = false
@@ -440,6 +453,15 @@ func _init(track_in: Track, drivers_in: Array, seed_value: int = 12345) -> void:
 		d.deploy_budget = DEPLOY_BUDGET_BASE * track.energy_limit
 	# Run qualifying (populates quali_times, quali_grid, grid_pos, lap_frac, tyre_temp).
 	_run_qualifying()
+	# Global best arrays sized to match mini_sector_bounds
+	var _n_mini: int = track.mini_sector_bounds.size()
+	sector_global_best = [-1.0, -1.0, -1.0]
+	mini_global_best = []
+	for _mi in _n_mini:
+		mini_global_best.append(-1.0)
+	# Per-driver sector state (after qualifying sets lap_frac)
+	for _d in drivers:
+		_init_sector_state(_d)
 
 # Qualifying simulation: one flying lap per car on softs using the separate qrng
 # stream. Score = clean-lap pace model (skill + car track-character + soft tyre
@@ -473,6 +495,31 @@ func _run_qualifying() -> void:
 		gd.lap_frac = float(gn - 1 - gp) * GRID_GAP
 		gd.grid_pos = gp + 1
 		gd.tyre_temp = TYRE_TEMP_GRID     # warmed on the formation lap
+
+# Initialise sector tracking for one driver. Called in _init() and on reset.
+func _init_sector_state(d: Driver) -> void:
+	# Determine starting sector from lap_frac (qualifying grid spacing)
+	d.cur_sector = 0
+	if track.sector_bounds.size() >= 2:
+		for si in 2:
+			if d.lap_frac >= float(track.sector_bounds[si]):
+				d.cur_sector = si + 1
+	d.sector_entry_time = elapsed   # 0.0 at sim start
+	d.soc_at_sector[0] = d.soc
+	# Mini-sector state
+	var n_mini: int = track.mini_sector_bounds.size()
+	d.mini_times_this_lap = []
+	d.mini_best = []
+	for _i in n_mini:
+		d.mini_times_this_lap.append(-1.0)
+		d.mini_best.append(-1.0)
+	d.cur_mini = 0
+	for mi in n_mini:
+		if d.lap_frac >= float(track.mini_sector_bounds[mi]):
+			d.cur_mini = mi + 1
+		else:
+			break
+	d.mini_entry_time = elapsed
 
 # Turn-1 incident probability for this track (more likely where passing is hard).
 func _t1_incident_prob() -> float:
