@@ -82,6 +82,15 @@ var race_view_3d: RaceView3D     # optional 3D race view (toggle from the HUD)
 var view_3d_btn: Button          # 2D ↔ 3D toggle button
 var view_is_3d := false          # which race view is currently shown
 
+# Timing tower (F1 Manager-style 22-row panel with 17 mini-sector blocks each)
+var _tt_panel: PanelContainer
+var _tt_rows: Array = []
+const TT_MINI_COUNTS: Array = [5, 7, 5]
+const TT_MINI_TOTAL: int = 17
+const TT_COL_MINI_W: int = 8
+const TT_COL_MINI_H: int = 14
+const TT_COL_SEP: int = 4
+
 # ---------------------------------------------------------------- lifecycle
 func _ready() -> void:
 	theme = Palette.base_theme()
@@ -164,6 +173,8 @@ func _process(delta: float) -> void:
 			else:
 				net_snapshot.rpc(_make_snapshot())
 	_update_hud()
+	if _tt_panel != null and sim != null:
+		_update_timing_tower(sim)
 
 # ============================================================================
 #  GAME START
@@ -277,6 +288,9 @@ func _make_sim(coop: bool) -> void:
 			else:
 				d.skill += Season.active.rival_skill_offset
 	sim = RaceSim.new(track, field, seed_value)
+	_build_timing_tower()
+	if track_map != null:
+		track_map.set_segments(sim.track.segments, sim.track.straight_frac)
 
 # ============================================================================
 #  NETWORKING (host-authoritative)
@@ -994,6 +1008,165 @@ func _set_msg(s: String) -> void:
 # ============================================================================
 #  UI CONSTRUCTION
 # ============================================================================
+
+# ---- Timing tower helpers ----
+
+func _dark_panel_style() -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = Color(0.05, 0.06, 0.08, 0.92)
+	s.set_corner_radius_all(6)
+	return s
+
+func _tt_separator_line() -> HSeparator:
+	var sep := HSeparator.new()
+	sep.add_theme_color_override("color", Color(0.2, 0.22, 0.26))
+	return sep
+
+func _tt_header_row() -> HBoxContainer:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 4)
+	var cols: Array = [["#", 22], ["Гонщик", 58], ["Кр", 28], ["Пит", 24],
+	             ["Ш", 22], ["Лучший", 64], ["Отрыв", 58], ["Инт", 52],
+	             ["Мини-секторы", 145], ["Посл", 58]]
+	for col in cols:
+		var lbl := Label.new()
+		lbl.text = String(col[0])
+		lbl.custom_minimum_size = Vector2(int(col[1]), 0)
+		lbl.add_theme_color_override("font_color", Color(0.55, 0.58, 0.65))
+		lbl.add_theme_font_size_override("font_size", 10)
+		hb.add_child(lbl)
+	return hb
+
+func _build_tt_row() -> Dictionary:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 4)
+	hb.custom_minimum_size = Vector2(0, 20)
+
+	var make_lbl := func(w: int) -> Label:
+		var l := Label.new()
+		l.custom_minimum_size = Vector2(w, 0)
+		l.add_theme_font_size_override("font_size", 11)
+		l.add_theme_color_override("font_color", Color(0.85, 0.88, 0.92))
+		l.clip_contents = true
+		hb.add_child(l)
+		return l
+
+	var pos_lbl: Label  = make_lbl.call(22)
+	var drv_lbl: Label  = make_lbl.call(58)
+	var lap_lbl: Label  = make_lbl.call(28)
+	var pit_lbl: Label  = make_lbl.call(24)
+	var tyr_lbl: Label  = make_lbl.call(22)
+	var best_lbl: Label = make_lbl.call(64)
+	var gap_lbl: Label  = make_lbl.call(58)
+	var int_lbl: Label  = make_lbl.call(52)
+
+	var mini_hb := HBoxContainer.new()
+	mini_hb.custom_minimum_size = Vector2(145, 0)
+	mini_hb.add_theme_constant_override("separation", 1)
+	hb.add_child(mini_hb)
+	var minis: Array = []
+	for si in 3:
+		if si > 0:
+			var gap_ctrl := Control.new()
+			gap_ctrl.custom_minimum_size = Vector2(TT_COL_SEP, 1)
+			mini_hb.add_child(gap_ctrl)
+		for _mi in TT_MINI_COUNTS[si]:
+			var rect := ColorRect.new()
+			rect.custom_minimum_size = Vector2(TT_COL_MINI_W, TT_COL_MINI_H)
+			rect.color = Color(0.18, 0.20, 0.24)
+			mini_hb.add_child(rect)
+			minis.append(rect)
+
+	var last_lbl: Label = make_lbl.call(58)
+
+	return {
+		"row": hb, "pos": pos_lbl, "drv": drv_lbl, "lap": lap_lbl,
+		"pit": pit_lbl, "tyr": tyr_lbl, "best": best_lbl,
+		"gap": gap_lbl, "int": int_lbl, "last": last_lbl,
+		"minis": minis,
+	}
+
+func _build_timing_tower() -> void:
+	if _tt_panel != null:
+		_tt_panel.queue_free()
+	_tt_rows.clear()
+
+	_tt_panel = PanelContainer.new()
+	_tt_panel.add_theme_stylebox_override("panel", _dark_panel_style())
+	_tt_panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_tt_panel.position = Vector2(-420.0, 120.0)
+	_tt_panel.custom_minimum_size = Vector2(410.0, 0.0)
+	add_child(_tt_panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 1)
+	_tt_panel.add_child(vbox)
+
+	vbox.add_child(_tt_header_row())
+	vbox.add_child(_tt_separator_line())
+
+	for _i in 22:
+		var rd := _build_tt_row()
+		_tt_rows.append(rd)
+		vbox.add_child(rd["row"])
+
+func _update_mini_colours(minis: Array, d: RaceSim.Driver, sim_ref: RaceSim) -> void:
+	if d.mini_times_this_lap.is_empty() or sim_ref.mini_global_best.is_empty():
+		return
+	var n: int = mini(minis.size(), d.mini_times_this_lap.size())
+	for mi in n:
+		var rect: ColorRect = minis[mi]
+		var t: float = float(d.mini_times_this_lap[mi])
+		if mi >= d.cur_mini or t < 0.0:
+			rect.color = Color(0.18, 0.20, 0.24)
+		else:
+			var gb: float = float(sim_ref.mini_global_best[mi])
+			var pb: float = float(d.mini_best[mi])
+			if gb >= 0.0 and absf(t - gb) < 0.002:
+				rect.color = Color(0.73, 0.40, 0.80)
+			elif pb >= 0.0 and absf(t - pb) < 0.002:
+				rect.color = Color(0.30, 0.69, 0.31)
+			else:
+				rect.color = Color(0.99, 0.85, 0.21)
+
+func _update_timing_tower(sim_ref: RaceSim) -> void:
+	if _tt_rows.is_empty() or sim_ref == null:
+		return
+	var sorted: Array = sim_ref.order()
+	for i in mini(_tt_rows.size(), sorted.size()):
+		var d: RaceSim.Driver = sorted[i]
+		var rd: Dictionary = _tt_rows[i]
+		rd["row"].visible = true
+		rd["pos"].text = str(i + 1)
+		var parts: Array = d.name.split(" ")
+		rd["drv"].text = parts[parts.size() - 1].left(3).to_upper()
+		if d.color != "":
+			rd["drv"].add_theme_color_override("font_color", Color(d.color))
+		rd["lap"].text = str(d.lap + 1)
+		rd["pit"].text = str(d.pit_count)
+		rd["tyr"].text = d.compound.left(1).to_upper()
+		rd["best"].text = "—" if d.best_lap <= 0.0 else _fmt_laptime(d.best_lap)
+		if i == 0:
+			rd["gap"].text = "INT"
+		else:
+			var leader: RaceSim.Driver = sorted[0]
+			if d.finished:
+				var delta: float = d.finish_time - float(leader.finish_time)
+				rd["gap"].text = "+%.3f" % delta
+			else:
+				var prog_delta: float = (leader.progress() - d.progress()) * maxf(d.last_lt, 60.0)
+				rd["gap"].text = "+%.1f" % maxf(0.0, prog_delta)
+		if i == 0:
+			rd["int"].text = "—"
+		else:
+			var prev_d: RaceSim.Driver = sorted[i - 1]
+			var iv: float = (prev_d.progress() - d.progress()) * maxf(d.last_lt, 60.0)
+			rd["int"].text = "+%.2f" % maxf(0.0, iv)
+		rd["last"].text = "—" if d.last_lap <= 0.0 else _fmt_laptime(d.last_lap)
+		_update_mini_colours(rd["minis"], d, sim_ref)
+	for i in range(sorted.size(), _tt_rows.size()):
+		_tt_rows[i]["row"].visible = false
+
 func _build_bg() -> void:
 	var bg := ColorRect.new()
 	bg.color = BG
