@@ -5,9 +5,10 @@ extends Control
 # Builds a configured Season and hands off to the paddock hub.
 # ============================================================================
 
-const BG := Color("#14161a")
-const PANEL := Color("#1f242b")
-const MUTED := "#9aa4b2"
+# Palette aliases — keep thin local aliases to minimise churn.
+const BG    := Palette.BG
+const PANEL := Palette.PANEL
+const MUTED := Palette.MUTED_HEX
 
 var sel_team := 1
 var sel_diff := 1
@@ -34,10 +35,10 @@ func _rebuild() -> void:
 	margin.add_child(col)
 	add_child(margin)
 
-	col.add_child(_label("НОВЫЙ СЕЗОН — НАСТРОЙКА", 30, "#c8102e"))
+	col.add_child(_label("НОВЫЙ СЕЗОН — НАСТРОЙКА", 30, Palette.GOLD_HEX))
 
 	# --- team ---
-	col.add_child(_label("Команда (карьерный старт):", 18, "#ffffff"))
+	col.add_child(_label("Команда (карьерный старт):", 18, Palette.CREAM_HEX))
 	var trow := HBoxContainer.new()
 	trow.add_theme_constant_override("separation", 8)
 	col.add_child(trow)
@@ -45,7 +46,7 @@ func _rebuild() -> void:
 		trow.add_child(_team_card(i))
 
 	# --- difficulty ---
-	col.add_child(_label("Сложность (сила соперников):", 18, "#ffffff"))
+	col.add_child(_label("Сложность (сила соперников):", 18, Palette.CREAM_HEX))
 	var drow := HBoxContainer.new()
 	drow.add_theme_constant_override("separation", 8)
 	col.add_child(drow)
@@ -59,7 +60,7 @@ func _rebuild() -> void:
 		drow.add_child(b)
 
 	# --- mode ---
-	col.add_child(_label("Режим:", 18, "#ffffff"))
+	col.add_child(_label("Режим:", 18, Palette.CREAM_HEX))
 	var mrow := HBoxContainer.new()
 	mrow.add_theme_constant_override("separation", 8)
 	col.add_child(mrow)
@@ -67,7 +68,7 @@ func _rebuild() -> void:
 	# and lock the mode (no toggling needed — coop is forced).
 	var is_online_host: bool = Net.role() == "host"
 	if is_online_host:
-		var online_lbl := _label("Онлайн-кооп (хост) — сервер поднят, ожидание партнёра…", 15, "#66c2ff")
+		var online_lbl := _label("Онлайн-кооп (хост) — сервер поднят, ожидание партнёра…", 15, Palette.INFO_HEX)
 		mrow.add_child(online_lbl)
 	else:
 		var solo_b := _button("Соло (1 игрок)", 16)
@@ -103,24 +104,23 @@ func _team_card(i: int) -> Control:
 	var t: Dictionary = Season.TEAM_TIERS[i]
 	var pc := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = PANEL
-	sb.set_corner_radius_all(10)
+	sb.bg_color = Palette.PANEL2 if i == sel_team else Palette.PANEL
+	sb.set_corner_radius_all(2)
 	sb.set_content_margin_all(12)
-	if i == sel_team:
-		sb.set_border_width_all(3)
-		sb.border_color = Color("#c8102e")
+	sb.set_border_width_all(1)
+	sb.border_color = Palette.GOLD if i == sel_team else Palette.DIV
 	pc.add_theme_stylebox_override("panel", sb)
 	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 6)
-	v.add_child(_label(String(t["name"]), 20, "#ffd166"))
+	v.add_child(_label(String(t["name"]), 20, Palette.GOLD_HEX))
 	var desc := _label(String(t["desc"]), 14, MUTED)
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(desc)
 	v.add_child(_label("Бюджет: $%d млн · R&D: %d" % [
-		int(t["money"]) / 1000000, int(t["rp"])], 13, "#5dd17a"))
-	v.add_child(_label("Цель: %s" % String(t["goal"]), 13, "#66c2ff"))
+		int(t["money"]) / 1000000, int(t["rp"])], 13, Palette.GOOD_HEX))
+	v.add_child(_label("Цель: %s" % String(t["goal"]), 13, Palette.INFO_HEX))
 	var pick := _button("Выбрать" if i != sel_team else "✔ Выбрано", 14)
 	pick.pressed.connect(func(): sel_team = i; _rebuild())
 	v.add_child(pick)

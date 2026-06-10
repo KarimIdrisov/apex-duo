@@ -17,11 +17,12 @@ const STEP := 0.25
 const BASE_LT := 90.0            # track base laptime (for client-side gap calc)
 const PORT := 24555
 const SNAPSHOT_HZ := 12.0
-const ACCENT := Color("#c8102e")
-const TEAM_COL := Color("#ffd166")
-const ENGI_COL := Color("#66c2ff")
-const BG := Color("#14161a")
-const PANEL := Color("#1f242b")
+# Palette aliases — values now come from Palette (theme.gd).
+const ACCENT    := Palette.WINE
+const TEAM_COL  := Palette.P5
+const ENGI_COL  := Palette.P6
+const BG        := Palette.BG
+const PANEL     := Palette.PANEL
 
 var game_mode := ""              # "", "solo", "local", "host", "client"
 var sim: RaceSim
@@ -567,18 +568,18 @@ func _update_feed() -> void:
 		var knd: String = String(ev.get("kind", ""))
 		var col: String
 		match knd:
-			"overtake": col = "#5dd17a"
-			"pit":      col = "#19c0c0"
-			"dnf":      col = "#e23b3b"
-			"sc":       col = "#f2c14e"
-			"weather":  col = "#66c2ff"
-			"radio":    col = "#79ffe1"
-			"flap":     col = "#b15de8"
-			"incident": col = "#ff7a1a"
-			"team":     col = "#ffd166"
-			"clip":     col = "#9aa4b2"
-			"penalty":  col = "#ff4d6d"
-			_:          col = "#c8d0db"
+			"overtake": col = Palette.GOOD_HEX
+			"pit":      col = Palette.INFO_HEX
+			"dnf":      col = Palette.DANG_HEX
+			"sc":       col = Palette.WARN_HEX
+			"weather":  col = Palette.INFO_HEX
+			"radio":    col = Palette.GOOD_HEX
+			"flap":     col = Palette.PURP_HEX
+			"incident": col = Palette.WARN_HEX
+			"team":     col = Palette.GOLD_HEX
+			"clip":     col = Palette.MUTED_HEX
+			"penalty":  col = Palette.DANG_HEX
+			_:          col = Palette.CREAM_HEX
 		lbl.text = "[color=%s]Кр.%d · %s[/color]" % [col, lap_n, txt]
 
 func _announce_result(entries: Array) -> void:
@@ -828,19 +829,10 @@ func _on_restart() -> void:
 
 # ---------------------------------------------------------------- colors / text
 func _tire_color(c) -> Color:
-	match String(c):
-		"soft": return Color("#e23b3b")
-		"medium": return Color("#f2c14e")
-		"hard": return Color("#e8e8e8")
-		"inter": return Color("#3fb950")
-		"wet": return Color("#3b82f6")
-	return Color.WHITE
+	return Palette.tire_color(String(c))
 
 func _wear_color(w) -> Color:
-	var v := float(w)
-	if v < 50.0: return Color("#5dd17a")
-	if v < 78.0: return Color("#f2c14e")
-	return Color("#e23b3b")
+	return Palette.wear_color(float(w))
 
 func _mode_ru(m) -> String:
 	match String(m):
@@ -858,12 +850,7 @@ func _mode_ru_game() -> String:
 	return game_mode
 
 func _soc_color(e: Dictionary) -> Color:
-	if bool(e.get("clipped", false)):
-		return Color("#e23b3b")
-	var s := float(e.get("soc", 0.0))
-	if s < 20.0: return Color("#e23b3b")
-	if s < 45.0: return Color("#f2c14e")
-	return Color("#5dd17a")
+	return Palette.soc_color(bool(e.get("clipped", false)), float(e.get("soc", 0.0)))
 
 func _ers_ru(m) -> String:
 	match String(m):
@@ -1326,16 +1313,20 @@ func _make_panel(car_id: int, role: String, dname: String) -> Control:
 	bar.max_value = 120
 	bar.show_percentage = false
 	bar.custom_minimum_size = Vector2(0, 16)
+	bar.add_theme_stylebox_override("fill", Palette.bar_fill(Palette.GOOD))
+	bar.add_theme_stylebox_override("background", Palette.bar_bg())
 	v.add_child(bar)
 
 	# Live driver-trust readout — the engineer↔driver relationship, in-race.
-	var trust_label := _mklabel(14, "#9aa4b2", "Доверие пилота: —")
+	var trust_label := _mklabel(14, Palette.MUTED_HEX, "Доверие пилота: —")
 	v.add_child(trust_label)
 	var trust_bar := ProgressBar.new()
 	trust_bar.min_value = 0
 	trust_bar.max_value = 100
 	trust_bar.show_percentage = false
 	trust_bar.custom_minimum_size = Vector2(0, 10)
+	trust_bar.add_theme_stylebox_override("fill", Palette.bar_fill(Palette.GOOD))
+	trust_bar.add_theme_stylebox_override("background", Palette.bar_bg())
 	v.add_child(trust_bar)
 	var mood_label := _mklabel(14, "#9aa4b2", "Настрой: —")
 	v.add_child(mood_label)
@@ -1361,22 +1352,26 @@ func _make_panel(car_id: int, role: String, dname: String) -> Control:
 	v.add_child(encourage)
 
 	# --- 2026 energy controls (each player runs their own battery) ---
-	v.add_child(_mklabel(14, "#9aa4b2", "Батарея (заряд):"))
+	v.add_child(_mklabel(14, Palette.MUTED_HEX, "Батарея (заряд):"))
 	var soc_bar := ProgressBar.new()
 	soc_bar.min_value = 0
 	soc_bar.max_value = 100
 	soc_bar.show_percentage = false
 	soc_bar.custom_minimum_size = Vector2(0, 14)
+	soc_bar.add_theme_stylebox_override("fill", Palette.bar_fill(Palette.GOOD))
+	soc_bar.add_theme_stylebox_override("background", Palette.bar_bg())
 	v.add_child(soc_bar)
 
 	# 2026 per-lap deploy budget bar — shows how much electric deployment remains this lap.
-	v.add_child(_mklabel(14, "#9aa4b2", "ЗАПАС ДЕПЛОЯ (КРУГ):"))
+	v.add_child(_mklabel(14, Palette.MUTED_HEX, "ЗАПАС ДЕПЛОЯ (КРУГ):"))
 	var deploy_bar := ProgressBar.new()
 	deploy_bar.min_value = 0.0
 	deploy_bar.max_value = RaceSim.DEPLOY_BUDGET_BASE   # default; updated each frame via max_value
 	deploy_bar.value = RaceSim.DEPLOY_BUDGET_BASE
 	deploy_bar.show_percentage = false
 	deploy_bar.custom_minimum_size = Vector2(0, 12)
+	deploy_bar.add_theme_stylebox_override("fill", Palette.bar_fill(Palette.INFO))
+	deploy_bar.add_theme_stylebox_override("background", Palette.bar_bg())
 	v.add_child(deploy_bar)
 
 	v.add_child(_mklabel(14, "#9aa4b2", "Режим ERS:"))
@@ -1561,8 +1556,10 @@ func _show_prerace_modal() -> void:
 	center.add_child(box)
 
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = PANEL
-	sb.set_corner_radius_all(12)
+	sb.bg_color = Palette.PANEL
+	sb.set_corner_radius_all(2)
+	sb.set_border_width_all(1)
+	sb.border_color = Palette.DIV
 	sb.set_content_margin_all(22)
 	var pc := PanelContainer.new()
 	pc.add_theme_stylebox_override("panel", sb)
@@ -1766,11 +1763,7 @@ func _build_feed_panel() -> Control:
 # ---------------------------------------------------------------- ui helpers
 func _panel_container() -> PanelContainer:
 	var pc := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = PANEL
-	sb.set_corner_radius_all(10)
-	sb.set_content_margin_all(14)
-	pc.add_theme_stylebox_override("panel", sb)
+	pc.add_theme_stylebox_override("panel", Palette.panel())
 	return pc
 
 func _row_box() -> HBoxContainer:

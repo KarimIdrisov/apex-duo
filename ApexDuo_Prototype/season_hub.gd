@@ -10,12 +10,13 @@ extends Control
 #   The group "season_hub" is used by Net to deliver callbacks here.
 # ============================================================================
 
-const ACCENT := Color("#c8102e")
-const TEAM_COL := Color("#ffd166")
-const ENGI_COL := Color("#66c2ff")
-const BG := Color("#14161a")
-const PANEL := Color("#1f242b")
-const MUTED := "#9aa4b2"
+# Palette aliases — route to Palette (theme.gd) for formal colours.
+const ACCENT   := Palette.WINE
+const TEAM_COL := Palette.P5
+const ENGI_COL := Palette.P6
+const BG       := Palette.BG
+const PANEL    := Palette.PANEL
+const MUTED    := Palette.MUTED_HEX
 
 # Feed lines for the partner-action log (newest-first, max 5 entries).
 var _feed_lines: Array = []
@@ -96,7 +97,7 @@ func _rebuild() -> void:
 	# Online-season status bar (only when networked).
 	var net_role: String = Net.role()
 	if net_role != "":
-		var net_status_col := "#66c2ff" if net_role == "host" else "#ffd166"
+		var net_status_col := Palette.INFO_HEX if net_role == "host" else Palette.GOLD_HEX
 		var partner_status: String
 		if net_role == "host":
 			partner_status = "партнёр в игре" if Net.partner_connected else "ожидание партнёра…"
@@ -104,12 +105,12 @@ func _rebuild() -> void:
 		else:
 			col.add_child(_label("ОНЛАЙН-СЕЗОН · клиент (зеркало)", 14, net_status_col))
 		# Partner feed (online actions log).
-		_feed_label = _label("", 13, "#9aa4b2")
+		_feed_label = _label("", 13, Palette.MUTED_HEX)
 		_feed_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		col.add_child(_feed_label)
 		_update_feed_label()
 
-	var title := _label("ПАДДОК · %s" % s.team_name, 30, "#c8102e")
+	var title := _label("ПАДДОК · %s" % s.team_name, 30, Palette.GOLD_HEX)
 	col.add_child(title)
 
 	var round_txt := ""
@@ -119,45 +120,45 @@ func _rebuild() -> void:
 		round_txt = "Этап %d из %d — %s" % [s.round_index + 1, s.total_rounds(), s.round_name()]
 	col.add_child(_label(round_txt, 18, MUTED))
 	col.add_child(_label("Сложность: %s · цель команды: %s" % [
-		s.difficulty_name(), s.goal], 15, "#66c2ff"))
+		s.difficulty_name(), s.goal], 15, Palette.INFO_HEX))
 	if not s.is_complete():
 		col.add_child(_label("Следующая трасса: %s · %s" % [
-			s.round_name(), _arch_ru(s.round_archetype())], 15, "#ff8c42"))
+			s.round_name(), _arch_ru(s.round_archetype())], 15, Palette.WARN_HEX))
 
 	col.add_child(_label("Бюджет: $%s   ·   R&D очки: %d   ·   очки конструкторов: %d" % [
-		_money(s.money), s.rp, s.constructor_points()], 16, "#5dd17a"))
+		_money(s.money), s.rp, s.constructor_points()], 16, Palette.GOOD_HEX))
 	col.add_child(_label("Прогресс автоматически сохранён — можно выйти и продолжить позже.",
-		13, "#7c8694"))
+		13, Palette.FINE_HEX))
 
 	# team drivers: morale + development
 	for id in Season.TEAM_IDS:
 		var mor := s.morale_of(id)
-		var mcol := "#5dd17a"
+		var mcol := Palette.GOOD_HEX
 		if mor < 40:
-			mcol = "#e23b3b"
+			mcol = Palette.DANG_HEX
 		elif mor < 66:
-			mcol = "#f2c14e"
+			mcol = Palette.WARN_HEX
 		col.add_child(_label("%s — настрой %d/100 · развитие +%.3f к темпу" % [
 			s.driver_name(id), mor, s.dev_of(id)], 14, mcol))
 
 	# FM-style season statistics
-	col.add_child(_label("Статистика сезона:", 14, "#9aa4b2"))
+	col.add_child(_label("Статистика сезона:", 14, Palette.MUTED_HEX))
 	for id in Season.TEAM_IDS:
 		var st := s.stat_of(id)
 		var best_txt := "—" if int(st["best"]) == 0 else str(int(st["best"]))
 		col.add_child(_label("%s — гонок %d · побед %d · подиумов %d · обгонов %d · лучший P%s · мест +%d" % [
 			s.driver_name(id), int(st["races"]), int(st["wins"]), int(st["podiums"]),
-			int(st["overtakes"]), best_txt, int(st["gained"])], 13, "#cfd6e0"))
+			int(st["overtakes"]), best_txt, int(st["gained"])], 13, Palette.CREAM_HEX))
 	var lw := s.stats_leader("wins")
 	if not lw.is_empty() and int(lw["val"]) > 0:
 		var lo := s.stats_leader("overtakes")
 		col.add_child(_label("Лидеры сезона: побед — %s (%d) · обгонов — %s (%d)" % [
-			lw["name"], int(lw["val"]), lo["name"], int(lo["val"])], 13, "#66c2ff"))
+			lw["name"], int(lw["val"]), lo["name"], int(lo["val"])], 13, Palette.INFO_HEX))
 
 	if not s.last_summary.is_empty():
 		var ls: Dictionary = s.last_summary
 		col.add_child(_label("Прошлый этап: команда +%d очк., +$%s призовых." % [
-			ls["pts"], _money(ls["money"])], 15, "#66c2ff"))
+			ls["pts"], _money(ls["money"])], 15, Palette.INFO_HEX))
 
 	# M1: income-per-round summary line
 	var inc: int = s.income_per_round()
@@ -166,7 +167,7 @@ func _rebuild() -> void:
 	col.add_child(_label(
 		"Доход/этап (прогноз): $%s  (призовые P%d: $%s + спонсоры: $%s)" % [
 			_money(inc), cpos, _money(prize_line), _money(inc - prize_line)],
-		15, "#5dd17a"))
+		15, Palette.GOOD_HEX))
 
 	# main area: standings (left) + R&D (right) + contracts (below) + sponsors
 	var mid := HBoxContainer.new()
@@ -258,7 +259,7 @@ func _build_standings(s: Season) -> Control:
 	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 4)
-	v.add_child(_label("ЧЕМПИОНАТ ПИЛОТОВ", 18, "#ffffff"))
+	v.add_child(_label("ЧЕМПИОНАТ ПИЛОТОВ", 18, Palette.CREAM_HEX))
 	v.add_child(HSeparator.new())
 
 	var rows := s.standings_sorted()
@@ -285,19 +286,19 @@ func _build_rnd(s: Season) -> Control:
 	pc.custom_minimum_size = Vector2(380, 0)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 8)
-	v.add_child(_label("R&D — РАЗВИТИЕ МАШИНЫ", 18, "#ffffff"))
-	v.add_child(_label("Доступно R&D очков: %d" % s.rp, 15, "#5dd17a"))
+	v.add_child(_label("R&D — РАЗВИТИЕ МАШИНЫ", 18, Palette.CREAM_HEX))
+	v.add_child(_label("Доступно R&D очков: %d" % s.rp, 15, Palette.GOOD_HEX))
 	v.add_child(_spacer(4))
 
 	# Group metadata: [group_key, group_title, accent_colour, description]
 	var groups: Array = [
-		["aero",        "АЭРОДИНАМИКА",    "#ffd166",
+		["aero",        "АЭРОДИНАМИКА",    Palette.GOLD_HEX,
 			"Прижимная сила — помогает на технических трассах (Монако)."],
-		["power",       "МОТОР / ДВС",     "#ff8c42",
+		["power",       "МОТОР / ДВС",     Palette.WARN_HEX,
 			"Мощность — прибавка на скоростных трассах (Монца)."],
-		["energy",      "ЭНЕРГИЯ / ERS",   "#66c2ff",
+		["energy",      "ЭНЕРГИЯ / ERS",   Palette.INFO_HEX,
 			"Батарея и рекуперация — больше тяги из ERS в 2026."],
-		["reliability", "НАДЁЖНОСТЬ",      "#b0e06e",
+		["reliability", "НАДЁЖНОСТЬ",      Palette.GOOD_HEX,
 			"КПП и охлаждение — снижают риск поломки + малый бонус."],
 	]
 
@@ -369,7 +370,7 @@ func _build_rnd(s: Season) -> Control:
 							_rebuild())
 				row.add_child(btn)
 			else:
-				row.add_child(_label("  МАКС", 12, "#5dd17a"))
+				row.add_child(_label("  МАКС", 12, Palette.GOOD_HEX))
 
 			part_rows_v.add_child(row)
 
@@ -382,9 +383,9 @@ func _build_rnd(s: Season) -> Control:
 	v.add_child(_spacer(8))
 	v.add_child(HSeparator.new())
 	v.add_child(_spacer(4))
-	v.add_child(_label("ШИНЫ", 15, "#c8e6ff"))
+	v.add_child(_label("ШИНЫ", 15, Palette.INFO_HEX))
 	v.add_child(_label("Шинная программа — снижает износ шин команды.", 12, MUTED))
-	v.add_child(_label("Текущий бонус: −%d%% износа" % int(s.wear_bonus * 100.0), 12, "#66c2ff"))
+	v.add_child(_label("Текущий бонус: −%d%% износа" % int(s.wear_bonus * 100.0), 12, Palette.INFO_HEX))
 	var tyre_row := HBoxContainer.new()
 	tyre_row.add_theme_constant_override("separation", 8)
 	var tyre := _button("Купить шинную программу · %d RP" % s.cost_tyre(), 14)
@@ -405,15 +406,15 @@ func _build_rnd(s: Season) -> Control:
 
 	v.add_child(_spacer(8))
 	v.add_child(_label("R&D очки начисляются за каждый этап и за результат команды.",
-		12, "#7c8694"))
+		12, Palette.FINE_HEX))
 
 	# META-3: cap status line
 	v.add_child(_spacer(6))
-	var cap_col := "#5dd17a"
+	var cap_col := Palette.GOOD_HEX
 	if s.cumulative_salary_spend > s.SALARY_CAP:
-		cap_col = "#e23b3b"
+		cap_col = Palette.DANG_HEX
 	elif s.cumulative_salary_spend > s.SALARY_CAP * 3 / 4:
-		cap_col = "#f2c14e"
+		cap_col = Palette.WARN_HEX
 	v.add_child(_label(s.cap_status_text(), 13, cap_col))
 
 	pc.add_child(v)
@@ -425,7 +426,7 @@ func _build_contracts(s: Season) -> Control:
 	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 8)
-	v.add_child(_label("КОНТРАКТЫ ПИЛОТОВ", 18, "#ffffff"))
+	v.add_child(_label("КОНТРАКТЫ ПИЛОТОВ", 18, Palette.CREAM_HEX))
 	v.add_child(HSeparator.new())
 
 	for idx in s.TEAM_IDS.size():
@@ -438,15 +439,15 @@ func _build_contracts(s: Season) -> Control:
 		row.add_theme_constant_override("separation", 10)
 
 		if c.is_empty():
-			row.add_child(_label("%s (%s) — контракт отсутствует" % [dname, role_txt], 14, "#e23b3b"))
+			row.add_child(_label("%s (%s) — контракт отсутствует" % [dname, role_txt], 14, Palette.DANG_HEX))
 		else:
 			var sal: int = int(c.get("salary_per_round", 0))
 			var rem: int = int(c.get("rounds_remaining", 0))
-			var contract_col := "#cfd6e0"
+			var contract_col := Palette.CREAM_HEX
 			if rem <= 1:
-				contract_col = "#e23b3b"
+				contract_col = Palette.DANG_HEX
 			elif rem <= 2:
-				contract_col = "#f2c14e"
+				contract_col = Palette.WARN_HEX
 			var rem_txt := "контракт истёк!" if rem <= 0 else "%d эт. осталось" % rem
 			row.add_child(_label("%s (%s) — зарплата $%s / эт. · %s" % [
 				dname, role_txt, _money(sal), rem_txt], 14, contract_col))
@@ -486,22 +487,22 @@ func _build_contracts(s: Season) -> Control:
 	# Salary cap summary
 	v.add_child(_spacer(6))
 	v.add_child(HSeparator.new())
-	var cap_col := "#5dd17a"
+	var cap_col := Palette.GOOD_HEX
 	if s.cumulative_salary_spend > s.SALARY_CAP:
-		cap_col = "#e23b3b"
+		cap_col = Palette.DANG_HEX
 	elif s.cumulative_salary_spend > s.SALARY_CAP * 3 / 4:
-		cap_col = "#f2c14e"
+		cap_col = Palette.WARN_HEX
 	v.add_child(_label(s.cap_status_text(), 14, cap_col))
 	v.add_child(_label(
 		"Израсходовано: $%s  из  $%s  кап-бюджета" % [
-			_money(s.cumulative_salary_spend), _money(s.SALARY_CAP)], 13, "#9aa4b2"))
+			_money(s.cumulative_salary_spend), _money(s.SALARY_CAP)], 13, Palette.MUTED_HEX))
 	if s.cap_penalty_pending > 0:
 		v.add_child(_label("Следующий штраф за превышение: -%d RP" % s.cap_penalty_pending,
-			13, "#e23b3b"))
+			13, Palette.DANG_HEX))
 
 	# Basic transfer market: list available rival drivers to sign
 	v.add_child(_spacer(8))
-	v.add_child(_label("Трансферный рынок:", 15, "#ffffff"))
+	v.add_child(_label("Трансферный рынок:", 15, Palette.CREAM_HEX))
 	var grid := F1_2026.race_grid(s.player_team)
 	var shown := 0
 	for gi in grid.size():
@@ -516,7 +517,7 @@ func _build_contracts(s: Season) -> Control:
 		var rival_sal: int = int(s.SALARY_DEFAULT[clampi(s.team_tier, 0, 2)])
 		var trow := HBoxContainer.new()
 		trow.add_theme_constant_override("separation", 8)
-		trow.add_child(_label("%s · темп %.0f%%" % [rname, rskill * 100.0], 13, "#cfd6e0"))
+		trow.add_child(_label("%s · темп %.0f%%" % [rname, rskill * 100.0], 13, Palette.CREAM_HEX))
 		# Sign as P5 button
 		var s5_btn := _button("→P5 · $%s" % _money(fee), 12)
 		s5_btn.disabled = s.money < fee
@@ -541,11 +542,7 @@ func _build_contracts(s: Season) -> Control:
 # ---------------------------------------------------------------- helpers
 func _panel() -> PanelContainer:
 	var pc := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = PANEL
-	sb.set_corner_radius_all(10)
-	sb.set_content_margin_all(14)
-	pc.add_theme_stylebox_override("panel", sb)
+	pc.add_theme_stylebox_override("panel", Palette.panel())
 	return pc
 
 func _label(txt: String, sz: int, col: String) -> Label:
@@ -581,14 +578,14 @@ func _build_sponsors(s: Season) -> Control:
 	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 8)
-	v.add_child(_label("СПОНСОРЫ", 18, "#ffffff"))
+	v.add_child(_label("СПОНСОРЫ", 18, Palette.CREAM_HEX))
 	v.add_child(HSeparator.new())
 
 	# Active sponsor slots
 	if s.active_sponsors.is_empty():
-		v.add_child(_label("Нет активных спонсоров — используй рынок ниже.", 13, "#9aa4b2"))
+		v.add_child(_label("Нет активных спонсоров — используй рынок ниже.", 13, Palette.MUTED_HEX))
 	else:
-		v.add_child(_label("Активные контракты:", 14, "#cfd6e0"))
+		v.add_child(_label("Активные контракты:", 14, Palette.CREAM_HEX))
 		for sp in s.active_sponsors:
 			var spd: Dictionary = sp as Dictionary
 			var sp_name: String = String(spd.get("name", "?"))
@@ -598,7 +595,7 @@ func _build_sponsors(s: Season) -> Control:
 			var progress: int = int(spd.get("goal_progress", 0))
 			var g_met: bool = bool(spd.get("goal_met", false))
 			var g_failed: bool = bool(spd.get("goal_failed", false))
-			var tier_col: String = "#ffd166" if tier == "title" else "#66c2ff"
+			var tier_col: String = Palette.GOLD_HEX if tier == "title" else Palette.INFO_HEX
 			var tier_ru: String = "ТИТУЛЬНЫЙ" if tier == "title" else "ПАРТНЁР"
 			var status_txt: String
 			if g_met:
@@ -610,9 +607,9 @@ func _build_sponsors(s: Season) -> Control:
 			var row := HBoxContainer.new()
 			row.add_theme_constant_override("separation", 8)
 			row.add_child(_label("[%s] %s" % [tier_ru, sp_name], 14, tier_col))
-			row.add_child(_label("$%s/эт. + $%s бонус" % [_money(base_pay), _money(bonus)], 13, "#cfd6e0"))
+			row.add_child(_label("$%s/эт. + $%s бонус" % [_money(base_pay), _money(bonus)], 13, Palette.CREAM_HEX))
 			v.add_child(row)
-			v.add_child(_label("  %s" % status_txt, 12, "#9aa4b2"))
+			v.add_child(_label("  %s" % status_txt, 12, Palette.MUTED_HEX))
 
 	# Slot summary
 	var title_used: int = 0
@@ -625,23 +622,23 @@ func _build_sponsors(s: Season) -> Control:
 			elif String(spd.get("tier", "")) == "partner":
 				partner_used += 1
 	v.add_child(_label("Слоты: Титульный %d/1 · Партнёр %d/2" % [title_used, partner_used],
-		13, "#7c8694"))
+		13, Palette.FINE_HEX))
 
 	v.add_child(_spacer(6))
 	v.add_child(HSeparator.new())
-	v.add_child(_label("Рынок спонсоров:", 15, "#ffffff"))
+	v.add_child(_label("Рынок спонсоров:", 15, Palette.CREAM_HEX))
 
 	var net_role2: String = Net.role()
 	var offers: Array = s.list_sponsor_offers()
 	if offers.is_empty():
-		v.add_child(_label("Все предложения подписаны или рынок пуст.", 13, "#9aa4b2"))
+		v.add_child(_label("Все предложения подписаны или рынок пуст.", 13, Palette.MUTED_HEX))
 	else:
 		for offer in offers:
 			var od: Dictionary = offer as Dictionary
 			var offer_id: int = int(od.get("id", -1))
 			var tier: String = String(od.get("tier", "partner"))
 			var tier_ru: String = "ТИТУЛ." if tier == "title" else "ПАРТНЁР"
-			var tier_col: String = "#ffd166" if tier == "title" else "#66c2ff"
+			var tier_col: String = Palette.GOLD_HEX if tier == "title" else Palette.INFO_HEX
 			var base_pay: int = int(od.get("base_payment", 0))
 			var bonus: int = int(od.get("bonus_payment", 0))
 
@@ -657,8 +654,8 @@ func _build_sponsors(s: Season) -> Control:
 			orow.add_child(_label("[%s] %s" % [tier_ru, String(od.get("name", "?"))],
 				13, tier_col))
 			orow.add_child(_label("$%s/эт. + бонус $%s" % [_money(base_pay), _money(bonus)],
-				12, "#cfd6e0"))
-			orow.add_child(_label("Цель: %s" % _goal_ru(od), 12, "#9aa4b2"))
+				12, Palette.CREAM_HEX))
+			orow.add_child(_label("Цель: %s" % _goal_ru(od), 12, Palette.MUTED_HEX))
 
 			var sign_btn := _button("Подписать", 12)
 			sign_btn.disabled = slot_full
@@ -688,25 +685,25 @@ func _build_staff(s: Season) -> Control:
 	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 6)
-	v.add_child(_label("ПЕРСОНАЛ", 18, "#ffffff"))
+	v.add_child(_label("ПЕРСОНАЛ", 18, Palette.CREAM_HEX))
 	v.add_child(HSeparator.new())
 
 	v.add_child(_label("Скорость R&D (аэро): ×%.2f — техдиректор и конструктор" % s.rd_speed_mult(),
-		14, "#5dd17a"))
+		14, Palette.GOOD_HEX))
 	var payroll_txt := "Зарплаты персонала: $%s/этап · топ-3 (★) вне кост-кэпа" % _money(
 		s.staff_payroll_per_round())
-	v.add_child(_label(payroll_txt, 13, "#9aa4b2"))
+	v.add_child(_label(payroll_txt, 13, Palette.MUTED_HEX))
 
 	var exempt: Array = s.cap_exempt_roles()
 	for m in s.staff:
 		var md: Dictionary = m as Dictionary
 		var role: String = String(md.get("role", ""))
 		var loy: float = float(md.get("loyalty", 0.5))
-		var loy_col: String = "#5dd17a"
+		var loy_col: String = Palette.GOOD_HEX
 		if loy < 0.25:
-			loy_col = "#e23b3b"
+			loy_col = Palette.DANG_HEX
 		elif loy < 0.5:
-			loy_col = "#f2c14e"
+			loy_col = Palette.WARN_HEX
 		var star: String = "★ " if role in exempt else ""
 		var status: String = ""
 		if int(md.get("gardening", 0)) > 0:
@@ -714,29 +711,29 @@ func _build_staff(s: Season) -> Control:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
 		row.add_child(_cell("%s%s" % [star, String(md.get("name", "?"))], 170, Color.WHITE))
-		row.add_child(_cell(s.staff_role_ru(role), 200, Color("#9aa4b2")))
+		row.add_child(_cell(s.staff_role_ru(role), 200, Palette.MUTED))
 		row.add_child(_cell("%d л. · рейт. %d" % [int(md.get("age", 40)), s.staff_overall(md)],
-			110, Color("#cfd6e0")))
-		row.add_child(_cell("$%s/эт." % _money(int(md.get("salary", 0))), 90, Color("#cfd6e0")))
+			110, Palette.CREAM))
+		row.add_child(_cell("$%s/эт." % _money(int(md.get("salary", 0))), 90, Palette.CREAM))
 		row.add_child(_cell("лояльн. %d%%" % int(round(loy * 100.0)), 100, Color(loy_col)))
 		v.add_child(row)
-		v.add_child(_label("  %s%s" % [String(md.get("trait", "")), status], 12, "#7c8694"))
+		v.add_child(_label("  %s%s" % [String(md.get("trait", "")), status], 12, Palette.FINE_HEX))
 
 	if not s.staff_log.is_empty():
 		v.add_child(_spacer(4))
-		v.add_child(_label("События:", 13, "#9aa4b2"))
+		v.add_child(_label("События:", 13, Palette.MUTED_HEX))
 		for line in s.staff_log:
-			v.add_child(_label("· %s" % String(line), 12, "#cfd6e0"))
+			v.add_child(_label("· %s" % String(line), 12, Palette.CREAM_HEX))
 
 	# Market (refreshes every STAFF_MARKET_EVERY rounds; deterministic per epoch).
 	v.add_child(_spacer(6))
 	v.add_child(HSeparator.new())
 	v.add_child(_label("Рынок персонала (обновляется раз в %d этапа):" % Season.STAFF_MARKET_EVERY,
-		15, "#ffffff"))
+		15, Palette.CREAM_HEX))
 	s.ensure_staff_market()
 	var net_role2: String = Net.role()
 	if s.staff_market.is_empty():
-		v.add_child(_label("Кандидатов нет — рынок обновится со следующей эпохой.", 13, "#9aa4b2"))
+		v.add_child(_label("Кандидатов нет — рынок обновится со следующей эпохой.", 13, Palette.MUTED_HEX))
 	else:
 		for cand in s.staff_market:
 			var cd: Dictionary = cand as Dictionary
@@ -745,10 +742,10 @@ func _build_staff(s: Season) -> Control:
 			var bonus: int = int(cd.get("bonus", 0))
 			var crow := HBoxContainer.new()
 			crow.add_theme_constant_override("separation", 8)
-			crow.add_child(_cell(String(cd.get("name", "?")), 170, Color("#66c2ff")))
-			crow.add_child(_cell(s.staff_role_ru(String(cd.get("role", ""))), 200, Color("#9aa4b2")))
-			crow.add_child(_cell("рейт. %d" % s.staff_overall(cd), 70, Color("#cfd6e0")))
-			crow.add_child(_cell("$%s/эт." % _money(int(cd.get("salary", 0))), 90, Color("#cfd6e0")))
+			crow.add_child(_cell(String(cd.get("name", "?")), 170, Palette.INFO))
+			crow.add_child(_cell(s.staff_role_ru(String(cd.get("role", ""))), 200, Palette.MUTED))
+			crow.add_child(_cell("рейт. %d" % s.staff_overall(cd), 70, Palette.CREAM))
+			crow.add_child(_cell("$%s/эт." % _money(int(cd.get("salary", 0))), 90, Palette.CREAM))
 			var hire_btn := _button("Переманить — $%s (%d%%)" % [_money(bonus), prob], 12)
 			hire_btn.disabled = s.money < bonus
 			var cap_cid := cand_id
@@ -767,7 +764,7 @@ func _build_staff(s: Season) -> Control:
 			crow.add_child(hire_btn)
 			v.add_child(crow)
 		v.add_child(_label("Неудача: кандидат отказывается и уходит с рынка (деньги не тратятся).",
-			12, "#7c8694"))
+			12, Palette.FINE_HEX))
 
 	pc.add_child(v)
 	return pc

@@ -441,9 +441,9 @@ func _draw_pos_labels(area: Vector2, off: Vector2, l: float) -> void:
 			draw_string(font, lp + ox, num, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, oc)
 		var col := Color("#e8edf3")
 		if is_team:
-			col = Color("#ffd166") if int(c["slot"]) == 0 else Color("#66c2ff")
+			col = Palette.P5 if int(c["slot"]) == 0 else Palette.P6
 		elif is_lead:
-			col = Color("#ffd166")
+			col = Palette.P5
 		draw_string(font, lp, num, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
 
 # Small legend (bottom-left) so the zone colours teach the energy model.
@@ -532,9 +532,9 @@ func _draw_car(c: Dictionary, area: Vector2, off: Vector2, l: float) -> void:
 		return
 	# soft drop shadow for depth (offset down-right)
 	draw_circle(pos + Vector2(l * 0.12, l * 0.16), l * 0.46, Color(0.0, 0.0, 0.0, 0.25))
-	# soft team glow behind the car (P5 gold / P6 blue)
+	# soft team glow behind the car (P5 gold / P6 steel-blue)
 	if is_team:
-		var gc := Color("#ffd166") if int(c["slot"]) == 0 else Color("#66c2ff")
+		var gc: Color = Palette.P5 if int(c["slot"]) == 0 else Palette.P6
 		draw_circle(pos, l * 1.10, Color(gc.r, gc.g, gc.b, 0.09))
 		draw_circle(pos, l * 0.82, Color(gc.r, gc.g, gc.b, 0.13))
 	var col: Color = c["team_color"]
@@ -565,9 +565,9 @@ func _draw_car(c: Dictionary, area: Vector2, off: Vector2, l: float) -> void:
 	draw_circle(_xf(Vector2(-0.02, 0.0), l, pos, ang), l * 0.07, Color("#0e1014"))  # cockpit
 	# highlights
 	if is_team:
-		var hc := Color("#ffd166") if int(c["slot"]) == 0 else Color("#66c2ff")
+		var hc: Color = Palette.P5 if int(c["slot"]) == 0 else Palette.P6
 		draw_arc(pos, l * 0.74, 0.0, TAU, 32, hc, 2.0, true)
 	if bool(c["lead"]):
 		var up := pos - Vector2(0.0, l * 0.95)
 		draw_colored_polygon(PackedVector2Array([up + Vector2(-l * 0.18, -l * 0.18),
-			up + Vector2(l * 0.18, -l * 0.18), up + Vector2(0.0, l * 0.06)]), Color("#ffd166"))
+			up + Vector2(l * 0.18, -l * 0.18), up + Vector2(0.0, l * 0.06)]), Palette.P5)
