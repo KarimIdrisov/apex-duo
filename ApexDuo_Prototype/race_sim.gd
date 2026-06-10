@@ -274,6 +274,8 @@ class Driver:
 	var pit_speed: float = 0.5          # pit crew → faster stops
 	var pit_consistency: float = 0.5    # pit crew → less variance / fewer botched stops
 	var reliability_work: float = 0.5   # garage → lowers mechanical-failure risk
+	var team_idx: int = -1              # M4: owning team (DHL fastest-stop zachet)
+	var best_stop: float = 999.0        # M4: fastest crew-box stop this race (s)
 	var pit_total: float = 0.0          # total duration of the current pit stop (map phase)
 	var in_pitlane: bool = false        # truly in the pit lane (vs a brief on-track stall)
 	var aero_damage: float = 0.0        # 0..1 floor/wing damage → pace penalty until repaired
@@ -329,6 +331,15 @@ class Track:
 # team pit crew: a single crew can't service both cars at once
 const PIT_STACK_PENALTY := 7.0    # extra sec for a stacked (same-window) team stop
 const TEAM_CREW_BUSY := 7.0       # how long the crew stays busy after a team stop
+# M4: crew-box stop-time model (the DHL "fastest stop" readout, seconds).
+# Derived from the same noise rolls as the pit loss — adds NO new rng draws,
+# so race outcomes for a given seed are unchanged. Corridors (verified in
+# meta_m4_pitcrew_check.py): crew 18-20 → ~2.0 s ± 0.1; crew 6-8 → ~2.8 s ± 0.8.
+const STOP_TIME_BASE := 3.27       # stop at pit_speed = 0
+const STOP_TIME_SPEED_K := 1.33    # seconds shaved per 1.0 pit_speed
+const STOP_TIME_SIGMA_MIN := 0.05  # variance floor (perfect crew still wobbles)
+const STOP_TIME_SIGMA_K := 1.15    # variance from (1 - pit_consistency)
+const STOP_BOTCH_EXTRA := 2.0      # botched stop (cross-threaded wheel) penalty
 # Pit-lane → time: total stop ≈ stationary base + lane transit (∝ pit-lane length),
 # so a longer pit lane costs more and the map's drawn lane matches the time lost.
 const PIT_BASE := 13.0            # stationary stop + entry/exit delta (s)
@@ -1336,9 +1347,19 @@ func _on_lap_complete(d: Driver) -> void:
 				# two-compound rule: a dry stop must fit a different compound
 				new_comp = "soft" if laps_left <= 16 else "hard"
 	if do_pit:
+		# M4: the noise rolls are hoisted so the crew-box stop time can reuse
+		# them — draw order is identical to the old inline expression.
+		var stop_noise := rng.rangef(-1.5, 1.5)
+		var botched := rng.unit() < (1.0 - d.pit_consistency) * 0.05
+		var botch_extra := rng.rangef(3.0, 6.0) if botched else 0.0
 		var loss := track.pit_loss * (1.1 - 0.2 * d.pit_speed) \
-			+ rng.rangef(-1.5, 1.5) * (1.0 - d.pit_consistency) \
-			+ (rng.rangef(3.0, 6.0) if rng.unit() < (1.0 - d.pit_consistency) * 0.05 else 0.0)
+			+ stop_noise * (1.0 - d.pit_consistency) + botch_extra
+		# M4: crew-box stop time (seconds) for the DHL fastest-stop zachet.
+		var crew_time := STOP_TIME_BASE - STOP_TIME_SPEED_K * d.pit_speed \
+			+ (stop_noise / 1.5) \
+			* (STOP_TIME_SIGMA_MIN + STOP_TIME_SIGMA_K * (1.0 - d.pit_consistency)) \
+			+ (STOP_BOTCH_EXTRA if botched else 0.0)
+		d.best_stop = minf(d.best_stop, maxf(1.6, crew_time))
 		if sc_active:
 			loss *= SC_PIT_FACTOR        # cheaper to stop when the field is slow
 		if d.team:
@@ -1498,6 +1519,7 @@ static func make_field(coop: bool = false, player_team: int = 1,
 		d.color = g.get("color", "#8a94a6")
 		d.slot = int(g.get("slot", 0))
 		d.attrs = gen_attributes(d.skill, i * 2654435761)
+		d.team_idx = int(g.get("team_idx", -1))   # M4: DHL zachet needs the owner team
 		var car: Dictionary = g.get("car", {})
 		d.car_power = float(car.get("power", 0.78))
 		d.car_aero = float(car.get("aero", 0.78))

@@ -176,6 +176,7 @@ func _rebuild() -> void:
 	mid.add_child(_build_rnd(s))
 	col.add_child(_build_contracts(s))
 	col.add_child(_build_suppliers(s))
+	col.add_child(_build_pitcrew(s))
 	col.add_child(_build_staff(s))
 	col.add_child(_build_sponsors(s))
 
@@ -476,11 +477,39 @@ func _build_contracts(s: Season) -> Control:
 			elif rem <= 2:
 				contract_col = "#f2c14e"
 			var rem_txt := "контракт истёк!" if rem <= 0 else "%d эт. осталось" % rem
-			row.add_child(_label("%s (%s) — зарплата $%s / эт. · %s" % [
-				dname, role_txt, _money(sal), rem_txt], 14, contract_col))
+			# M4: driver status (Первый/Второй) + podium bonus clause readout
+			var status: String = s.driver_status(driver_id)
+			var status_txt := "статус не назначен"
+			if status == "first":
+				status_txt = "● Первый пилот"
+			elif status == "second":
+				status_txt = "○ Второй пилот (−$%s/эт.)" % _money(s.SECOND_SALARY_DISCOUNT)
+			row.add_child(_label("%s (%s) — зарплата $%s / эт. · %s · %s" % [
+				dname, role_txt, _money(sal), rem_txt, status_txt], 14, contract_col))
+			row.add_child(_label("клауза: +$%s пилоту за подиум" % _money(
+				int(c.get("bonus_podium", 0))), 12, "#7c8694"))
 
 			var bar2 := HBoxContainer.new()
 			bar2.add_theme_constant_override("separation", 6)
+
+			# M4: assign FIRST status (the teammate becomes second) — co-op
+			# decision: each player wants their own car first.
+			if status != "first":
+				var first_btn := _button("Сделать первым", 13)
+				var did_cap := driver_id
+				if Net.role() == "client":
+					first_btn.pressed.connect(func():
+						Net.net_season_set_first.rpc_id(1, did_cap))
+				else:
+					first_btn.pressed.connect(func():
+						if s.set_first_driver(did_cap):
+							if Net.role() == "host":
+								Season.active.save_to_disk()
+								Net.net_season_full.rpc(Season.active.to_dict())
+								Net.net_season_feed.rpc("Партнёр: первый пилот — %s"
+									% s.driver_name(did_cap))
+							_rebuild())
+				bar2.add_child(first_btn)
 
 			# Re-sign button if expired
 			if rem <= 0:
@@ -780,6 +809,92 @@ func _add_supplier_rows(s: Season, v: VBoxContainer, kind: String, title: String
 			row.add_child(sel)
 		v.add_child(row)
 
+# ---------------------------------------------------------------- pit crew (M4)
+# The 5 over-the-wall roles, training buttons, fatigue/injury status and the
+# DHL Fastest Pit Stop season zachet.
+func _build_pitcrew(s: Season) -> Control:
+	var pc := _panel()
+	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	v.add_child(_label("ПИТ-ЭКИПАЖ", 18, "#ffffff"))
+	v.add_child(HSeparator.new())
+
+	# Stop estimate from the live crew scalars (same model as the race).
+	var sim_staff: Dictionary = s.staff_for_sim()
+	var spd: float = Personnel.pit_speed(sim_staff)
+	var cons: float = Personnel.pit_consistency(sim_staff)
+	var est: float = RaceSim.STOP_TIME_BASE - RaceSim.STOP_TIME_SPEED_K * spd
+	var sig: float = RaceSim.STOP_TIME_SIGMA_MIN + RaceSim.STOP_TIME_SIGMA_K * (1.0 - cons)
+	v.add_child(_label("Расчётный стоп: %.2f с ± %.2f с" % [est, sig], 14, "#5dd17a"))
+	if s.pit_fatigue_penalty() > 0.0:
+		v.add_child(_label("Экипаж перетренирован — на следующем этапе стоп ≈ +0.2 с",
+			13, "#f2c14e"))
+
+	var net_role2: String = Net.role()
+	for role_v in Season.PIT_CREW_ROLES:
+		var role: String = String(role_v)
+		var md: Dictionary = s.staff_member(role)
+		if md.is_empty():
+			continue
+		var sessions: int = int(md.get("sessions", 0))
+		var status_txt: String = "Готов"
+		var status_col: String = "#5dd17a"
+		if int(md.get("injury", 0)) > 0:
+			status_txt = "ТРАВМА — пропустит этап"
+			status_col = "#e23b3b"
+		elif int(md.get("fatigue", 0)) > 0:
+			status_txt = "Усталость"
+			status_col = "#f2c14e"
+		elif int(md.get("gardening", 0)) > 0:
+			status_txt = "На скамейке"
+			status_col = "#f2c14e"
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		row.add_child(_cell(String(md.get("name", "?")), 160, Color.WHITE))
+		row.add_child(_cell(s.staff_role_ru(role), 170, Color("#9aa4b2")))
+		row.add_child(_cell("рейт. %d" % s.staff_overall(md), 70, Color("#cfd6e0")))
+		row.add_child(_cell(status_txt, 180, Color(status_col)))
+		var risk_txt: String = "нет"
+		if sessions >= Season.PIT_FATIGUE_SESSIONS - 1:
+			risk_txt = "высокий"
+		elif sessions >= 1:
+			risk_txt = "умеренный"
+		var tbtn := _button("Тренировать · $%s (риск: %s)" % [
+			_money(Season.PIT_TRAIN_COST), risk_txt], 12)
+		tbtn.disabled = s.money < Season.PIT_TRAIN_COST or int(md.get("injury", 0)) > 0
+		var role_cap := role
+		if net_role2 == "client":
+			tbtn.pressed.connect(func():
+				Net.net_season_train_pit.rpc_id(1, role_cap))
+		else:
+			tbtn.pressed.connect(func():
+				if s.train_pit_role(role_cap) == "ok":
+					if net_role2 == "host":
+						Season.active.save_to_disk()
+						Net.net_season_full.rpc(Season.active.to_dict())
+						Net.net_season_feed.rpc("Партнёр: тренировка пит-экипажа (%s)"
+							% Season.active.staff_role_ru(role_cap))
+					_rebuild())
+		row.add_child(tbtn)
+		v.add_child(row)
+
+	# DHL zachet status line
+	v.add_child(_spacer(4))
+	v.add_child(HSeparator.new())
+	var dhl_line: String = "DHL Fastest Pit Stop: %d очк. · P%d в зачёте" % [
+		s.dhl_player_points(), s.dhl_player_rank()]
+	if not s.dhl_best.is_empty():
+		dhl_line += "  ·  лучший стоп: %.2f с — %s (этап %d)" % [
+			float(s.dhl_best.get("time", 0.0)), String(s.dhl_best.get("track", "?")),
+			int(s.dhl_best.get("round", 0))]
+	v.add_child(_label(dhl_line, 13, "#ffd166"))
+	v.add_child(_label("Победа в сезонном зачёте: +$%s и +%d RP." % [
+		_money(Season.DHL_PRIZE_MONEY), Season.DHL_PRIZE_RP], 12, "#7c8694"))
+
+	pc.add_child(v)
+	return pc
+
 # ---------------------------------------------------------------- staff (M2)
 # People with name/age/salary/loyalty/trait. Top-3 salaries marked as cap-exempt.
 # Market section opens a fresh candidate list every 2 rounds (poaching).
@@ -801,6 +916,8 @@ func _build_staff(s: Season) -> Control:
 	for m in s.staff:
 		var md: Dictionary = m as Dictionary
 		var role: String = String(md.get("role", ""))
+		if role in Season.PIT_CREW_ROLES:
+			continue   # M4: пит-роли показаны на панели «ПИТ-ЭКИПАЖ»
 		var loy: float = float(md.get("loyalty", 0.5))
 		var loy_col: String = "#5dd17a"
 		if loy < 0.25:
