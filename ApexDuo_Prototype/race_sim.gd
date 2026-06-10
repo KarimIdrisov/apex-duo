@@ -1466,6 +1466,33 @@ func _update_weather() -> void:
 		_emit("Начинается дождь! Время думать про дождевую резину.", "weather")
 
 func _on_lap_complete(d: Driver) -> void:
+	# --- Sector 2 (S3) completion at the lap boundary ---
+	if d.sector_entry_time >= 0.0 and d.cur_sector == 2:
+		var _t3: float = elapsed - d.sector_entry_time
+		d.sector_times[2] = _t3
+		if float(d.sector_best[2]) < 0.0 or _t3 < float(d.sector_best[2]):
+			d.sector_best[2] = _t3
+		if float(sector_global_best[2]) < 0.0 or _t3 < float(sector_global_best[2]):
+			sector_global_best[2] = _t3
+	# Record the final mini-sector if the loop didn't already catch it
+	var _nm: int = track.mini_sector_bounds.size()
+	if _nm > 0 and not d.mini_times_this_lap.is_empty() \
+			and d.cur_mini == _nm - 1 and d.mini_entry_time >= 0.0:
+		var _mlt: float = elapsed - d.mini_entry_time
+		d.mini_times_this_lap[_nm - 1] = _mlt
+		if float(d.mini_best[_nm - 1]) < 0.0 or _mlt < float(d.mini_best[_nm - 1]):
+			d.mini_best[_nm - 1] = _mlt
+		if float(mini_global_best[_nm - 1]) < 0.0 or _mlt < float(mini_global_best[_nm - 1]):
+			mini_global_best[_nm - 1] = _mlt
+	# Reset for new lap
+	d.cur_sector = 0
+	d.sector_entry_time = elapsed
+	d.soc_at_sector[0] = d.soc_avg
+	d.cur_mini = 0
+	d.mini_entry_time = elapsed
+	d.mini_times_this_lap = []
+	for _ri in _nm:
+		d.mini_times_this_lap.append(-1.0)
 	# reset per-lap deploy budget (energy rework v0.4)
 	d.deploy_budget = DEPLOY_BUDGET_BASE * track.energy_limit
 	# tyre age: count every completed lap on the current set
