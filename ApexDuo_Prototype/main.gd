@@ -32,6 +32,17 @@ var speed := 1.0
 var paused := false
 var seed_value := 12345
 
+# practice phase (car setup) — runs before qualifying
+const PRACTICE_RUNS_MAX := 6          # trial laps per car
+var practice_phase := false           # true while the setup screen is open
+var _practice_overlay: Control = null
+var _practice_setup: Dictionary = {}  # car_id -> [aero, susp, gear] (0..1)
+var _practice_runs: Dictionary = {}   # car_id -> trial laps used
+var _practice_best: Dictionary = {}   # car_id -> best practice time (0 = none)
+var _practice_logs: Dictionary = {}   # car_id -> RichTextLabel (run log)
+var _practice_run_btns: Dictionary = {}  # car_id -> Button («Пробный круг»)
+var _practice_best_lbls: Dictionary = {}  # car_id -> Label (best time)
+
 # interactive qualifying phase
 var quali_sim: QualiSim               # active qualifying session (null when not running)
 var quali_phase := false              # true while interactive qualifying is live
@@ -224,7 +235,7 @@ func _start(m: String) -> void:
 	# Start interactive qualifying (host/solo/local), or wait for host snapshot (client).
 	if m != "client" and sim != null:
 		start_comp_choices = {4: "medium", 5: "medium"}
-		_start_quali_phase()
+		_start_practice_phase()
 	elif m == "client":
 		# Client blocks race-sim until the host sends net_prerace_done.
 		pre_race_open = true
@@ -929,10 +940,10 @@ func _on_restart() -> void:
 	_make_sim(game_mode != "solo")
 	paused = false
 	_set_msg("Новая гонка.")
-	# Re-open qualifying for the new race.
+	# Re-open the weekend for the new race (practice → qualifying).
 	if sim != null:
 		start_comp_choices = {4: "medium", 5: "medium"}
-		_start_quali_phase()
+		_start_practice_phase()
 		# In host mode push fresh quali rows to any connected partner (new sim → new quali).
 		if game_mode == "host" and partner_connected:
 			net_quali_rows.rpc(build_quali_rows(sim))
@@ -1711,6 +1722,258 @@ func _make_panel(car_id: int, role: String, dname: String) -> Control:
 		"partner_label": partner_label, "crew_label": crew_label, "stack_label": stack_label,
 	})
 	return pc
+
+# ============================================================================
+#  PRACTICE PHASE (car setup) — engineers tune the car before qualifying.
+#  Every car already carries an engineer-built baseline (same formula as AI
+#  teams), so finishing without touching anything is never a punishment —
+#  out-tuning your own engineers is the edge. Sim layer: race_sim.gd
+#  (track_ideal_setup / setup_quality / practice_run), car_setup_check.py.
+# ============================================================================
+
+func _practice_car_ids() -> Array:
+	return [4, 5] if game_mode in ["local", "host"] else [4]
+
+
+func _start_practice_phase() -> void:
+	practice_phase = true
+	pre_race_open = true              # blocks race-sim ticking (same as quali)
+	_practice_setup = {}
+	_practice_runs = {}
+	_practice_best = {}
+	_practice_logs = {}
+	_practice_run_btns = {}
+	_practice_best_lbls = {}
+	for cid in _practice_car_ids():
+		_practice_setup[cid] = [0.5, 0.5, 0.5]
+		_practice_runs[cid] = 0
+		_practice_best[cid] = 0.0
+	_build_practice_overlay()
+
+
+func _build_practice_overlay() -> void:
+	if _practice_overlay != null:
+		_practice_overlay.queue_free()
+	var overlay := ColorRect.new()
+	overlay.color = Color(0.0, 0.0, 0.0, 0.72)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_practice_overlay = overlay
+	race_root.add_child(overlay)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Palette.PANEL
+	sb.set_corner_radius_all(2)
+	sb.set_border_width_all(1)
+	sb.border_color = Palette.DIV
+	sb.set_content_margin_all(20)
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", sb)
+	center.add_child(pc)
+
+	var inner := VBoxContainer.new()
+	inner.add_theme_constant_override("separation", 10)
+	pc.add_child(inner)
+
+	var tname: String = sim.track.name if sim != null else "Трасса"
+	var title := Label.new()
+	title.text = "ПРАКТИКА — НАСТРОЙКА БОЛИДА · %s" % tname
+	title.add_theme_font_size_override("font_size", 20)
+	title.add_theme_color_override("font_color", ACCENT)
+	title.add_theme_font_override("font", Palette.display_font(600, 2))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	inner.add_child(title)
+
+	var hint := Label.new()
+	hint.text = "Двигай настройки, делай пробные круги и слушай пилота. " \
+		+ "Без практики машину настроят инженеры (как у всех команд)."
+	hint.add_theme_font_size_override("font_size", 13)
+	hint.add_theme_color_override("font_color", Color("#9aa4b2"))
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	inner.add_child(hint)
+	inner.add_child(HSeparator.new())
+
+	var cars_row := HBoxContainer.new()
+	cars_row.add_theme_constant_override("separation", 18)
+	inner.add_child(cars_row)
+	for cid in _practice_car_ids():
+		cars_row.add_child(_build_practice_card(int(cid)))
+
+	var done := Button.new()
+	done.text = "Завершить практику → Квалификация"
+	done.add_theme_font_size_override("font_size", 17)
+	done.custom_minimum_size = Vector2(380, 46)
+	done.pressed.connect(_finish_practice_phase)
+	var done_wrap := CenterContainer.new()
+	done_wrap.add_child(done)
+	inner.add_child(done_wrap)
+
+
+func _build_practice_card(cid: int) -> Control:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color("#10151d")
+	sb.set_corner_radius_all(2)
+	sb.set_border_width_all(1)
+	sb.border_color = Palette.DIV
+	sb.set_content_margin_all(12)
+	var pc := PanelContainer.new()
+	pc.add_theme_stylebox_override("panel", sb)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	pc.add_child(v)
+
+	var head := Label.new()
+	head.text = "P%d · %s" % [cid + 1, _driver_name(cid)]
+	head.add_theme_font_size_override("font_size", 16)
+	head.add_theme_color_override("font_color", TEAM_COL if cid == 4 else ENGI_COL)
+	head.add_theme_font_override("font", Palette.display_font(600, 1))
+	v.add_child(head)
+
+	var axis_names := ["Антикрылья (прижим)", "Подвеска (жёсткость)", "Передачи (скорость)"]
+	for ax in 3:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		var lbl := Label.new()
+		lbl.text = axis_names[ax]
+		lbl.add_theme_font_size_override("font_size", 13)
+		lbl.add_theme_color_override("font_color", Color("#c8d0da"))
+		lbl.custom_minimum_size = Vector2(170, 0)
+		row.add_child(lbl)
+		var slider := HSlider.new()
+		slider.min_value = 0
+		slider.max_value = 100
+		slider.step = 2
+		slider.value = 50
+		slider.custom_minimum_size = Vector2(200, 22)
+		var val_lbl := Label.new()
+		val_lbl.text = "50"
+		val_lbl.add_theme_font_size_override("font_size", 13)
+		val_lbl.add_theme_color_override("font_color", Color("#9aa4b2"))
+		val_lbl.custom_minimum_size = Vector2(30, 0)
+		var ax_c := ax
+		var cid_c := cid
+		slider.value_changed.connect(func(val: float) -> void:
+			_practice_setup[cid_c][ax_c] = val / 100.0
+			val_lbl.text = str(int(val)))
+		row.add_child(slider)
+		row.add_child(val_lbl)
+		v.add_child(row)
+
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 10)
+	var run_btn := Button.new()
+	run_btn.text = "Пробный круг (%d)" % PRACTICE_RUNS_MAX
+	run_btn.add_theme_font_size_override("font_size", 14)
+	run_btn.custom_minimum_size = Vector2(190, 36)
+	var cid_b := cid
+	run_btn.pressed.connect(func() -> void: _on_practice_run(cid_b))
+	_practice_run_btns[cid] = run_btn
+	btn_row.add_child(run_btn)
+	var best_lbl := Label.new()
+	best_lbl.text = "Лучший: —"
+	best_lbl.add_theme_font_size_override("font_size", 14)
+	best_lbl.add_theme_color_override("font_color", Palette.GOLD)
+	_practice_best_lbls[cid] = best_lbl
+	btn_row.add_child(best_lbl)
+	v.add_child(btn_row)
+
+	var log := RichTextLabel.new()
+	log.bbcode_enabled = true
+	log.scroll_following = true
+	log.custom_minimum_size = Vector2(420, 150)
+	log.add_theme_font_size_override("normal_font_size", 13)
+	_practice_logs[cid] = log
+	v.add_child(log)
+	return pc
+
+
+# A driver's verbal read of one setup axis (fb code from practice_run).
+func _practice_fb_phrase(axis: int, code: int) -> String:
+	if code == 0 or code == 9:
+		return ""
+	var strong := absf(float(code)) >= 2.0
+	var txt := ""
+	match axis:
+		0:
+			txt = "убери крыло — теряем на прямых" if code > 0 \
+				else "добавь прижим — носит в поворотах"
+		1:
+			txt = "слишком жёстко — прыгаю на кочках" if code > 0 \
+				else "слишком мягко — валится в связках"
+		2:
+			txt = "передачи длинные — нет разгона" if code > 0 \
+				else "передачи короткие — упираюсь в отсечку"
+	return ("СИЛЬНО: " + txt) if strong else txt
+
+
+func _on_practice_run(cid: int) -> void:
+	if sim == null or int(_practice_runs.get(cid, 0)) >= PRACTICE_RUNS_MAX:
+		return
+	var d: RaceSim.Driver = sim.get_driver_by_id(cid)
+	if d == null:
+		return
+	_practice_runs[cid] = int(_practice_runs[cid]) + 1
+	var run_n: int = int(_practice_runs[cid])
+	var setup: Array = _practice_setup[cid]
+	var r: Dictionary = RaceSim.practice_run(sim.track, d, setup, run_n)
+	var t: float = float(r["time"])
+	var best: float = float(_practice_best[cid])
+	var delta_txt := ""
+	if best > 0.0:
+		delta_txt = "  (%+.3f)" % (t - best)
+	if best <= 0.0 or t < best:
+		_practice_best[cid] = t
+		_practice_best_lbls[cid].text = "Лучший: " + _fmt_laptime(t)
+	var phrases: Array = []
+	var unread := 0
+	var fb: Array = r["fb"]
+	for ax in 3:
+		var code: int = int(fb[ax])
+		if code == 9:
+			unread += 1
+		var p := _practice_fb_phrase(ax, code)
+		if p != "":
+			phrases.append(p)
+	var quote: String
+	if phrases.is_empty():
+		quote = "по ощущениям точнее не скажу" if unread > 0 \
+			else "машина отличная — оставляем!"
+	else:
+		quote = "; ".join(phrases)
+	var log: RichTextLabel = _practice_logs[cid]
+	log.append_text("[color=#9aa4b2]%d/%d[/color]  [color=#e8eef6]%s[/color]%s  [color=#f2c14e]«%s»[/color]\n" \
+		% [run_n, PRACTICE_RUNS_MAX, _fmt_laptime(t), delta_txt, quote])
+	var left: int = PRACTICE_RUNS_MAX - run_n
+	var btn: Button = _practice_run_btns[cid]
+	btn.text = "Пробный круг (%d)" % left
+	if left <= 0:
+		btn.disabled = true
+
+
+func _finish_practice_phase() -> void:
+	if not practice_phase:
+		return
+	practice_phase = false
+	if sim != null:
+		for cid in _practice_setup:
+			# Commit only if the engineer actually worked on this car (moved a
+			# slider or drove a lap): untouched cars keep the engineer-built
+			# baseline — finishing instantly is never a punishment.
+			var s: Array = _practice_setup[cid]
+			var touched: bool = int(_practice_runs.get(cid, 0)) > 0 \
+				or absf(float(s[0]) - 0.5) > 0.001 \
+				or absf(float(s[1]) - 0.5) > 0.001 \
+				or absf(float(s[2]) - 0.5) > 0.001
+			if touched:
+				sim.set_setup(int(cid), s)
+	if _practice_overlay != null:
+		_practice_overlay.queue_free()
+		_practice_overlay = null
+	_start_quali_phase()
+
 
 # ============================================================================
 #  INTERACTIVE QUALIFYING PHASE

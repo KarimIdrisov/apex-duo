@@ -35,6 +35,11 @@ func _run_race(ti: int, seed_v: int) -> Dictionary:
 			soc_sum += d.soc
 			nfin += 1
 	var covers: int = sim.covers_called
+	var sq_min := 1.0
+	var sq_max := 0.0
+	for d in sim.drivers:
+		sq_min = minf(sq_min, d.setup_q)
+		sq_max = maxf(sq_max, d.setup_q)
 	var ord: Array = sim.order()
 	var viol := 0
 	for i in range(ord.size() - 1):
@@ -48,6 +53,7 @@ func _run_race(ti: int, seed_v: int) -> Dictionary:
 		"winner": ord[0].name, "p2": ord[1].name,
 		"win_gap": snappedf(ord[1].finish_key - ord[0].finish_key, 0.01),
 		"sort_violations": viol, "sc": sim.sc_done,
+		"setup_q": [snappedf(sq_min, 0.01), snappedf(sq_max, 0.01)],
 	}
 
 

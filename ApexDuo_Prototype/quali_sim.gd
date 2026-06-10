@@ -176,6 +176,7 @@ func _calc_laptime(driver_id: int, cur_elapsed: float,
 	# Base pace (same terms as _run_qualifying)
 	var qt: float = -d.skill * RaceSim.SKILL_K
 	qt -= (d.car_power - d.car_aero) * (sim_track_power - sim_track_downforce) * RaceSim.CAR_K
+	qt += (1.0 - d.setup_q) * RaceSim.SETUP_PEN
 	qt += float(RaceSim.COMPOUNDS["soft"]["pace"])
 
 	# Evolution bonus (§4.1): late car on a rubbered-in track is faster

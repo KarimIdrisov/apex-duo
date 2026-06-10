@@ -45,6 +45,9 @@ const ERS_MODES := {
 # Energy tuning (locked by the Python balance harness).
 const CLIP_PENALTY := 0.55     # s/lap lost when battery spent  (× 0.6 + 0.8·power)
 const OT_PACE := -0.55         # s/lap Overtake boost           (× 0.6 + 0.8·power)
+const SETUP_PEN := 0.45        # s/lap at setup_q=0 — car-setup miss penalty
+                               # (max < CAR_K track-character swing: setup matters,
+                               # never dominates; perfect setup = 0)
 # --- 2026 store dynamics (energy rework v0.5) --------------------------------
 # The 4 MJ store cycles WITHIN a lap (real 2026: full deploy empties it in
 # ~11 s; braking regen refills it more than once per lap), so the battery
@@ -204,6 +207,74 @@ static func mix32(x: int) -> int:
 	x = ((x ^ (x >> 13)) * 0xC2B2AE35) & 0xFFFFFFFF
 	return (x ^ (x >> 16)) & 0xFFFFFFFF
 
+
+# ============================================================================
+#  CAR SETUP (practice weekend phase) — verified in car_setup_check.py
+#  Each track hides an ideal [aero, susp, gear]; closeness → setup_q → pace.
+#  Engineers build every car a baseline (same formula for AI and player crews);
+#  the practice screen lets a human out-tune (or under-tune) his engineers.
+# ============================================================================
+
+# Hidden ideal setup: track character sets the centre, a name-hash jitter
+# keeps it from being readable straight off the track card. Deterministic.
+static func track_ideal_setup(t: Track) -> Array:
+	var h := mix32(int(t.name.hash()))
+	var j1 := float((h >> 3) & 1023) / 1023.0 * 0.16 - 0.08
+	var j2 := float((h >> 13) & 1023) / 1023.0 * 0.16 - 0.08
+	var j3 := float((h >> 23) & 255) / 255.0 * 0.16 - 0.08
+	return [
+		clampf(0.10 + t.downforce * 0.80 + j1, 0.05, 0.95),
+		clampf(0.18 + t.abrasion * 0.35 + j2, 0.05, 0.95),
+		clampf(0.10 + t.power * 0.80 + j3, 0.05, 0.95),
+	]
+
+
+static func setup_quality(setup: Array, ideal: Array) -> float:
+	var dist := 0.0
+	for i in 3:
+		dist += absf(float(setup[i]) - float(ideal[i]))
+	return clampf(1.0 - dist / 1.2, 0.0, 1.0)
+
+
+# Apply a player-tuned setup (sliders 0..1) to a car. Pre-race only — the
+# race itself never re-reads the sliders, only the resulting setup_q.
+func set_setup(car_id: int, setup: Array) -> void:
+	var d := get_driver_by_id(car_id)
+	if d != null and not _started:
+		d.setup_q = setup_quality(setup, track_ideal_setup(track))
+
+# One practice run: lap time on the given setup + the driver's per-axis read.
+# Deterministic from (track, driver, setup, run_idx) via its own hash — does
+# NOT touch the sim's rng streams, so practice cannot desync the race.
+# fb codes per axis: 0 sweet spot · ±1 a bit high/low · ±2 way high/low ·
+# 9 driver can't read it. Precision = race_iq + engineer telemetry.
+static func practice_run(t: Track, d: Driver, setup: Array, run_idx: int) -> Dictionary:
+	var ideal := track_ideal_setup(t)
+	var q := setup_quality(setup, ideal)
+	var h := mix32(int(t.name.hash()) ^ (d.id * 7919) ^ (run_idx * 104729) \
+		^ int(float(setup[0]) * 997.0) ^ (int(float(setup[1]) * 991.0) << 8) \
+		^ (int(float(setup[2]) * 983.0) << 16))
+	var consist := float(d.attrs.get("consistency", 13)) / 20.0
+	var noise := (float(h & 0xFFFF) / 65535.0 * 2.0 - 1.0) \
+		* (0.10 + (1.0 - consist) * 0.25)
+	var time := t.base_laptime - d.skill * SKILL_K \
+		- (d.car_power - d.car_aero) * (t.power - t.downforce) * CAR_K \
+		+ float(COMPOUNDS["medium"]["pace"]) \
+		+ (1.0 - q) * SETUP_PEN * 2.0 + 1.2 + noise
+	var iq := float(d.attrs.get("race_iq", 13)) / 20.0
+	var acc := clampf(0.45 + iq * 0.35 + d.eng_skill * 0.20, 0.0, 0.97)
+	var fb: Array = []
+	for i in 3:
+		var err := float(setup[i]) - float(ideal[i])
+		var sense_u := float((h >> (8 + i * 7)) & 127) / 127.0
+		if absf(err) < 0.06:
+			fb.append(0)
+		elif sense_u < acc:
+			fb.append((2 if absf(err) > 0.20 else 1) * (1 if err > 0.0 else -1))
+		else:
+			fb.append(9)
+	return {"time": time, "fb": fb}
+
 # -------------------- driver --------------------
 class Driver:
 	var id: int
@@ -304,6 +375,11 @@ class Driver:
 	                               # threat behind, decays by composure; raises error risk
 	var cover_pit: bool = false    # M-S1: strategist calls a stop to cover a rival's pit
 	var pit_plan: int = 1          # M-S2: planned stops (2 where wear maths demand it)
+	# --- car setup (practice weekend phase) ---
+	var setup_q: float = 0.6       # 0..1 setup quality → laptime += (1-q)·SETUP_PEN;
+	                               # engineers build a baseline, practice overrides it
+	var eng_skill: float = 0.5     # race engineer telemetry (per car slot) — baseline
+	                               # setup quality + sharper practice feedback
 	var follow_pen: float = 0.0    # this tick's net following term (dirty air − slipstream)
 	var da_pen: float = 0.0        # dirty-air part only — excluded from the M-A2 stall
 	                               # edge (an armed Overtake waives it); the tow stays in
@@ -466,6 +542,11 @@ func _init(track_in: Track, drivers_in: Array, seed_value: int = 12345) -> void:
 	for d in drivers:
 		d.fuel_laps = float(track.laps)
 		d.ai_pit_wear = _strat_pit_wear(d)
+		# Car setup baseline: the engineers + driver feedback build it — the
+		# SAME formula for every crew (player teams included), so skipping
+		# practice costs nothing vs your own engineers; practicing is the edge.
+		d.setup_q = clampf(0.45 + 0.35 * d.eng_skill + 0.15 * _attr(d, "race_iq") \
+			+ rng.rangef(-0.06, 0.06), 0.35, 0.97)
 		# M-S2: plan two stops where the wear maths demand it (abrasive track
 		# identity); only a competent strategist commits to the aggressive plan.
 		# The 2-stop target splits the race into ~3 stints (flat -12 was not
@@ -500,6 +581,7 @@ func _run_qualifying() -> void:
 	for d in drivers:
 		var qt: float = -d.skill * SKILL_K
 		qt -= (d.car_power - d.car_aero) * (track.power - track.downforce) * CAR_K
+		qt += (1.0 - d.setup_q) * SETUP_PEN
 		qt += COMPOUNDS["soft"]["pace"]
 		var qnoise: float = QUALI_NOISE_BASE * (1.3 - _attr(d, "consistency") * 0.6)
 		qt += qrng.rangef(-qnoise, qnoise)
@@ -727,6 +809,7 @@ func current_laptime(d: Driver, ahead_gap: float = -1.0) -> float:
 	# car character: a power-biased car gains on power circuits and loses on
 	# downforce ones (and vice-versa) — net zero on an average track.
 	lt -= (d.car_power - d.car_aero) * (track.power - track.downforce) * CAR_K
+	lt += (1.0 - d.setup_q) * SETUP_PEN
 	d.follow_pen = _m_following(d, ahead_gap)
 	lt += d.follow_pen
 	lt += d.aero_damage * DMG_K        # floor/wing damage until repaired in the pits
@@ -1997,6 +2080,7 @@ static func make_field(coop: bool = false, player_team: int = 1,
 		d.pit_speed = Personnel.pit_speed(staff)
 		d.pit_consistency = Personnel.pit_consistency(staff)
 		d.reliability_work = Personnel.reliability_work(staff)
+		d.eng_skill = Personnel.engineer_telemetry(staff, i % 2)
 		if g["team"]:
 			d.team = true
 			if i == 4:
