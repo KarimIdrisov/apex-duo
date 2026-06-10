@@ -1481,7 +1481,10 @@ static func gen_attributes(skill: float, seed_value: int) -> Dictionary:
 # Builds the full race grid from the real 2026 roster (see f1_2026.gd).
 # player_team selects which real team you run; its drivers take ids 4
 # (Директор) and 5 (Инженер). In co-op both are human; in solo P6 is AI.
-static func make_field(coop: bool = false, player_team: int = 1) -> Array:
+# player_staff (M2): optional {role -> Personnel.Staff} for the player team —
+# the season's persistent people (Season.staff_for_sim()). Empty = generate.
+static func make_field(coop: bool = false, player_team: int = 1,
+		player_staff: Dictionary = {}) -> Array:
 	var grid := F1_2026.race_grid(player_team)
 	var arr: Array = []
 	var staff_cache := {}              # team_idx -> staff dict (built once per team)
@@ -1504,7 +1507,11 @@ static func make_field(coop: bool = false, player_team: int = 1) -> Array:
 		# team personnel: strategist (AI strategy) + pit crew (stop time / reliability)
 		var tidx := int(g.get("team_idx", 1))
 		if not staff_cache.has(tidx):
-			staff_cache[tidx] = Personnel.team_staff(tidx)
+			# M2: the player team uses the season's persistent people when given.
+			if tidx == player_team and not player_staff.is_empty():
+				staff_cache[tidx] = player_staff
+			else:
+				staff_cache[tidx] = Personnel.team_staff(tidx)
 		var staff: Dictionary = staff_cache[tidx]
 		d.strat_skill = Personnel.strategist_skill(staff)
 		d.pit_speed = Personnel.pit_speed(staff)

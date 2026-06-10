@@ -219,6 +219,28 @@ func net_season_sign_sponsor(offer_id: int) -> void:
 		net_season_feed.rpc("Партнёр: подписан спонсор «%s»" % sp_name)
 		get_tree().call_group("season_hub", "_on_season_updated")
 
+# client → host: poach a staff-market candidate by id (M2).
+# Host applies (deterministic roll), autosaves, rebroadcasts state + feed.
+@rpc("any_peer", "call_remote", "reliable")
+func net_season_hire_staff(cand_id: int) -> void:
+	if not multiplayer.is_server():
+		return
+	if Season.active == null:
+		return
+	Season.active.ensure_staff_market()
+	var cand_name: String = "?"
+	for cand in Season.active.staff_market:
+		if int((cand as Dictionary).get("id", -1)) == cand_id:
+			cand_name = String((cand as Dictionary).get("name", "?"))
+			break
+	var result: String = Season.active.hire_staff(cand_id)
+	if result == "hired" or result == "refused":
+		Season.active.save_to_disk()
+		net_season_full.rpc(Season.active.to_dict())
+		var verb: String = "нанят" if result == "hired" else "отказался"
+		net_season_feed.rpc("Партнёр: переманивание — %s %s" % [cand_name, verb])
+		get_tree().call_group("season_hub", "_on_season_updated")
+
 # client → host: readiness ping (informational; not required to start the race).
 @rpc("any_peer", "call_remote", "reliable")
 func net_season_ready(ready: bool) -> void:

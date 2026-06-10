@@ -94,6 +94,72 @@ const SPONSOR_GOALS_PARTNER := [
 	["no_dnf",      0, "any_3_races",  100_000],   # no DNF across any 3 races
 	["position",    6, "single_race",   60_000],   # finish P6 or better in one race
 ]
+# ============================================================
+# M2: PERSONNEL AS PEOPLE
+# ---------------------------------------------------------------
+# Persistent staff for the player team: each key role becomes a person with
+# name / age / salary / loyalty / trait / development_rate, generated ONCE per
+# season (deterministic from cal_seed) and saved. The sim reads these people
+# via staff_for_sim() -> make_field(), replacing the per-race regeneration.
+# Verified numerically in meta_m2_staff_check.py (17/17 PASS).
+
+const STAFF_SEED_MIX: int = 0xC0FFEE11    # staff generation stream
+const MARKET_SEED_MIX: int = 0x5EEDA77E   # staff-market stream
+const EVENT_SEED_MIX: int = 0x10C0DE      # end-of-round departure rolls
+const HIRE_SEED_MIX: int = 0x5A1E         # hire/poach success rolls
+
+# Persisted roles (principal excluded — the two players ARE the co-directors).
+const STAFF_ROLE_ORDER := ["strategist", "engineer1", "engineer2", "pitcrew",
+	"techdir", "designer", "sporting", "testdriver"]
+
+# Per-round salary range [min, max] per role. Scaled to the M1 income economy:
+# full payroll = ~150k (underdog) .. ~410k (contender) per round — verified.
+const STAFF_SALARY_RANGE := {
+	"techdir":    [40_000, 110_000],
+	"designer":   [30_000,  85_000],
+	"strategist": [18_000,  55_000],
+	"engineer1":  [12_000,  35_000],
+	"engineer2":  [12_000,  35_000],
+	"pitcrew":    [15_000,  40_000],
+	"sporting":   [10_000,  28_000],
+	"testdriver": [ 8_000,  25_000],
+}
+
+# One trait per person (minimal M2 set; effects applied at generation/drift).
+const STAFF_TRAITS := ["Перфекционист", "Ментор", "Рискованный стратег",
+	"Верный", "Амбициозный"]
+
+# Name banks (Cyrillic per UI convention; combined first+last, probed unique).
+const STAFF_FIRST_NAMES := ["Джеймс", "Питер", "Лука", "Марко", "Ян", "Карлос",
+	"Том", "Рори", "Энцо", "Пьер", "Андреа", "Микель", "Роберт", "Даниэль",
+	"Хуан", "Лоран"]
+const STAFF_LAST_NAMES := ["Кларк", "Бьянки", "Майер", "Сато", "Линдгрен",
+	"Мендес", "Уокер", "Краус", "Дюбуа", "Ковач", "Сильва", "Брандт",
+	"Моретти", "Ярвинен", "Греко", "Холт"]
+
+# rd_speed_mult corridor: weak TD+designer = 0.85, top pair = 1.20.
+# Applied to the cost of LTC (aero-group) parts in cost_part().
+const RD_SPEED_MULT_MIN: float = 0.85
+const RD_SPEED_MULT_MAX: float = 1.20
+
+# Cost cap: top-N staff salaries are exempt (real F1 rule, scaled).
+const STAFF_CAP_EXEMPT: int = 3
+
+# Staff market cadence + size; gardening leave length (rounds).
+const STAFF_MARKET_EVERY: int = 2
+const STAFF_MARKET_SIZE: int = 4
+const STAFF_GARDENING_ROUNDS: int = 1
+
+# Hire probability model (verified: +$100k/season diff -> 65%).
+const HIRE_BASE: float = 0.50
+const HIRE_SALARY_K: float = 0.15      # per $100k of per-SEASON salary diff
+const HIRE_LOYALTY_K: float = 0.4
+const HIRE_REP_BONUS: float = 0.20     # constructors P1-3 / P8+ reputation swing
+# Departure: loyalty below threshold -> LEAVE_PROB chance at end of round.
+const LEAVE_LOYALTY: float = 0.25
+const LEAVE_PROB: float = 0.30
+const ROUNDS_PER_SEASON: int = 5
+
 const NAMES := ["Норрис", "Пиастри", "Ферстаппен", "Леклер", "Антонелли",
 	"Расселл", "Хэмилтон", "Сайнс", "Албон", "Алонсо"]   # default grid (Mercedes player)
 const TEAM_IDS := [4, 5]
@@ -229,6 +295,16 @@ var active_sponsors: Array = []
 var sponsor_offers: Array = []
 var payout_log: Array = []
 
+# M2: Personnel-as-people state
+# staff:        Array of person Dicts (see _gen_staff_member for the schema).
+# staff_market: current market candidates (regenerated every STAFF_MARKET_EVERY rounds).
+# staff_market_epoch: which epoch staff_market was generated for (-1 = none yet).
+# staff_log:    recent personnel events (departures, hires) for the hub feed.
+var staff: Array = []
+var staff_market: Array = []
+var staff_market_epoch: int = -1
+var staff_log: Array = []
+
 func _init() -> void:
 	for id in TEAM_IDS:
 		driver_dev[id] = 0.0
@@ -248,6 +324,11 @@ func _init() -> void:
 	active_sponsors = []
 	sponsor_offers = []
 	payout_log = []
+	# M2: staff is generated in configure() once cal_seed/player_team are final
+	staff = []
+	staff_market = []
+	staff_market_epoch = -1
+	staff_log = []
 
 func _new_stat() -> Dictionary:
 	return {"races": 0, "wins": 0, "podiums": 0, "poles": 0, "fl": 0,
@@ -378,9 +459,16 @@ func _init_part_levels() -> void:
 
 # CAR-1: Cost to upgrade a part by one level.
 # Base cost = 5 + current_level * 3 (matches old aero/energy cost curves).
+# M2: LTC (aero-group) parts are cheapened/inflated by staff quality via
+# rd_speed_mult() (0.85 weak .. 1.20 top TD+designer) — verified in
+# meta_m2_staff_check.py (gap ≈ 1 extra R&D step over a 5-round season).
 func cost_part(part_key: String) -> int:
 	var lvl: int = int(part_levels.get(part_key, 0))
-	return 5 + lvl * 3
+	var base: int = 5 + lvl * 3
+	var pdef: Dictionary = F1_2026.PARTS.get(part_key, {})
+	if String(pdef.get("group", "")) == "aero":
+		return maxi(1, int(round(float(base) / rd_speed_mult())))
+	return base
 
 # CAR-1: Buy one level for a part. Deducts RP, updates part_levels, mirrors
 # legacy counters (car_aero_steps / car_pwt_steps), re-primes F1_2026 state.
@@ -478,6 +566,12 @@ func _pay_salaries() -> void:
 		# decrement rounds_remaining
 		var rem: int = int(c.get("rounds_remaining", 0))
 		c["rounds_remaining"] = maxi(0, rem - 1)
+	# M2: staff payroll — paid in full from money; only NON-top-3 salaries
+	# count toward the cap (top-3 staff are exempt, real F1 rule).
+	var staff_total: int = staff_payroll_per_round()
+	var staff_actual: int = mini(money, staff_total)
+	money -= staff_actual
+	salary_this_round += staff_cap_spend_per_round()
 	cumulative_salary_spend += salary_this_round
 	# Evaluate soft cap: overspend -> RP penalty next round
 	var overspend: int = maxi(0, cumulative_salary_spend - SALARY_CAP)
@@ -896,6 +990,386 @@ func _sponsors_from_array(raw: Array) -> Array:
 			sp["bonus_paid"] = bool(sd.get("bonus_paid", false))
 	return out
 
+# ---------------------------------------------------------------- M2: personnel
+
+# Player-team strength 0..1 (same formula as Personnel.team_staff).
+func _team_strength() -> float:
+	var n: int = F1_2026.team_count()
+	return 1.0 - float(clampi(player_team, 0, n - 1)) / float(maxi(1, n - 1))
+
+# Per-round salary for a role given the person's overall rating (1..20).
+func _salary_for(role: String, overall: int) -> int:
+	var rng_arr: Array = STAFF_SALARY_RANGE.get(role, [10_000, 30_000])
+	var lo: int = int(rng_arr[0])
+	var hi: int = int(rng_arr[1])
+	var t: float = clampf((float(overall) - 6.0) / 12.0, 0.0, 1.0)
+	return int(round((float(lo) + t * float(hi - lo)) / 1000.0)) * 1000
+
+# Overall rating (1..20) of a persisted staff member.
+func staff_overall(member: Dictionary) -> int:
+	var attrs: Dictionary = member.get("attrs", {})
+	if attrs.is_empty():
+		return 10
+	var total: int = 0
+	for k in attrs:
+		total += int(attrs[k])
+	return int(round(float(total) / float(attrs.size())))
+
+# Generate one staff person. LCG draw order is FIXED (mirrored in
+# meta_m2_staff_check.py): first-name, last-name, per-attr, age, loyalty,
+# trait, dev_rate. Returns [new_lcg_state, member_dict].
+func _gen_staff_member(role: String, strength: float, state_in: int,
+		taken_names: Array) -> Array:
+	var state: int = state_in
+	var res: Array = _lcg_step(state)
+	state = int(res[0])
+	var fi: int = clampi(int(float(res[1]) * float(STAFF_FIRST_NAMES.size())),
+		0, STAFF_FIRST_NAMES.size() - 1)
+	res = _lcg_step(state)
+	state = int(res[0])
+	var li: int = clampi(int(float(res[1]) * float(STAFF_LAST_NAMES.size())),
+		0, STAFF_LAST_NAMES.size() - 1)
+	var pname: String = STAFF_FIRST_NAMES[fi] + " " + STAFF_LAST_NAMES[li]
+	var probe: int = 0
+	while (pname in taken_names) and probe < 32:
+		probe += 1
+		li = (li + 1) % STAFF_LAST_NAMES.size()
+		pname = STAFF_FIRST_NAMES[fi] + " " + STAFF_LAST_NAMES[li]
+	taken_names.append(pname)
+
+	var base: float = 6.0 + clampf(strength, 0.0, 1.0) * 12.0
+	var attrs: Dictionary = {}
+	var attr_keys: Array = Personnel.ROLES[role]["attrs"]
+	for k in attr_keys:
+		res = _lcg_step(state)
+		state = int(res[0])
+		attrs[k] = clampi(int(round(base + (float(res[1]) - 0.5) * 5.0)), 1, 20)
+	res = _lcg_step(state)
+	state = int(res[0])
+	var age: int = 28 + int(float(res[1]) * 34.0)
+	res = _lcg_step(state)
+	state = int(res[0])
+	var loyalty: float = 0.35 + float(res[1]) * 0.6
+	res = _lcg_step(state)
+	state = int(res[0])
+	var trait_pick: String = STAFF_TRAITS[clampi(
+		int(float(res[1]) * float(STAFF_TRAITS.size())), 0, STAFF_TRAITS.size() - 1)]
+	res = _lcg_step(state)
+	state = int(res[0])
+	var dev_rate: float = 0.2 + float(res[1]) * 0.8
+
+	# Trait effects at generation (minimal M2 set).
+	var primary: String = String(attr_keys[0])
+	if trait_pick == "Перфекционист":
+		attrs[primary] = mini(20, int(attrs[primary]) + 2)
+	elif trait_pick == "Рискованный стратег" and attrs.has("strategy"):
+		attrs["strategy"] = mini(20, int(attrs["strategy"]) + 3)
+	elif trait_pick == "Верный":
+		loyalty = maxf(loyalty, 0.7)
+
+	var member: Dictionary = {
+		"role": role,
+		"name": pname,
+		"age": age,
+		"salary": 0,
+		"loyalty": loyalty,
+		"trait": trait_pick,
+		"dev_rate": dev_rate,
+		"gardening": 0,
+		"attrs": attrs,
+	}
+	member["salary"] = _salary_for(role, staff_overall(member))
+	return [state, member]
+
+# Generate the season's persistent staff ONCE (deterministic from cal_seed).
+func _init_staff() -> void:
+	staff = []
+	var taken: Array = []
+	var state: int = (int(cal_seed) ^ STAFF_SEED_MIX) & 0xFFFFFFFF
+	var strength: float = _team_strength()
+	for role in STAFF_ROLE_ORDER:
+		var out: Array = _gen_staff_member(String(role), strength, state, taken)
+		state = int(out[0])
+		staff.append(out[1])
+
+# Persisted member for a role ({} if none).
+func staff_member(role: String) -> Dictionary:
+	for m in staff:
+		if String((m as Dictionary).get("role", "")) == role:
+			return m as Dictionary
+	return {}
+
+# rd_speed_mult: techdir.development × designer.aero_dev quality -> 0.85..1.20
+# multiplier applied to LTC (aero-group) R&D cost in cost_part().
+func rd_speed_mult() -> float:
+	var td: int = 10
+	var des: int = 10
+	var m_td: Dictionary = staff_member("techdir")
+	if not m_td.is_empty():
+		td = int((m_td.get("attrs", {}) as Dictionary).get("development", 10))
+	var m_des: Dictionary = staff_member("designer")
+	if not m_des.is_empty():
+		des = int((m_des.get("attrs", {}) as Dictionary).get("aero_dev", 10))
+	var avg: float = float(td + des) / 2.0
+	return clampf(0.85 + (avg - 6.0) / 12.0 * 0.35,
+		RD_SPEED_MULT_MIN, RD_SPEED_MULT_MAX)
+
+# Role keys of the top-3 salaries (exempt from the cost cap, real F1 rule).
+func cap_exempt_roles() -> Array:
+	var pairs: Array = []
+	for m in staff:
+		var md: Dictionary = m
+		pairs.append([int(md.get("salary", 0)), String(md.get("role", ""))])
+	pairs.sort_custom(func(a, b): return int(a[0]) > int(b[0]))
+	var out: Array = []
+	for i in mini(STAFF_CAP_EXEMPT, pairs.size()):
+		out.append(pairs[i][1])
+	return out
+
+# Per-round staff salary that counts toward the cap (all minus top-3).
+func staff_cap_spend_per_round() -> int:
+	var sals: Array = []
+	for m in staff:
+		sals.append(int((m as Dictionary).get("salary", 0)))
+	sals.sort()
+	sals.reverse()
+	var capped: int = 0
+	for j in sals.size():
+		if j >= STAFF_CAP_EXEMPT:
+			capped += int(sals[j])
+	return capped
+
+# Total per-round staff payroll (for UI / payment).
+func staff_payroll_per_round() -> int:
+	var total: int = 0
+	for m in staff:
+		total += int((m as Dictionary).get("salary", 0))
+	return total
+
+# ---- staff market (every STAFF_MARKET_EVERY rounds) ----
+
+func staff_market_epoch_now() -> int:
+	@warning_ignore("integer_division")
+	return round_index / STAFF_MARKET_EVERY
+
+# Regenerate the market when a new epoch starts. Deterministic per epoch.
+# An emptied market (all hired/refused) stays empty until the next epoch —
+# regenerating the same epoch would resurrect refused candidates.
+func ensure_staff_market() -> void:
+	var epoch: int = staff_market_epoch_now()
+	if epoch == staff_market_epoch:
+		return
+	staff_market_epoch = epoch
+	staff_market = []
+	var state: int = (int(cal_seed) ^ MARKET_SEED_MIX
+		^ ((epoch * 2654435761) & 0xFFFFFFFF)) & 0xFFFFFFFF
+	var taken: Array = []
+	for m in staff:
+		taken.append(String((m as Dictionary).get("name", "")))
+	for i in STAFF_MARKET_SIZE:
+		var res: Array = _lcg_step(state)
+		state = int(res[0])
+		var role_idx: int = clampi(int(float(res[1]) * float(STAFF_ROLE_ORDER.size())),
+			0, STAFF_ROLE_ORDER.size() - 1)
+		var role: String = STAFF_ROLE_ORDER[role_idx]
+		# Market candidates come from a wider, generally stronger band (9..18).
+		res = _lcg_step(state)
+		state = int(res[0])
+		var cand_strength: float = 0.25 + float(res[1]) * 0.75
+		var out: Array = _gen_staff_member(role, cand_strength, state, taken)
+		state = int(out[0])
+		var cand: Dictionary = out[1]
+		cand["id"] = i
+		cand["cur_salary"] = int(cand["salary"])
+		# Poach ask: +15% over the current salary (rounded to $1k).
+		cand["salary"] = int(round(float(cand["cur_salary"]) * 1.15 / 1000.0)) * 1000
+		cand["bonus"] = int(cand["salary"]) * 2   # one-time signing bonus
+		staff_market.append(cand)
+
+# Success probability for poaching a market candidate (0.05..0.95).
+# Verified: +$100k per-season diff, neutral rep+loyalty -> 65%.
+func hire_probability(cand: Dictionary) -> float:
+	var cpos: int = constructor_position()
+	var rep: float = 0.0
+	if cpos <= 3:
+		rep = HIRE_REP_BONUS
+	elif cpos >= 8:
+		rep = -HIRE_REP_BONUS
+	var season_diff: float = float(int(cand.get("salary", 0))
+		- int(cand.get("cur_salary", 0))) * float(ROUNDS_PER_SEASON)
+	var p: float = HIRE_BASE + HIRE_SALARY_K * season_diff / 100_000.0 + rep \
+		- (float(cand.get("loyalty", 0.5)) - 0.5) * HIRE_LOYALTY_K
+	return clampf(p, 0.05, 0.95)
+
+# Attempt to poach a market candidate. Deterministic roll per (seed, epoch, id).
+# Success: pay signing bonus, replace the role's person (gardening leave 1 round).
+# Failure: candidate refuses and leaves the market (no money spent).
+# Returns: "hired" | "refused" | "no_money" | "not_found".
+func hire_staff(cand_id: int) -> String:
+	ensure_staff_market()
+	var idx: int = -1
+	for i in staff_market.size():
+		if int((staff_market[i] as Dictionary).get("id", -1)) == cand_id:
+			idx = i
+			break
+	if idx < 0:
+		return "not_found"
+	var cand: Dictionary = staff_market[idx]
+	var bonus: int = int(cand.get("bonus", 0))
+	if money < bonus:
+		return "no_money"
+	var p: float = hire_probability(cand)
+	var seed_v: int = (int(cal_seed) ^ HIRE_SEED_MIX
+		^ ((staff_market_epoch * 2654435761) & 0xFFFFFFFF)
+		^ ((cand_id * 97003) & 0xFFFFFFFF)) & 0xFFFFFFFF
+	var res: Array = _lcg_step(seed_v)
+	var roll: float = float(res[1])
+	staff_market.remove_at(idx)
+	if roll >= p:
+		_staff_log_add("%s отказался от предложения (%d%% шанс)" % [
+			String(cand.get("name", "?")), int(round(p * 100.0))])
+		return "refused"
+	money -= bonus
+	var role: String = String(cand.get("role", ""))
+	var new_member: Dictionary = cand.duplicate(true)
+	new_member.erase("id")
+	new_member.erase("cur_salary")
+	new_member.erase("bonus")
+	new_member["loyalty"] = 0.75
+	new_member["gardening"] = STAFF_GARDENING_ROUNDS
+	for i in staff.size():
+		if String((staff[i] as Dictionary).get("role", "")) == role:
+			_staff_log_add("Нанят %s (%s) — на скамейке 1 этап" % [
+				String(new_member.get("name", "?")), staff_role_ru(role)])
+			staff[i] = new_member
+			return "hired"
+	staff.append(new_member)   # safety: role row missing (corrupt save)
+	return "hired"
+
+# ---- end-of-round staff lifecycle (loyalty drift, gardening, departures) ----
+
+# Called from apply_results BEFORE round_index increments (seeds use the
+# just-finished round). gained_pts = team points scored this race.
+func _staff_end_of_round(gained_pts: int) -> void:
+	for i in staff.size():
+		var m: Dictionary = staff[i]
+		m["gardening"] = maxi(0, int(m.get("gardening", 0)) - 1)
+		# Loyalty drift from results.
+		var delta: float = -0.06
+		if gained_pts >= 8:
+			delta = 0.04
+		elif gained_pts >= 1:
+			delta = 0.01
+		if String(m.get("trait", "")) == "Амбициозный" and delta < 0.0:
+			delta *= 2.0
+		var loy: float = clampf(float(m.get("loyalty", 0.5)) + delta, 0.0, 1.0)
+		if String(m.get("trait", "")) == "Верный":
+			loy = maxf(loy, 0.7)
+		m["loyalty"] = loy
+		# Departure roll (deterministic per seed/round/slot).
+		if loy < LEAVE_LOYALTY:
+			var seed_v: int = (int(cal_seed) ^ EVENT_SEED_MIX
+				^ ((round_index * 2654435761) & 0xFFFFFFFF)
+				^ ((i * 97003) & 0xFFFFFFFF)) & 0xFFFFFFFF
+			var res: Array = _lcg_step(seed_v)
+			if float(res[1]) < LEAVE_PROB:
+				var role: String = String(m.get("role", ""))
+				_staff_log_add("%s покинул команду (низкая лояльность)" % String(m.get("name", "?")))
+				# Deterministic weaker replacement.
+				var taken: Array = []
+				for other in staff:
+					taken.append(String((other as Dictionary).get("name", "")))
+				var rep_state: int = (seed_v ^ 0x9E3779B9) & 0xFFFFFFFF
+				var out: Array = _gen_staff_member(role,
+					_team_strength() * 0.8, rep_state, taken)
+				var repl: Dictionary = out[1]
+				repl["loyalty"] = 0.6
+				staff[i] = repl
+
+func _staff_log_add(line: String) -> void:
+	staff_log.append(line)
+	if staff_log.size() > 12:
+		staff_log = staff_log.slice(staff_log.size() - 12)
+
+# Russian role label for the hub/log.
+func staff_role_ru(role: String) -> String:
+	if Personnel.ROLES.has(role):
+		return String(Personnel.ROLES[role]["name"])
+	return role
+
+# ---- sim wiring: persistent people -> Personnel.Staff dict for make_field ----
+
+# Build the {role -> Personnel.Staff} dict the race sim reads for the PLAYER
+# team. People on gardening leave are replaced by a neutral stand-in (attrs 10).
+# Returns {} when staff is empty (make_field falls back to generation).
+func staff_for_sim() -> Dictionary:
+	if staff.is_empty():
+		return {}
+	var out: Dictionary = {}
+	for m in staff:
+		var md: Dictionary = m
+		var role: String = String(md.get("role", ""))
+		if not Personnel.ROLES.has(role):
+			continue
+		if int(md.get("gardening", 0)) > 0:
+			out[role] = Personnel.neutral_staff(role)
+		else:
+			out[role] = Personnel.staff_from_saved(md)
+	# Roles not persisted (principal) keep a neutral entry so lookups never miss.
+	for role in Personnel.ROLE_ORDER:
+		if not out.has(role):
+			out[role] = Personnel.neutral_staff(String(role))
+	return out
+
+# ---- staff serialisation ----
+
+func _staff_to_array(arr: Array) -> Array:
+	var out: Array = []
+	for m in arr:
+		var md: Dictionary = (m as Dictionary).duplicate(true)
+		md["age"] = int(md.get("age", 40))
+		md["salary"] = int(md.get("salary", 0))
+		md["gardening"] = int(md.get("gardening", 0))
+		var attrs_out: Dictionary = {}
+		var attrs_in: Dictionary = md.get("attrs", {})
+		for k in attrs_in:
+			attrs_out[String(k)] = int(attrs_in[k])
+		md["attrs"] = attrs_out
+		out.append(md)
+	return out
+
+func _staff_from_array(raw: Array) -> Array:
+	var out: Array = []
+	for entry in raw:
+		if typeof(entry) != TYPE_DICTIONARY:
+			continue
+		var sd: Dictionary = entry as Dictionary
+		var attrs: Dictionary = {}
+		var raw_attrs: Variant = sd.get("attrs", {})
+		if typeof(raw_attrs) == TYPE_DICTIONARY:
+			for k in (raw_attrs as Dictionary):
+				attrs[String(k)] = clampi(int(float((raw_attrs as Dictionary)[k])), 1, 20)
+		var md: Dictionary = {
+			"role":      String(sd.get("role", "")),
+			"name":      String(sd.get("name", "?")),
+			"age":       int(float(sd.get("age", 40))),
+			"salary":    int(float(sd.get("salary", 0))),
+			"loyalty":   float(sd.get("loyalty", 0.5)),
+			"trait":     String(sd.get("trait", "")),
+			"dev_rate":  float(sd.get("dev_rate", 0.5)),
+			"gardening": int(float(sd.get("gardening", 0))),
+			"attrs":     attrs,
+		}
+		# Market candidates carry extra int fields — restore when present.
+		if sd.has("id"):
+			md["id"] = int(float(sd.get("id", 0)))
+		if sd.has("cur_salary"):
+			md["cur_salary"] = int(float(sd.get("cur_salary", 0)))
+		if sd.has("bonus"):
+			md["bonus"] = int(float(sd.get("bonus", 0)))
+		out.append(md)
+	return out
+
 # Return a human-readable cap status string (for UI). Russian.
 func cap_status_text() -> String:
 	var over: int = maxi(0, cumulative_salary_spend - SALARY_CAP)
@@ -943,6 +1417,10 @@ func configure(tier: int, diff: int, is_coop: bool) -> void:
 	# already loaded from a save — _apply_dict restores sponsor_offers directly).
 	if sponsor_offers.is_empty() and active_sponsors.is_empty():
 		sponsor_offers = _generate_sponsor_offers()
+	# M2: generate the persistent staff once per season (loads overwrite via
+	# _apply_dict, which re-inits from the restored cal_seed when migrating).
+	if staff.is_empty():
+		_init_staff()
 
 func difficulty_name() -> String:
 	return DIFFICULTY[difficulty]["name"]
@@ -1085,6 +1563,8 @@ func apply_results(order_ids: Array, dnf_ids: Array = [], fl_id: int = -1) -> vo
 		"rp": rp,
 	}
 	_update_drivers(order_ids)
+	# M2: staff lifecycle (loyalty drift, gardening leave, departure rolls).
+	_staff_end_of_round(gained_pts)
 	round_index += 1
 	# META-3: pay driver salaries and evaluate cap after each round
 	_pay_salaries()
@@ -1222,6 +1702,11 @@ func to_dict() -> Dictionary:
 		"active_sponsors": _sponsors_to_array(active_sponsors),
 		"sponsor_offers":  _sponsors_to_array(sponsor_offers),
 		"payout_log":      payout_log.duplicate(true),
+		# M2: personnel
+		"staff":              _staff_to_array(staff),
+		"staff_market":       _staff_to_array(staff_market),
+		"staff_market_epoch": staff_market_epoch,
+		"staff_log":          staff_log.duplicate(true),
 	}
 
 func save_to_disk() -> void:
@@ -1451,6 +1936,27 @@ static func _apply_dict(s: Season, data: Dictionary) -> void:
 				})
 	else:
 		s.payout_log = []
+	# M2: personnel — restore staff/market/log; old saves (no "staff" key)
+	# regenerate deterministically from the RESTORED cal_seed (configure() above
+	# ran with a possibly different seed, so re-init explicitly here).
+	var staff_raw: Variant = data.get("staff", null)
+	if typeof(staff_raw) == TYPE_ARRAY and (staff_raw as Array).size() > 0:
+		s.staff = s._staff_from_array(staff_raw as Array)
+	else:
+		s.staff = []
+		s._init_staff()
+	var market_raw: Variant = data.get("staff_market", null)
+	if typeof(market_raw) == TYPE_ARRAY:
+		s.staff_market = s._staff_from_array(market_raw as Array)
+		s.staff_market_epoch = int(float(data.get("staff_market_epoch", -1)))
+	else:
+		s.staff_market = []
+		s.staff_market_epoch = -1
+	var slog_raw: Variant = data.get("staff_log", null)
+	s.staff_log = []
+	if typeof(slog_raw) == TYPE_ARRAY:
+		for entry in (slog_raw as Array):
+			s.staff_log.append(String(entry))
 	# Prime F1_2026's static R&D state so the loaded upgrades take effect immediately.
 	s.apply_car_rd()
 

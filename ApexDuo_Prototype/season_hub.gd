@@ -175,6 +175,7 @@ func _rebuild() -> void:
 	mid.add_child(_build_standings(s))
 	mid.add_child(_build_rnd(s))
 	col.add_child(_build_contracts(s))
+	col.add_child(_build_staff(s))
 	col.add_child(_build_sponsors(s))
 
 	# bottom actions — pinned below the scroll so they're always visible
@@ -675,6 +676,98 @@ func _build_sponsors(s: Season) -> Control:
 						_rebuild())
 			orow.add_child(sign_btn)
 			v.add_child(orow)
+
+	pc.add_child(v)
+	return pc
+
+# ---------------------------------------------------------------- staff (M2)
+# People with name/age/salary/loyalty/trait. Top-3 salaries marked as cap-exempt.
+# Market section opens a fresh candidate list every 2 rounds (poaching).
+func _build_staff(s: Season) -> Control:
+	var pc := _panel()
+	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	v.add_child(_label("ПЕРСОНАЛ", 18, "#ffffff"))
+	v.add_child(HSeparator.new())
+
+	v.add_child(_label("Скорость R&D (аэро): ×%.2f — техдиректор и конструктор" % s.rd_speed_mult(),
+		14, "#5dd17a"))
+	var payroll_txt := "Зарплаты персонала: $%s/этап · топ-3 (★) вне кост-кэпа" % _money(
+		s.staff_payroll_per_round())
+	v.add_child(_label(payroll_txt, 13, "#9aa4b2"))
+
+	var exempt: Array = s.cap_exempt_roles()
+	for m in s.staff:
+		var md: Dictionary = m as Dictionary
+		var role: String = String(md.get("role", ""))
+		var loy: float = float(md.get("loyalty", 0.5))
+		var loy_col: String = "#5dd17a"
+		if loy < 0.25:
+			loy_col = "#e23b3b"
+		elif loy < 0.5:
+			loy_col = "#f2c14e"
+		var star: String = "★ " if role in exempt else ""
+		var status: String = ""
+		if int(md.get("gardening", 0)) > 0:
+			status = " · НА СКАМЕЙКЕ (1 этап)"
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		row.add_child(_cell("%s%s" % [star, String(md.get("name", "?"))], 170, Color.WHITE))
+		row.add_child(_cell(s.staff_role_ru(role), 200, Color("#9aa4b2")))
+		row.add_child(_cell("%d л. · рейт. %d" % [int(md.get("age", 40)), s.staff_overall(md)],
+			110, Color("#cfd6e0")))
+		row.add_child(_cell("$%s/эт." % _money(int(md.get("salary", 0))), 90, Color("#cfd6e0")))
+		row.add_child(_cell("лояльн. %d%%" % int(round(loy * 100.0)), 100, Color(loy_col)))
+		v.add_child(row)
+		v.add_child(_label("  %s%s" % [String(md.get("trait", "")), status], 12, "#7c8694"))
+
+	if not s.staff_log.is_empty():
+		v.add_child(_spacer(4))
+		v.add_child(_label("События:", 13, "#9aa4b2"))
+		for line in s.staff_log:
+			v.add_child(_label("· %s" % String(line), 12, "#cfd6e0"))
+
+	# Market (refreshes every STAFF_MARKET_EVERY rounds; deterministic per epoch).
+	v.add_child(_spacer(6))
+	v.add_child(HSeparator.new())
+	v.add_child(_label("Рынок персонала (обновляется раз в %d этапа):" % Season.STAFF_MARKET_EVERY,
+		15, "#ffffff"))
+	s.ensure_staff_market()
+	var net_role2: String = Net.role()
+	if s.staff_market.is_empty():
+		v.add_child(_label("Кандидатов нет — рынок обновится со следующей эпохой.", 13, "#9aa4b2"))
+	else:
+		for cand in s.staff_market:
+			var cd: Dictionary = cand as Dictionary
+			var cand_id: int = int(cd.get("id", -1))
+			var prob: int = int(round(s.hire_probability(cd) * 100.0))
+			var bonus: int = int(cd.get("bonus", 0))
+			var crow := HBoxContainer.new()
+			crow.add_theme_constant_override("separation", 8)
+			crow.add_child(_cell(String(cd.get("name", "?")), 170, Color("#66c2ff")))
+			crow.add_child(_cell(s.staff_role_ru(String(cd.get("role", ""))), 200, Color("#9aa4b2")))
+			crow.add_child(_cell("рейт. %d" % s.staff_overall(cd), 70, Color("#cfd6e0")))
+			crow.add_child(_cell("$%s/эт." % _money(int(cd.get("salary", 0))), 90, Color("#cfd6e0")))
+			var hire_btn := _button("Переманить — $%s (%d%%)" % [_money(bonus), prob], 12)
+			hire_btn.disabled = s.money < bonus
+			var cap_cid := cand_id
+			if net_role2 == "client":
+				hire_btn.pressed.connect(func():
+					Net.net_season_hire_staff.rpc_id(1, cap_cid))
+			else:
+				hire_btn.pressed.connect(func():
+					var result: String = s.hire_staff(cap_cid)
+					if result == "hired" or result == "refused":
+						if net_role2 == "host":
+							Season.active.save_to_disk()
+							Net.net_season_full.rpc(Season.active.to_dict())
+							Net.net_season_feed.rpc("Партнёр: попытка переманивания (%s)" % result)
+						_rebuild())
+			crow.add_child(hire_btn)
+			v.add_child(crow)
+		v.add_child(_label("Неудача: кандидат отказывается и уходит с рынка (деньги не тратятся).",
+			12, "#7c8694"))
 
 	pc.add_child(v)
 	return pc

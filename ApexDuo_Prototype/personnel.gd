@@ -67,6 +67,29 @@ static func gen_staff(role_key: String, strength: float, seed_value: int) -> Sta
 		s.attrs[k] = clampi(int(round(base + r.rangef(-2.0, 2.5))), 1, 20)
 	return s
 
+# M2: build a Staff from a persisted Season staff dict ({role, name, attrs{..}}).
+# Attr values arrive as int-or-float (JSON quirk) — clamp to 1..20.
+static func staff_from_saved(d: Dictionary) -> Staff:
+	var s := Staff.new()
+	s.role = String(d.get("role", ""))
+	s.name = String(d.get("name", ""))
+	var raw: Variant = d.get("attrs", {})
+	if typeof(raw) == TYPE_DICTIONARY:
+		for k in (raw as Dictionary):
+			s.attrs[String(k)] = clampi(int(float((raw as Dictionary)[k])), 1, 20)
+	return s
+
+# M2: neutral stand-in (all attrs 10) for a role whose person is unavailable
+# (gardening leave) — the team falls back to an average replacement.
+static func neutral_staff(role_key: String) -> Staff:
+	var s := Staff.new()
+	s.role = role_key
+	s.name = String(ROLES.get(role_key, {}).get("name", role_key))
+	var keys: Array = ROLES.get(role_key, {}).get("attrs", [])
+	for k in keys:
+		s.attrs[k] = 10
+	return s
+
 # Full staff for a team (key -> Staff). Strength derives from team index (0 =
 # strongest); a star can still appear at a weak team via the per-role jitter.
 static func team_staff(team_idx: int, season_seed: int = 0) -> Dictionary:
