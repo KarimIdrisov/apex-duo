@@ -525,6 +525,72 @@ func _init_sector_state(d: Driver) -> void:
 func _t1_incident_prob() -> float:
 	return clampf(T1_INCIDENT_BASE + (0.6 - track.overtaking) * T1_INCIDENT_TRACK_K, 0.04, 0.30)
 
+# Detect macro-sector and mini-sector boundary crossings for one driver.
+# Called in step() phase 1 after lap_frac advances; prev_frac is the value before.
+# Pitting / finished drivers are skipped (lap_frac frozen).
+func _check_sector_crossing(d: Driver, prev_frac: float) -> void:
+	if d.finished or d.pit_timer > 0.0:
+		return
+	var new_frac: float = d.lap_frac
+	# --- Macro sectors (two internal boundaries: S1→S2 and S2→S3) ---
+	if track.sector_bounds.size() >= 2:
+		for si in 2:
+			var bound: float = float(track.sector_bounds[si])
+			if prev_frac < bound and new_frac >= bound:
+				# Record time for sector si (just completed)
+				if d.sector_entry_time >= 0.0:
+					var t: float = elapsed - d.sector_entry_time
+					d.sector_times[si] = t
+					if float(d.sector_best[si]) < 0.0 or t < float(d.sector_best[si]):
+						d.sector_best[si] = t
+					if float(sector_global_best[si]) < 0.0 or t < float(sector_global_best[si]):
+						sector_global_best[si] = t
+				# Enter next sector
+				d.cur_sector = si + 1
+				d.sector_entry_time = elapsed
+				d.soc_at_sector[si + 1] = d.soc_avg
+				if d.team:
+					_sector_ers_hint(d)
+	# --- Mini-sectors ---
+	var n_mini: int = track.mini_sector_bounds.size()
+	if n_mini == 0 or d.mini_times_this_lap.is_empty():
+		return
+	while d.cur_mini < n_mini:
+		var mb: float = float(track.mini_sector_bounds[d.cur_mini])
+		if new_frac < mb:
+			break
+		if prev_frac < mb:   # crossed this boundary this tick
+			if d.mini_entry_time >= 0.0:
+				var mt: float = elapsed - d.mini_entry_time
+				d.mini_times_this_lap[d.cur_mini] = mt
+				if float(d.mini_best[d.cur_mini]) < 0.0 or mt < float(d.mini_best[d.cur_mini]):
+					d.mini_best[d.cur_mini] = mt
+				if float(mini_global_best[d.cur_mini]) < 0.0 or mt < float(mini_global_best[d.cur_mini]):
+					mini_global_best[d.cur_mini] = mt
+			d.mini_entry_time = elapsed
+		d.cur_mini += 1
+
+# Radio hint when entering a new sector: tells the engineer about battery vs DRS.
+# Only fires for team cars, respects radio_cd.
+func _sector_ers_hint(d: Driver) -> void:
+	if d.radio_cd > 0 or track.sector_chars.is_empty():
+		return
+	var sc: Dictionary = track.sector_chars[d.cur_sector]
+	var is_drs: bool = bool(sc.get("drs", false))
+	var next_si: int = (d.cur_sector + 1) % 3
+	var next_sc: Dictionary = track.sector_chars[next_si] if not track.sector_chars.is_empty() else {}
+	var msg := ""
+	if is_drs:
+		if d.soc_avg < 38.0:
+			msg = "S%d: DRS-зона, батарея %d%% — будет трудно!" % [d.cur_sector + 1, int(d.soc_avg)]
+		elif d.soc_avg > 68.0:
+			msg = "S%d: DRS, %d%% — атакуй!" % [d.cur_sector + 1, int(d.soc_avg)]
+	elif bool(next_sc.get("drs", false)) and d.soc_avg < 48.0:
+		msg = "S%d: харвест — следующий сектор DRS" % [d.cur_sector + 1]
+	if msg != "":
+		_emit("Инженер → %s: «%s»" % [d.name, msg], "radio")
+		d.radio_cd = 3
+
 # Race start: a one-off launch off the grid. A good starter (attr "starts") gains
 # a place or two; a bog loses them — the opening-lap shuffle, applied on tick one.
 # Uses rng (main race RNG) to contribute to the deterministic race sequence.
@@ -1139,7 +1205,9 @@ func step(dt: float) -> void:
 				d.finish_time = 100000.0 - float(d.lap)   # classified behind finishers
 				_emit("%s: сход — отказ техники." % d.name, "dnf")
 				continue
+		var _sector_prev := d.lap_frac
 		d.lap_frac += dt / lt
+		_check_sector_crossing(d, _sector_prev)
 		var risk: float = (PACE_MODES[d.pace_mode]["risk"] + ERS_MODES[d.ers_mode]["risk"]) \
 			* (1.0 + d.tire_wear / 120.0) \
 			* (1.3 - _attr(d, "composure") * 0.45) * (1.3 - _attr(d, "consistency") * 0.45) \
