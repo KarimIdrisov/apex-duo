@@ -2629,6 +2629,8 @@ func to_dict() -> Dictionary:
 		# CAR-2: part wear
 		"part_condition":      part_condition.duplicate(true),
 		"replacements_used":   replacements_used,
+		# AI development (rival team_idx string -> 5-scalar float dict)
+		"ai_dev": ai_dev.duplicate(true),
 	}
 
 func save_to_disk() -> void:
@@ -2950,6 +2952,24 @@ static func _apply_dict(s: Season, data: Dictionary) -> void:
 				s.part_condition[String(pck)] = clampf(
 					float((pc_raw as Dictionary)[pck]), 0.0, 1.0)
 	s.replacements_used = int(float(data.get("replacements_used", 0)))
+	# AI development restore (rebuild zeros for any rival absent in an old save).
+	s.ai_dev = {}
+	var raw_dev: Dictionary = data.get("ai_dev", {})
+	for ti in F1_2026.team_count():
+		if ti == s.player_team:
+			continue
+		var k: String = str(ti)
+		if raw_dev.has(k):
+			var src: Dictionary = raw_dev[k]
+			s.ai_dev[k] = {
+				"d_aero":    float(src.get("d_aero", 0.0)),
+				"d_power":   float(src.get("d_power", 0.0)),
+				"d_energy":  float(src.get("d_energy", 0.0)),
+				"d_ch_rel":  float(src.get("d_ch_rel", 0.0)),
+				"d_eng_rel": float(src.get("d_eng_rel", 0.0)),
+			}
+		else:
+			s.ai_dev[k] = s._zero_dev()
 	# Promoted juniors keep their seats: re-apply custom names over the
 	# grid_names that configure() rebuilt from the F1_2026 roster.
 	s.custom_driver_names = {}
