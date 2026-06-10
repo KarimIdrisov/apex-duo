@@ -591,6 +591,14 @@ func _sector_ers_hint(d: Driver) -> void:
 		_emit("Инженер → %s: «%s»" % [d.name, msg], "radio")
 		d.radio_cd = 3
 
+# How far through the current macro sector the driver is (0.0 = just entered, 1.0 = at end).
+func _sector_frac(d: Driver) -> float:
+	if track.sector_bounds.size() < 2:
+		return d.lap_frac
+	var s_start: float = 0.0 if d.cur_sector == 0 else float(track.sector_bounds[d.cur_sector - 1])
+	var s_end: float = float(track.sector_bounds[d.cur_sector]) if d.cur_sector < 2 else 1.0
+	return clampf((d.lap_frac - s_start) / maxf(0.001, s_end - s_start), 0.0, 1.0)
+
 # Race start: a one-off launch off the grid. A good starter (attr "starts") gains
 # a place or two; a bog loses them — the opening-lap shuffle, applied on tick one.
 # Uses rng (main race RNG) to contribute to the deterministic race sequence.
@@ -753,6 +761,12 @@ func current_laptime(d: Driver, ahead_gap: float = -1.0) -> float:
 
 # True when a driver's armed Overtake boost is actually firing.
 func _ot_effective(d: Driver, ahead_gap: float) -> bool:
+	# DRS / Overtake only fires in designated sectors (track.sector_chars[si].drs == true).
+	# If sector data is absent (generated tracks without chars), allow everywhere.
+	if not track.sector_chars.is_empty():
+		var sc: Dictionary = track.sector_chars[d.cur_sector]
+		if not bool(sc.get("drs", false)):
+			return false
 	return d.overtake and not d.clipped and d.soc > OT_MIN_SOC \
 		and ahead_gap >= 0.0 and ahead_gap < OT_GAP_S
 
@@ -888,6 +902,15 @@ func _situational_energy(d: Driver, ahead_gap: float, behind_gap: float) -> void
 	else:
 		d.ers_mode = "balanced"
 		d.overtake = false
+	# Sector lookahead: approaching end of sector, next sector is DRS, SoC low → harvest now.
+	if not track.sector_chars.is_empty() and not d.clipped:
+		var next_si: int = (d.cur_sector + 1) % 3
+		var next_sc: Dictionary = track.sector_chars[next_si]
+		var sfrac: float = _sector_frac(d)
+		if bool(next_sc.get("drs", false)) and sfrac > 0.75 and d.soc_avg < 45.0 \
+				and d.ers_mode != "harvest":
+			d.ers_mode = "harvest"
+			d.overtake = false
 
 # The player's driver executes the engineer's directive — unless this lap it
 # defies the order (d.obey, rolled in _on_lap_complete) and drives to character.
