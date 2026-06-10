@@ -192,7 +192,12 @@ func _make_sim(coop: bool) -> void:
 		Season.active.apply_car_rd()
 	else:
 		F1_2026.apply_rd_upgrades(-1, 0.0, 0.0, 0.0, 0.0, 0.0)
-	var field := RaceSim.make_field(coop, pteam)
+	# M2: the season's persistent staff (the people the players manage) replaces
+	# per-race regeneration for the player team's strategist/pit-crew scalars.
+	var pstaff: Dictionary = {}
+	if season_race and Season.active != null:
+		pstaff = Season.active.staff_for_sim()
+	var field := RaceSim.make_field(coop, pteam, pstaff)
 	if season_race and Season.active != null:
 		for d in field:
 			if d.team:
