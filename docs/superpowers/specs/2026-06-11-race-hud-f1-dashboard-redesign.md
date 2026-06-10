@@ -350,6 +350,82 @@ Width: 172 px. `VBoxContainer`, background `#0c0c18`, left border `1 px #161622`
 
 ---
 
+## Godot Implementation Guidelines
+
+Best practices to follow during implementation (from Godot 4 docs + community research).
+
+### Typography — monospace font required
+
+Timing columns (gap, interval, best_lap, last_lap, sectors) contain numbers that change every tick.
+A **proportional font causes digit jitter** — column width shifts as `1` and `8` have different advance widths.
+
+**Font:** JetBrains Mono (Apache 2.0 — free to bundle).  
+Place at `assets/fonts/JetBrainsMono-Regular.ttf`.  
+Load once at HUD build time: `label.add_theme_font_override("font", mono_font)`.
+
+### Drawing architecture — one `_draw()` Control per row
+
+330 `ColorRect` nodes (22 rows × 15 sector blocks) is the naive approach; it floods the scene tree and
+triggers a layout pass over hundreds of nodes every tick.
+
+**Pattern:** give each leaderboard row its own `Control` and batch all graphical primitives in a single
+`_draw()` call per row:
+- the 3 px team colour stripe (`draw_rect`)
+- the 15 mini-sector blocks with group gaps (`draw_rect` × 15 — one pass)
+- the tyre ring (`TextureRect` for the PNG icon — Godot batches texture draws cheaply)
+
+This mirrors the existing `track_map.gd` pattern (`TrackMap._draw()`).  
+Call `queue_redraw()` on the row Control once per sim tick — **never inside `_draw()` itself** (infinite loop).
+
+### Asset loading — cache textures at build time
+
+```gdscript
+var _team_tex: Dictionary = {}   # team_name → Texture2D
+var _tyre_tex: Dictionary = {}   # compound  → Texture2D
+
+func _preload_assets() -> void:
+    for team in F1_2026.TEAMS:
+        var path := F1_2026.team_logo_path(team.name)
+        if ResourceLoader.exists(path):
+            _team_tex[team.name] = load(path)
+    for c in ["soft", "medium", "hard", "inter", "wet"]:
+        var path := "res://assets/tyres/%s.png" % c
+        if ResourceLoader.exists(path):
+            _tyre_tex[c] = load(path)
+```
+
+Godot generates `.import` sidecar files the first time the editor opens after new PNGs are added.
+**Commit the `.png` files; the editor regenerates `.import` on first open.**
+Do NOT commit hand-added `.import` files — they contain machine-local paths.
+
+### Theme — extend `theme.gd`, not inline StyleBoxFlat per widget
+
+Scatter `StyleBoxFlat` allocations in `main.gd` per-tick = hundreds of redundant object creations.
+Instead, add dark-panel, row-highlight, and pill-button styles to the existing project theme (`theme.gd`)
+and reference them via `add_theme_stylebox_override()` at **build time only** — one shared instance per style.
+
+### HUD refresh cadence
+
+`_process` runs at 60 fps; the sim ticks at 4 Hz. **Only call `_update_hud()` when a sim tick is consumed.**
+
+Guard every Label assignment to skip Godot's text layout pass when the value hasn't changed:
+```gdscript
+if lbl.text != new_val:
+    lbl.text = new_val
+```
+
+### Anti-patterns to avoid
+
+| Anti-pattern | Problem | Fix |
+|---|---|---|
+| `queue_redraw()` inside `_draw()` | Infinite redraw loop | Call from `_update_hud()` only |
+| `ScrollContainer` for 22 rows | Extra layout pass every frame | Fixed `VBoxContainer` + `clip_contents = true` on parent |
+| Rebuilding row nodes every tick | Destroys/re-creates hundreds of Controls | Build once in `_build_leaderboard()`, update values in `_update_hud()` |
+| `load()` inside `_update_hud()` | Disk read per tick → stutter | Pre-load into `_team_tex` / `_tyre_tex` at build time |
+| `add_theme_*_override()` per tick | Allocates objects; triggers layout invalidation | Set overrides once at build time |
+
+---
+
 ## Implementation order
 
 1. Download assets (bash script, no Godot changes)
