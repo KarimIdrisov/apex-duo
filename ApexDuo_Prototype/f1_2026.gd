@@ -154,6 +154,11 @@ const PARTS := {
 # Verified in meta_m3_car_check.py (20/20 PASS).
 const SUPPLIER_LEVEL_EQ: float = 1.5
 
+# CAR-2: part-condition composition constants (see compose_part_deltas below).
+const COND_SCALE_FLOOR: float = 0.6    # contribution scale at condition 0
+const WORN_THRESHOLD: float = 0.30     # below this the part is critical
+const WORN_REL_MALUS: float = 0.025    # rel bleed per critical part
+
 # Brake suppliers (seasonal choice, Motorsport-Manager style). d_ch_rel flows
 # into the car; pit_cons is added to the player cars' pit_consistency scalar.
 # cost = per-round supply price; partner_pay = tech-partner sponsor income
@@ -216,7 +221,12 @@ static func apply_rd_upgrades(
 # and the 5 car-scalar deltas passed to apply_rd_upgrades() / team_car().
 # Signature and output format are intentionally identical to car_rd_deltas() in season.gd
 # so the existing apply_car_rd() call chain needs no changes.
-static func compose_part_deltas(levels: Dictionary) -> Dictionary:
+# CAR-2: the optional `condition` dict (part_key -> 0..1) scales each part's
+# contribution (floor 60% at condition 0; full at 1.0) and a CRITICAL part
+# (condition < 0.30) bleeds reliability: −0.025 on its group's rel scalar
+# (constants defined with the supplier tables above). Verified in
+# car2_part_wear_check.py.
+static func compose_part_deltas(levels: Dictionary, condition: Dictionary = {}) -> Dictionary:
 	var out := {"d_aero": 0.0, "d_power": 0.0, "d_energy": 0.0, "d_ch_rel": 0.0, "d_eng_rel": 0.0}
 	for part_key: String in levels:
 		if not PARTS.has(part_key):
@@ -226,19 +236,29 @@ static func compose_part_deltas(levels: Dictionary) -> Dictionary:
 		var lvl: int = clampi(int(levels[part_key]), 0, max_lv)
 		if lvl <= 0:
 			continue
+		# CAR-2: worn parts deliver less (and critical ones hurt reliability)
+		var scale: float = 1.0
+		if condition.has(part_key):
+			var cond: float = clampf(float(condition[part_key]), 0.0, 1.0)
+			scale = COND_SCALE_FLOOR + (1.0 - COND_SCALE_FLOOR) * cond
+			if cond < WORN_THRESHOLD:
+				var grp: String = String(pdef["group"])
+				var rel_target: String = "d_eng_rel" \
+					if (grp == "power" or grp == "energy") else "d_ch_rel"
+				out[rel_target] = float(out[rel_target]) - WORN_REL_MALUS
 		# Primary scalar
 		var primary: String = String(pdef["scalar"])
-		out[primary] = float(out[primary]) + float(pdef["per_level"]) * float(lvl)
+		out[primary] = float(out[primary]) + float(pdef["per_level"]) * float(lvl) * scale
 		# Secondary "also" bonuses (e.g. gearbox -> tiny aero)
 		var also: Dictionary = pdef["also"]
 		for sk: String in also:
 			if out.has(sk):
-				out[sk] = float(out[sk]) + float(also[sk]) * float(lvl)
+				out[sk] = float(out[sk]) + float(also[sk]) * float(lvl) * scale
 		# Reliability side-bonus (e.g. front_wing -> d_ch_rel)
 		var also_rel: Dictionary = pdef["also_rel"]
 		for rk: String in also_rel:
 			if out.has(rk):
-				out[rk] = float(out[rk]) + float(also_rel[rk]) * float(lvl)
+				out[rk] = float(out[rk]) + float(also_rel[rk]) * float(lvl) * scale
 	return out
 
 # M3: Compose BOUGHT transferable parts -> the same 5-scalar delta dict.

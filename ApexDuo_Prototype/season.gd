@@ -244,6 +244,27 @@ const TEST_RD_MULT_K: float = 0.15         # rd mult = 1 + 0.15 × dev_feedback0
 const JUNIOR_LOAN_INCOME: int = 100_000
 const PROMOTE_ATTR_DIV: float = 250.0      # dev delta = (attr − 10) / 250
 
+# ============================================================
+# CAR-2: PART CONDITION / WEAR
+# ---------------------------------------------------------------
+# Every DEVELOPED part (level > 0, not supplier-bought) wears each round.
+# Wear is track-biased: aero parts suffer on high-downforce circuits, the
+# PU on power circuits. Condition scales the part's contribution (floor 60%)
+# via compose_part_deltas(); below 0.30 the part bleeds reliability (−0.025).
+# Replacement costs money and restores 1.0; beyond the FREE pool of 3 each
+# replacement costs −2 RP (the real-F1 component-pool penalty, scaled).
+# Supplier-bought parts never wear — the supplier maintains them (a real
+# perk of the M3 buy-vs-develop axis). Verified in car2_part_wear_check.py.
+const WEAR_SEED_MIX: int = 0x0EA12D0
+const WEAR_BASE: float = 0.10        # condition lost per round (developed part)
+const WEAR_TRACK_K: float = 0.06     # extra × track character (df aero / pw engine)
+const WEAR_REL_FLAT: float = 0.03    # reliability-group parts: flat extra
+const WEAR_JITTER: float = 0.02      # deterministic ± jitter per part per round
+const PART_REPLACE_COST := {"aero": 60_000, "power": 80_000, "energy": 70_000,
+	"reliability": 50_000}
+const FREE_REPLACEMENTS: int = 3
+const POOL_PENALTY_RP: int = 2
+
 const NAMES := ["Норрис", "Пиастри", "Ферстаппен", "Леклер", "Антонелли",
 	"Расселл", "Хэмилтон", "Сайнс", "Албон", "Алонсо"]   # default grid (Mercedes player)
 const TEAM_IDS := [4, 5]
@@ -416,6 +437,10 @@ var junior_market: Array = []
 var test_driver_slot: int = -1
 var custom_driver_names: Dictionary = {}
 
+# CAR-2: part condition (part_key -> 0..1, 1.0 = fresh) + season replacement pool
+var part_condition: Dictionary = {}
+var replacements_used: int = 0
+
 func _init() -> void:
 	for id in TEAM_IDS:
 		driver_dev[id] = 0.0
@@ -582,6 +607,14 @@ func _init_part_levels() -> void:
 	part_levels = {}
 	for k: String in F1_2026.PARTS:
 		part_levels[k] = 0
+	_init_part_condition()
+
+# CAR-2: every part starts the season factory-fresh.
+func _init_part_condition() -> void:
+	part_condition = {}
+	for k: String in F1_2026.PARTS:
+		part_condition[k] = 1.0
+	replacements_used = 0
 
 # CAR-1: Cost to upgrade a part by one level.
 # Base cost = 5 + current_level * 3 (matches old aero/energy cost curves).
@@ -2009,6 +2042,72 @@ func _juniors_from_array(raw: Array) -> Array:
 		})
 	return out
 
+# ---------------------------------------------------------------- CAR-2: wear
+
+# Wear every developed (level > 0), non-bought part by one round. Track-biased:
+# aero wears with downforce, the PU with power demand. Deterministic per
+# (cal_seed, round, part index). Called from apply_results BEFORE the round
+# increments (the just-raced track is calendar[round_index]).
+func _wear_parts() -> void:
+	if round_index >= calendar.size():
+		return
+	var trk: RaceSim.Track = calendar[round_index]
+	var pidx: int = -1
+	for part_key: String in F1_2026.PARTS:
+		pidx += 1
+		if int(part_levels.get(part_key, 0)) <= 0:
+			continue
+		if bool(bought_parts.get(part_key, false)):
+			continue   # the supplier maintains bought parts — no wear
+		var grp: String = String(F1_2026.PARTS[part_key]["group"])
+		var decay: float = WEAR_BASE
+		if grp == "aero":
+			decay += WEAR_TRACK_K * trk.downforce
+		elif grp == "power" or grp == "energy":
+			decay += WEAR_TRACK_K * trk.power
+		else:
+			decay += WEAR_REL_FLAT
+		var seed_v: int = (int(cal_seed) ^ WEAR_SEED_MIX
+			^ ((round_index * 2654435761) & 0xFFFFFFFF)
+			^ ((pidx * 97003) & 0xFFFFFFFF)) & 0xFFFFFFFF
+		var res: Array = _lcg_step(seed_v)
+		decay += (float(res[1]) - 0.5) * 2.0 * WEAR_JITTER
+		var cond: float = maxf(0.0, float(part_condition.get(part_key, 1.0)) - decay)
+		part_condition[part_key] = cond
+		if cond < F1_2026.WORN_THRESHOLD:
+			_staff_log_add("Деталь «%s» критически изношена (%d%%) — теряем надёжность" % [
+				String(F1_2026.PARTS[part_key]["label"]), int(round(cond * 100.0))])
+
+# Money price to replace a worn part (by group).
+func part_replace_cost(part_key: String) -> int:
+	var grp: String = String(F1_2026.PARTS.get(part_key, {}).get("group", "reliability"))
+	return int(PART_REPLACE_COST.get(grp, 50_000))
+
+# Replace a worn developed part: money cost, condition back to 1.0. Beyond
+# the free pool of FREE_REPLACEMENTS each replacement costs POOL_PENALTY_RP
+# (the component-pool penalty). Returns true on success.
+func replace_part(part_key: String) -> bool:
+	if not F1_2026.PARTS.has(part_key):
+		return false
+	if int(part_levels.get(part_key, 0)) <= 0:
+		return false   # nothing developed to replace
+	if bool(bought_parts.get(part_key, false)):
+		return false   # supplier part — always fresh
+	if float(part_condition.get(part_key, 1.0)) >= 0.999:
+		return false   # already fresh
+	var cost: int = part_replace_cost(part_key)
+	if money < cost:
+		return false
+	money -= cost
+	part_condition[part_key] = 1.0
+	replacements_used += 1
+	if replacements_used > FREE_REPLACEMENTS:
+		rp = maxi(0, rp - POOL_PENALTY_RP)
+		_staff_log_add("Замена «%s»: превышен пул компонентов — штраф %d RP" % [
+			String(F1_2026.PARTS[part_key]["label"]), POOL_PENALTY_RP])
+	apply_car_rd()
+	return true
+
 # Return a human-readable cap status string (for UI). Russian.
 func cap_status_text() -> String:
 	var over: int = maxi(0, cumulative_salary_spend - SALARY_CAP)
@@ -2140,7 +2239,8 @@ func buy_energy() -> bool:
 # all sum into the same 5 scalars (one channel into team_car()).
 func car_rd_deltas() -> Dictionary:
 	if not part_levels.is_empty():
-		var out: Dictionary = F1_2026.compose_part_deltas(part_levels)
+		# CAR-2: condition scales developed-part contributions (worn = weaker)
+		var out: Dictionary = F1_2026.compose_part_deltas(part_levels, part_condition)
 		var bought: Dictionary = F1_2026.compose_supplier_deltas(bought_parts)
 		var sup: Dictionary = supplier_deltas()
 		for k: String in out:
@@ -2228,6 +2328,8 @@ func apply_results(order_ids: Array, dnf_ids: Array = [], fl_id: int = -1,
 		"rp": rp,
 	}
 	_update_drivers(order_ids)
+	# CAR-2: the just-raced round wears the developed parts (track-biased).
+	_wear_parts()
 	# M5: the academy races its own round; a test-drive pays its feedback.
 	_simulate_academy_round()
 	if test_driver_slot >= 0:
@@ -2403,6 +2505,9 @@ func to_dict() -> Dictionary:
 		"junior_market":       _juniors_to_array(junior_market),
 		"test_driver_slot":    test_driver_slot,
 		"custom_driver_names": custom_driver_names.duplicate(true),
+		# CAR-2: part wear
+		"part_condition":      part_condition.duplicate(true),
+		"replacements_used":   replacements_used,
 	}
 
 func save_to_disk() -> void:
@@ -2696,6 +2801,15 @@ static func _apply_dict(s: Season, data: Dictionary) -> void:
 		s.junior_market = []
 		s.ensure_junior_market()
 	s.test_driver_slot = int(float(data.get("test_driver_slot", -1)))
+	# CAR-2: part condition (pre-CAR-2 saves: everything factory-fresh)
+	s._init_part_condition()
+	var pc_raw: Variant = data.get("part_condition", null)
+	if typeof(pc_raw) == TYPE_DICTIONARY:
+		for pck in (pc_raw as Dictionary):
+			if F1_2026.PARTS.has(String(pck)):
+				s.part_condition[String(pck)] = clampf(
+					float((pc_raw as Dictionary)[pck]), 0.0, 1.0)
+	s.replacements_used = int(float(data.get("replacements_used", 0)))
 	# Promoted juniors keep their seats: re-apply custom names over the
 	# grid_names that configure() rebuilt from the F1_2026 roster.
 	s.custom_driver_names = {}

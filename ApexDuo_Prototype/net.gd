@@ -250,6 +250,23 @@ func net_season_buy_supplier_part(part_key: String) -> void:
 		net_season_feed.rpc("Партнёр: куплена деталь «%s» у поставщика" % part_name)
 		get_tree().call_group("season_hub", "_on_season_updated")
 
+# client → host: replace a worn developed part (CAR-2).
+@rpc("any_peer", "call_remote", "reliable")
+func net_season_replace_part(part_key: String) -> void:
+	if not multiplayer.is_server():
+		return
+	if Season.active == null:
+		return
+	if Season.active.replace_part(part_key):
+		Season.active.save_to_disk()
+		net_season_full.rpc(Season.active.to_dict())
+		var pdef: Variant = F1_2026.PARTS.get(part_key, null)
+		var part_name: String = part_key
+		if pdef != null:
+			part_name = String((pdef as Dictionary).get("label", part_key))
+		net_season_feed.rpc("Партнёр: заменена деталь «%s»" % part_name)
+		get_tree().call_group("season_hub", "_on_season_updated")
+
 # client → host: sign a scouting-market junior (M5).
 @rpc("any_peer", "call_remote", "reliable")
 func net_season_sign_junior(junior_id: int) -> void:
