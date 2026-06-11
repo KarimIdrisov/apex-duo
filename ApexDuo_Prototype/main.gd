@@ -32,16 +32,29 @@ var speed := 1.0
 var paused := false
 var seed_value := 12345
 
-# practice phase (car setup) — runs before qualifying
-const PRACTICE_RUNS_MAX := 6          # trial laps per car
+# practice phase (car setup) — 3 sessions (FP1/FP2/FP3) before qualifying
+const PRACTICE_SESSIONS := 3          # FP1 / FP2 / FP3
+const PRACTICE_SLOTS := 6             # run-slots per session per car
+const PRACTICE_SETS := 2              # tyre sets per session per car
+const PRACTICE_SESSION_NAMES := ["FP1", "FP2", "FP3"]
+# run types: [slots, sets, run_type] — run_type "" = install (coarse, all axes)
+const PRACTICE_RUN_TYPES := {
+	"install": {"slots": 1, "sets": 0, "rt": "", "ru": "Инсталляция"},
+	"short": {"slots": 1, "sets": 1, "rt": "short", "ru": "Короткая (квали)"},
+	"long": {"slots": 3, "sets": 1, "rt": "long", "ru": "Длинная (гонка)"},
+}
 var practice_phase := false           # true while the setup screen is open
+var _practice_session := 0            # 0=FP1 1=FP2 2=FP3
 var _practice_overlay: Control = null
-var _practice_setup: Dictionary = {}  # car_id -> [aero, susp, gear] (0..1)
-var _practice_runs: Dictionary = {}   # car_id -> trial laps used
+var _practice_setup: Dictionary = {}  # car_id -> [6 axes] (0..1), persists across sessions
+var _practice_runs: Dictionary = {}   # car_id -> trial laps used (this session)
 var _practice_best: Dictionary = {}   # car_id -> best practice time (0 = none)
+var _practice_slots: Dictionary = {}  # car_id -> run-slots left this session
+var _practice_sets: Dictionary = {}   # car_id -> tyre sets left this session
 var _practice_logs: Dictionary = {}   # car_id -> RichTextLabel (run log)
-var _practice_run_btns: Dictionary = {}  # car_id -> Button («Пробный круг»)
+var _practice_run_btns: Dictionary = {}  # car_id -> {type: Button}
 var _practice_best_lbls: Dictionary = {}  # car_id -> Label (best time)
+var _practice_budget_lbls: Dictionary = {}  # car_id -> Label (slots/sets left)
 
 # interactive qualifying phase
 var quali_sim: QualiSim               # active qualifying session (null when not running)
@@ -1705,18 +1718,31 @@ func _practice_car_ids() -> Array:
 
 
 func _start_practice_phase() -> void:
+	# Weekend entry: start FP1. The setup vector persists across the 3 sessions
+	# (you keep refining it); only per-session budget resets each session.
 	practice_phase = true
 	pre_race_open = true              # blocks race-sim ticking (same as quali)
+	_practice_session = 0
 	_practice_setup = {}
+	for cid in _practice_car_ids():
+		_practice_setup[cid] = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+	_begin_practice_session()
+
+
+func _begin_practice_session() -> void:
 	_practice_runs = {}
 	_practice_best = {}
+	_practice_slots = {}
+	_practice_sets = {}
 	_practice_logs = {}
 	_practice_run_btns = {}
 	_practice_best_lbls = {}
+	_practice_budget_lbls = {}
 	for cid in _practice_car_ids():
-		_practice_setup[cid] = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
 		_practice_runs[cid] = 0
 		_practice_best[cid] = 0.0
+		_practice_slots[cid] = PRACTICE_SLOTS
+		_practice_sets[cid] = PRACTICE_SETS
 	_build_practice_overlay()
 
 
@@ -1748,17 +1774,24 @@ func _build_practice_overlay() -> void:
 	pc.add_child(inner)
 
 	var tname: String = sim.track.name if sim != null else "Трасса"
+	var sname: String = PRACTICE_SESSION_NAMES[clampi(_practice_session, 0, 2)]
 	var title := Label.new()
-	title.text = "ПРАКТИКА — НАСТРОЙКА БОЛИДА · %s" % tname
+	title.text = "ПРАКТИКА %s — НАСТРОЙКА БОЛИДА · %s" % [sname, tname]
 	title.add_theme_font_size_override("font_size", 20)
 	title.add_theme_color_override("font_color", ACCENT)
 	title.add_theme_font_override("font", Palette.display_font(600, 2))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	inner.add_child(title)
 
+	# track temp from the weekend conditions — drives the setup/тyre puzzle
+	var rtemp: float = float(sim.conditions.get("race_temp", 30.0)) if sim != null else 30.0
+	var temp_word := "прохладно" if rtemp < 28.0 else ("жарко" if rtemp > 35.0 else "умеренно")
+	var focus := ["грубый поиск — убей крупные ошибки",
+		"направления + длинная серия (данные на гонку)",
+		"финальная доводка перед закрытым парком"][clampi(_practice_session, 0, 2)]
 	var hint := Label.new()
-	hint.text = "Двигай настройки, делай пробные круги и слушай пилота. " \
-		+ "Без практики машину настроят инженеры (как у всех команд)."
+	hint.text = "Трасса ~%d°C (%s). %s. Слоты и комплекты шин ограничены — " % [int(rtemp), temp_word, focus] \
+		+ "что важнее: одиночный темп (квали) или стинт (гонка)? Без практики — база инженеров."
 	hint.add_theme_font_size_override("font_size", 13)
 	hint.add_theme_color_override("font_color", Color("#9aa4b2"))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1772,9 +1805,13 @@ func _build_practice_overlay() -> void:
 		cars_row.add_child(_build_practice_card(int(cid)))
 
 	var done := Button.new()
-	done.text = "Завершить практику → Квалификация"
+	if _practice_session < PRACTICE_SESSIONS - 1:
+		done.text = "Завершить %s → %s" % [PRACTICE_SESSION_NAMES[_practice_session],
+			PRACTICE_SESSION_NAMES[_practice_session + 1]]
+	else:
+		done.text = "Завершить практику → Квалификация (закрытый парк)"
 	done.add_theme_font_size_override("font_size", 17)
-	done.custom_minimum_size = Vector2(380, 46)
+	done.custom_minimum_size = Vector2(420, 46)
 	done.pressed.connect(_finish_practice_phase)
 	var done_wrap := CenterContainer.new()
 	done_wrap.add_child(done)
@@ -1817,10 +1854,10 @@ func _build_practice_card(cid: int) -> Control:
 		slider.min_value = 0
 		slider.max_value = 100
 		slider.step = 2
-		slider.value = 50
+		slider.value = float(_practice_setup[cid][ax]) * 100.0   # persists across sessions
 		slider.custom_minimum_size = Vector2(200, 22)
 		var val_lbl := Label.new()
-		val_lbl.text = "50"
+		val_lbl.text = str(int(slider.value))
 		val_lbl.add_theme_font_size_override("font_size", 13)
 		val_lbl.add_theme_color_override("font_color", Color("#9aa4b2"))
 		val_lbl.custom_minimum_size = Vector2(30, 0)
@@ -1833,23 +1870,41 @@ func _build_practice_card(cid: int) -> Control:
 		row.add_child(val_lbl)
 		v.add_child(row)
 
+	# budget line (slots + tyre sets remaining this session)
+	var budget_lbl := Label.new()
+	budget_lbl.add_theme_font_size_override("font_size", 13)
+	budget_lbl.add_theme_color_override("font_color", Color("#9aa4b2"))
+	_practice_budget_lbls[cid] = budget_lbl
+	v.add_child(budget_lbl)
+
+	# run-type buttons (each costs slots + maybe a tyre set)
 	var btn_row := HBoxContainer.new()
-	btn_row.add_theme_constant_override("separation", 10)
-	var run_btn := Button.new()
-	run_btn.text = "Пробный круг (%d)" % PRACTICE_RUNS_MAX
-	run_btn.add_theme_font_size_override("font_size", 14)
-	run_btn.custom_minimum_size = Vector2(190, 36)
+	btn_row.add_theme_constant_override("separation", 8)
 	var cid_b := cid
-	run_btn.pressed.connect(func() -> void: _on_practice_run(cid_b))
-	_practice_run_btns[cid] = run_btn
-	btn_row.add_child(run_btn)
+	var type_btns: Dictionary = {}
+	for rk in ["install", "short", "long"]:
+		var spec: Dictionary = PRACTICE_RUN_TYPES[rk]
+		var b := Button.new()
+		var cost := "%dсл" % int(spec["slots"])
+		if int(spec["sets"]) > 0:
+			cost += "/%dк" % int(spec["sets"])
+		b.text = "%s (%s)" % [String(spec["ru"]), cost]
+		b.add_theme_font_size_override("font_size", 13)
+		b.custom_minimum_size = Vector2(150, 34)
+		var rk_c := rk
+		b.pressed.connect(func() -> void: _on_practice_run(cid_b, rk_c))
+		type_btns[rk] = b
+		btn_row.add_child(b)
+	_practice_run_btns[cid] = type_btns
+	v.add_child(btn_row)
+
 	var best_lbl := Label.new()
 	best_lbl.text = "Лучший: —"
 	best_lbl.add_theme_font_size_override("font_size", 14)
 	best_lbl.add_theme_color_override("font_color", Palette.GOLD)
 	_practice_best_lbls[cid] = best_lbl
-	btn_row.add_child(best_lbl)
-	v.add_child(btn_row)
+	v.add_child(best_lbl)
+	_refresh_practice_budget(cid)
 
 	var log := RichTextLabel.new()
 	log.bbcode_enabled = true
@@ -1889,17 +1944,38 @@ func _practice_fb_phrase(axis: int, code: int) -> String:
 	return ("СИЛЬНО: " + txt) if strong else txt
 
 
-func _on_practice_run(cid: int) -> void:
-	if sim == null or int(_practice_runs.get(cid, 0)) >= PRACTICE_RUNS_MAX:
+# Update the budget label + grey out run-types the car can't afford this session.
+func _refresh_practice_budget(cid: int) -> void:
+	var sl: int = int(_practice_slots.get(cid, 0))
+	var se: int = int(_practice_sets.get(cid, 0))
+	if _practice_budget_lbls.has(cid):
+		_practice_budget_lbls[cid].text = "Слоты: %d · Комплекты шин: %d" % [sl, se]
+	if _practice_run_btns.has(cid):
+		var btns: Dictionary = _practice_run_btns[cid]
+		for rk in btns:
+			var spec: Dictionary = PRACTICE_RUN_TYPES[rk]
+			var afford: bool = sl >= int(spec["slots"]) and se >= int(spec["sets"])
+			(btns[rk] as Button).disabled = not afford
+
+
+func _on_practice_run(cid: int, rk: String) -> void:
+	if sim == null or not PRACTICE_RUN_TYPES.has(rk):
+		return
+	var spec: Dictionary = PRACTICE_RUN_TYPES[rk]
+	if int(_practice_slots.get(cid, 0)) < int(spec["slots"]) \
+			or int(_practice_sets.get(cid, 0)) < int(spec["sets"]):
 		return
 	var d: RaceSim.Driver = sim.get_driver_by_id(cid)
 	if d == null:
 		return
+	_practice_slots[cid] = int(_practice_slots[cid]) - int(spec["slots"])
+	_practice_sets[cid] = int(_practice_sets[cid]) - int(spec["sets"])
 	_practice_runs[cid] = int(_practice_runs[cid]) + 1
 	var run_n: int = int(_practice_runs[cid])
 	var setup: Array = _practice_setup[cid]
-	var r: Dictionary = RaceSim.practice_run(sim.track, d, setup, run_n, "", sim.cond_setup_off)
+	var r: Dictionary = RaceSim.practice_run(sim.track, d, setup, run_n, String(spec["rt"]), sim.cond_setup_off)
 	var t: float = float(r["time"])
+	var band: float = float(r.get("band", 0.1))
 	var best: float = float(_practice_best[cid])
 	var delta_txt := ""
 	if best > 0.0:
@@ -1920,28 +1996,25 @@ func _on_practice_run(cid: int) -> void:
 	var quote: String
 	if phrases.is_empty():
 		quote = "по ощущениям точнее не скажу" if unread > 0 \
-			else "машина отличная — оставляем!"
+			else "баланс в окне — машина мне нравится!"
 	else:
 		quote = "; ".join(phrases)
+	var rname := String(spec["ru"])
 	var log: RichTextLabel = _practice_logs[cid]
-	log.append_text("[color=#9aa4b2]%d/%d[/color]  [color=#e8eef6]%s[/color]%s  [color=#f2c14e]«%s»[/color]\n" \
-		% [run_n, PRACTICE_RUNS_MAX, _fmt_laptime(t), delta_txt, quote])
-	var left: int = PRACTICE_RUNS_MAX - run_n
-	var btn: Button = _practice_run_btns[cid]
-	btn.text = "Пробный круг (%d)" % left
-	if left <= 0:
-		btn.disabled = true
+	log.append_text("[color=#9aa4b2]%s · точность ±%d[/color]  [color=#e8eef6]%s[/color]%s  [color=#f2c14e]«%s»[/color]\n" \
+		% [rname, int(band * 100.0), _fmt_laptime(t), delta_txt, quote])
+	_refresh_practice_budget(cid)
 
 
 func _finish_practice_phase() -> void:
 	if not practice_phase:
 		return
-	practice_phase = false
+	# Commit the current setup to the sim each session (so practice→race pace
+	# reflects it). Only if the engineer actually worked on this car (moved a
+	# slider or drove a lap): untouched cars keep the engineer-built baseline —
+	# finishing instantly is never a punishment.
 	if sim != null:
 		for cid in _practice_setup:
-			# Commit only if the engineer actually worked on this car (moved a
-			# slider or drove a lap): untouched cars keep the engineer-built
-			# baseline — finishing instantly is never a punishment.
 			var s: Array = _practice_setup[cid]
 			var touched: bool = int(_practice_runs.get(cid, 0)) > 0
 			for ax in s.size():
@@ -1952,7 +2025,13 @@ func _finish_practice_phase() -> void:
 	if _practice_overlay != null:
 		_practice_overlay.queue_free()
 		_practice_overlay = null
-	_start_quali_phase()
+	# Advance FP1→FP2→FP3, then hand off to qualifying.
+	if _practice_session < PRACTICE_SESSIONS - 1:
+		_practice_session += 1
+		_begin_practice_session()
+	else:
+		practice_phase = false
+		_start_quali_phase()
 
 
 # ============================================================================
