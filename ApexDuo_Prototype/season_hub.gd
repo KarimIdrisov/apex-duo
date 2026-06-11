@@ -94,63 +94,251 @@ func _update_feed_label() -> void:
 	_feed_label.text = "\n".join(_feed_lines)
 
 # ---------------------------------------------------------------- rebuild
-# Full rebuild: clears children, builds header + tab bar + active page.
+# Full rebuild: clears children, builds sidebar + tab content area.
 func _rebuild() -> void:
 	for c in get_children():
 		c.queue_free()
 	_feed_label = null   # reset reference — will be reassigned below
 
-	var s := Season.active
-
 	var bg := ColorRect.new()
-	bg.color = BG
+	bg.color = DesignSystem.BG_PRIMARY
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
 
-	# Root margin + outer column
-	var margin := MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 26)
-	var outer := VBoxContainer.new()
-	outer.add_theme_constant_override("separation", 8)
-	margin.add_child(outer)
-	add_child(margin)
+	var root := HBoxContainer.new()
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.add_theme_constant_override("separation", 0)
+	add_child(root)
 
-	# ---- PERSISTENT HEADER ----
-	var header := _build_header(s)
-	outer.add_child(header)
+	# ── Sidebar ─────────────────────────────────────────────────────────────
+	var sidebar := _build_sidebar()
+	root.add_child(sidebar)
 
-	# ---- ONLINE STATUS / FEED (when networked) ----
-	var net_role: String = Net.role()
-	if net_role != "":
-		var net_status_col: String = Palette.INFO_HEX if net_role == "host" else Palette.GOLD_HEX
-		var partner_status: String
-		if net_role == "host":
-			partner_status = "партнёр в игре" if Net.partner_connected else "ожидание партнёра…"
-			outer.add_child(_label("ОНЛАЙН-СЕЗОН · хост · %s" % partner_status, 13, net_status_col))
-		else:
-			outer.add_child(_label("ОНЛАЙН-СЕЗОН · клиент (зеркало)", 13, net_status_col))
-		_feed_label = _label("", 12, Palette.MUTED_HEX)
-		_feed_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		outer.add_child(_feed_label)
-		_update_feed_label()
+	# ── Main content ────────────────────────────────────────────────────────
+	var content := _build_tab_content(_active_tab)
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.size_flags_vertical   = Control.SIZE_EXPAND_FILL
+	root.add_child(content)
 
-	# ---- TAB BAR ----
-	var tab_bar := _build_tab_bar()
-	outer.add_child(tab_bar)
 
-	# ---- PAGE AREA ----
+func _build_sidebar() -> PanelContainer:
+	var s := Season.active
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(148.0, 0.0)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = DesignSystem.BG_CARD
+	sb.border_color = DesignSystem.BORDER
+	sb.border_width_right = 1
+	sb.content_margin_top    = 0.0
+	sb.content_margin_bottom = 0.0
+	sb.content_margin_left   = 0.0
+	sb.content_margin_right  = 0.0
+	panel.add_theme_stylebox_override("panel", sb)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	panel.add_child(col)
+
+	# Team identity block
+	var id_row := HBoxContainer.new()
+	id_row.add_theme_constant_override("separation", DesignSystem.SP_SM)
+	id_row.custom_minimum_size = Vector2(0.0, 52.0)
+	var margin_id := MarginContainer.new()
+	for side: String in ["left", "right", "top", "bottom"]:
+		margin_id.add_theme_constant_override("margin_" + side, DesignSystem.SP_MD)
+	margin_id.add_child(id_row)
+	col.add_child(margin_id)
+
+	var team_data: Dictionary = F1_2026.TEAMS[s.player_team]
+	var team_color: Color = Color(String(team_data.get("color", "#888888")))
+	var stripe := DesignSystem.make_team_stripe(team_color)
+	id_row.add_child(stripe)
+
+	var id_col := VBoxContainer.new()
+	id_col.add_theme_constant_override("separation", 2)
+	id_row.add_child(id_col)
+	var name_lbl := Label.new()
+	name_lbl.text = s.team_name
+	name_lbl.add_theme_color_override("font_color", team_color)
+	name_lbl.add_theme_font_size_override("font_size", 11)
+	id_col.add_child(name_lbl)
+	var standing_lbl := Label.new()
+	var cpts: int = s.constructor_points()
+	standing_lbl.text = "P%d · %d очков" % [_team_position(s), cpts]
+	standing_lbl.add_theme_color_override("font_color", DesignSystem.TEXT_3)
+	standing_lbl.add_theme_font_size_override("font_size", 9)
+	id_col.add_child(standing_lbl)
+
+	# Divider
+	var div := HSeparator.new()
+	div.add_theme_color_override("color", DesignSystem.BORDER)
+	col.add_child(div)
+
+	# Nav tabs
+	for i: int in range(TAB_NAMES.size()):
+		var nav_item := _make_nav_item(i, String(TAB_NAMES[i]))
+		col.add_child(nav_item)
+
+	return panel
+
+
+func _make_nav_item(idx: int, label: String) -> PanelContainer:
+	var active: bool = idx == _active_tab
+	var panel := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = DesignSystem.BG_RAISED if active else Color(0.0, 0.0, 0.0, 0.0)
+	sb.border_color = DesignSystem.GOLD if active else Color(0.0, 0.0, 0.0, 0.0)
+	sb.border_width_right = 2 if active else 0
+	sb.content_margin_left   = float(DesignSystem.SP_LG)
+	sb.content_margin_right  = float(DesignSystem.SP_SM)
+	sb.content_margin_top    = float(DesignSystem.SP_SM)
+	sb.content_margin_bottom = float(DesignSystem.SP_SM)
+	panel.add_theme_stylebox_override("panel", sb)
+
+	var lbl := Label.new()
+	lbl.text = label
+	lbl.add_theme_color_override("font_color", DesignSystem.GOLD if active else DesignSystem.TEXT_3)
+	lbl.add_theme_font_size_override("font_size", 10)
+	panel.add_child(lbl)
+
+	var i_cap := idx
+	panel.gui_input.connect(func(event: InputEvent):
+		if event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
+			_active_tab = i_cap
+			_rebuild()
+	)
+	return panel
+
+
+func _team_position(s: Season) -> int:
+	var team_pts: int = s.constructor_points()
+	var pos: int = 1
+	# Count how many rival teams have more constructor points than we do.
+	# s.standings maps driver_id -> points; rival ids are NOT in TEAM_IDS.
+	var rival_pts_by_team: Dictionary = {}
+	for id in s.standings:
+		if id in Season.TEAM_IDS:
+			continue
+		# Pair ids: 0/1 -> team0, 2/3 -> team1, etc. (grid order pairs).
+		var tid: int = int(id) / 2
+		var prev: int = rival_pts_by_team.get(tid, 0)
+		rival_pts_by_team[tid] = prev + int(s.standings[id])
+	for tid in rival_pts_by_team:
+		if int(rival_pts_by_team[tid]) > team_pts:
+			pos += 1
+	return pos
+
+
+func _build_tab_content(tab: int) -> Control:
+	var s: Season = Season.active
 	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var page_vbox := VBoxContainer.new()
-	page_vbox.add_theme_constant_override("separation", 10)
-	page_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(page_vbox)
-	outer.add_child(scroll)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 
-	_populate_page(page_vbox, s)
+	var margin := MarginContainer.new()
+	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	for side: String in ["left", "right", "top", "bottom"]:
+		margin.add_theme_constant_override("margin_" + side, DesignSystem.SP_LG)
+	scroll.add_child(margin)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", DesignSystem.SP_LG)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	margin.add_child(col)
+
+	match tab:
+		TAB_OVERVIEW: _build_tab_overview(col, s)
+		TAB_CAR:      _build_tab_car(col, s)
+		TAB_SPONSORS: _build_tab_sponsors_ds(col, s)
+		TAB_STAFF:    _build_tab_staff_ds(col, s)
+		TAB_PILOTS:   _build_tab_pilots_ds(col, s)
+	return scroll
+
+
+func _build_tab_overview(col: VBoxContainer, s: Season) -> void:
+	col.add_child(DesignSystem.make_section_header("СЛЕДУЮЩАЯ ГОНКА"))
+
+	var track_name: String = "—"
+	if s.round_index < s.calendar.size():
+		var cal_entry: Dictionary = s.calendar[s.round_index]
+		track_name = String(cal_entry.get("name", "—"))
+
+	var stats_row := HBoxContainer.new()
+	stats_row.add_theme_constant_override("separation", DesignSystem.SP_SM)
+	var cpts: int = s.constructor_points()
+	stats_row.add_child(DesignSystem.make_stat_label("ТРАССА", track_name, DesignSystem.TEXT_1))
+	stats_row.add_child(DesignSystem.make_stat_label("ОЧКИ", str(cpts), DesignSystem.GOLD))
+	var budget_str: String = "$%dM" % int(s.money / 1_000_000.0)
+	stats_row.add_child(DesignSystem.make_stat_label("БЮДЖЕТ", budget_str, DesignSystem.GREEN))
+	for child in stats_row.get_children():
+		(child as Control).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(stats_row)
+
+	col.add_child(DesignSystem.make_section_header("ГОНКА"))
+	var btn_race: Button = DesignSystem.make_button("▶ К ГОНКЕ", "primary")
+	btn_race.custom_minimum_size = Vector2(0.0, 44.0)
+	btn_race.pressed.connect(_on_start_race)
+	col.add_child(btn_race)
+
+	# Also embed the full legacy overview content below
+	_build_page_overview(col, s)
+
+
+func _build_tab_car(col: VBoxContainer, s: Season) -> void:
+	col.add_child(DesignSystem.make_section_header("РАЗВИТИЕ БОЛИДА"))
+
+	var branch_names: Array = ["АЭРОДИНАМИКА", "МОТОР", "ЭНЕРГИЯ", "НАДЁЖНОСТЬ"]
+	var branch_keys: Array  = ["aero", "power", "energy", "reliability"]
+
+	for bi: int in range(branch_names.size()):
+		var key: String = String(branch_keys[bi])
+		# Sum part_levels for all parts belonging to this group
+		var group_level: int = 0
+		var group_max: int = 0
+		for pk: String in F1_2026.PARTS:
+			var pdef: Dictionary = F1_2026.PARTS[pk]
+			if String(pdef.get("group", "")) == key:
+				group_level += int(s.part_levels.get(pk, 0))
+				group_max   += int(pdef.get("max_level", 1))
+		var progress: float = float(group_level) / float(maxi(group_max, 1))
+
+		var inner_col := VBoxContainer.new()
+		inner_col.add_theme_constant_override("separation", DesignSystem.SP_SM)
+		var pb_dict: Dictionary = DesignSystem.make_progress_bar(
+			"Ур. %d / %d" % [group_level, group_max], progress, 1.0, DesignSystem.GOLD)
+		inner_col.add_child(pb_dict["node"])
+
+		var card_title: String = String(branch_names[bi]) + " (%d/%d)" % [group_level, group_max]
+		col.add_child(DesignSystem.make_card(card_title, inner_col))
+
+	# Also embed the full legacy car content below
+	_build_page_car(col, s)
+
+
+func _build_tab_sponsors_ds(col: VBoxContainer, s: Season) -> void:
+	col.add_child(DesignSystem.make_section_header("СПОНСОРЫ"))
+	col.add_child(_build_sponsors(s))
+
+
+func _build_tab_staff_ds(col: VBoxContainer, s: Season) -> void:
+	col.add_child(DesignSystem.make_section_header("ПЕРСОНАЛ"))
+	_build_page_staff(col, s)
+
+
+func _build_tab_pilots_ds(col: VBoxContainer, s: Season) -> void:
+	col.add_child(DesignSystem.make_section_header("ПИЛОТЫ"))
+	_build_page_pilots(col, s)
+
+
+func _on_start_race() -> void:
+	var s := Season.active
+	if s == null:
+		return
+	s.race_pending = true
+	get_tree().change_scene_to_file("res://main.tscn")
+
+
+func _on_rd_invest(_key: String) -> void:
+	pass
 
 # ---- Persistent header ----
 # Contains: team name + round info, money/RP/cost-cap chips, action buttons.
