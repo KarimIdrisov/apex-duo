@@ -37,3 +37,46 @@ static func _sb(bg: Color, border: Color, radius: int = 4) -> StyleBoxFlat:
 	sb.set_border_width_all(1)
 	sb.set_corner_radius_all(radius)
 	return sb
+
+# ── make_team_stripe ─────────────────────────────────────────────────────────
+static func make_team_stripe(color: Color) -> ColorRect:
+	var cr := ColorRect.new()
+	cr.color = color
+	cr.custom_minimum_size = Vector2(3.0, 0.0)
+	cr.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	return cr
+
+# ── make_section_header ──────────────────────────────────────────────────────
+static func make_section_header(title: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", SP_SM)
+	var lbl := Label.new()
+	lbl.text = title
+	lbl.add_theme_color_override("font_color", TEXT_3)
+	lbl.add_theme_font_size_override("font_size", 10)
+	row.add_child(lbl)
+	var sep := HSeparator.new()
+	sep.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sep.add_theme_color_override("color", BORDER)
+	row.add_child(sep)
+	return row
+
+# ── make_badge ───────────────────────────────────────────────────────────────
+static func make_badge(text: String, color: Color) -> PanelContainer:
+	var panel := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(color.r, color.g, color.b, 0.12)
+	sb.border_color = Color(color.r, color.g, color.b, 0.50)
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(10)
+	sb.content_margin_left  = 10.0
+	sb.content_margin_right = 10.0
+	sb.content_margin_top   = 3.0
+	sb.content_margin_bottom = 3.0
+	panel.add_theme_stylebox_override("panel", sb)
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.add_theme_color_override("font_color", color)
+	lbl.add_theme_font_size_override("font_size", 10)
+	panel.add_child(lbl)
+	return panel
