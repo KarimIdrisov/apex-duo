@@ -312,6 +312,10 @@ func _make_sim(coop: bool) -> void:
 				# M4: overtrained crew is slower over the wall next race (≈ +0.2 s).
 				d.pit_speed = clampf(
 					d.pit_speed - Season.active.pit_fatigue_penalty(), 0.0, 1.0)
+				# HQ pit_workshop: each level shaves 0.10– 0.30 s from crew time.
+				# Convert seconds to pit_speed units via STOP_TIME_SPEED_K (1.33 s per unit).
+				var _pit_hq_bonus: float = Season.active.hq_pit_reduction() / RaceSim.STOP_TIME_SPEED_K
+				d.pit_speed = clampf(d.pit_speed + _pit_hq_bonus, 0.0, 1.0)
 				# M5: a promoted junior keeps his name in the race HUD.
 				d.name = Season.active.driver_name(d.id)
 				# M5: the test driver stands in for this slot — −0.030 skill,

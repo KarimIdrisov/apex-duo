@@ -231,9 +231,9 @@ const WEATHER_STORM    := "storm"
 # Rows: 0=slick (soft/med/hard), 1=inter, 2=wet
 # Cols indexed by [dry, variable, rain, storm]
 const WEATHER_COMPOUND_PENALTY: Array = [
-	[0.0, 1.0, 2.0, 4.0],   # slick
-	[3.0, 0.0, 0.5, 2.0],   # inter
-	[6.0, 2.0, 0.0, 0.0],   # wet
+	[0.0, 0.0, 0.0, 0.0],   # slick — _m_weather already handles this
+	[3.0, 0.0, 0.5, 2.0],   # inter — penalised on dry/storm
+	[6.0, 2.0, 0.0, 0.0],   # wet — penalised on dry/variable
 ]
 # Fast lookup: weather-state string → column index in WEATHER_COMPOUND_PENALTY.
 # Avoids allocating a temporary Array on every _car_pace() call (~22×/tick).
@@ -1625,7 +1625,7 @@ func step(dt: float) -> void:
 		}
 		var wmsg: String = String(wstate_names.get(weather_state, "Погода меняется"))
 		_emit("[погода] %s (круг %d)" % [wmsg, cur_lap_est], "weather")
-		if weather_state == WEATHER_RAIN or weather_state == WEATHER_VARIABLE:
+		if weather_state == WEATHER_RAIN or weather_state == WEATHER_STORM:
 			race_frac = 0.0
 			_rain_evo_reset = true
 	# phase 1 — advance every car at its own clean pace
