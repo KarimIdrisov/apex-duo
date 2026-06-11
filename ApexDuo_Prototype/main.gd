@@ -69,8 +69,12 @@ var _quali_clock_label: Label         # segment clock label
 var _quali_seg_label: Label           # Q1/Q2/Q3 header label
 var _quali_prog_bar: ProgressBar      # segment progress bar under the tower header
 var _quali_snapshot: Dictionary = {}  # client: latest quali snapshot from host
-var _quali_p5_card: Control           # P5 player card (for window/mode buttons)
-var _quali_p6_card: Control           # P6 player card (for window/mode buttons)
+var _quali_p5_card: Control           # P5 player card
+var _quali_p6_card: Control           # P6 player card
+var _quali_p5_release_btn: Button     # "Отправить" for P5
+var _quali_p5_box_btn: Button         # "В боксы" for P5
+var _quali_p6_release_btn: Button     # "Отправить" for P6
+var _quali_p6_box_btn: Button         # "В боксы" for P6
 var _quali_result_timer: float = 0.0  # countdown (2 s) between quali finish and modal
 
 # pre-race tyre modal
@@ -101,6 +105,7 @@ var fast_to_end := false         # quick-sim: run the race to the finish instant
 var _track_char_set := false     # true once the track character strip has been populated
 var team_gap_label: Label        # inter-team-car gap on the tactics panel
 var track_char_label: RichTextLabel  # 2026 energy/aero track character strip (set once at race start)
+var weather_chip_label: Label    # live weather state indicator (hidden when dry)
 var track_map: TrackMap          # live circuit minimap with moving cars
 var race_view_3d: RaceView3D     # optional 3D race view (toggle from the HUD)
 var view_3d_btn: Button          # 2D ↔ 3D toggle button
@@ -455,17 +460,17 @@ func net_quali_rows(rows: Array) -> void:
 	if pre_race_open and _quali_list_container != null:
 		_refresh_quali_section(_client_quali_rows)
 
-# Client → host: qualifying window/mode choice.
+# Client → host: player presses "Отправить" (release the car onto the track).
 @rpc("any_peer", "call_remote", "reliable")
-func net_quali_choice(car_id: int, window: String, mode: String) -> void:
+func net_quali_release(car_id: int) -> void:
 	if multiplayer.is_server() and quali_sim != null:
-		quali_sim.set_player_choice(car_id, window, mode)
+		quali_sim.release(int(car_id))
 
-# Client → host: request a second qualifying run.
+# Client → host: player presses "В боксы" (box after current flying lap).
 @rpc("any_peer", "call_remote", "reliable")
-func net_quali_second_run(car_id: int) -> void:
+func net_quali_box(car_id: int) -> void:
 	if multiplayer.is_server() and quali_sim != null:
-		quali_sim.request_second_run(car_id)
+		quali_sim.box(int(car_id))
 
 # Host → client: compact qualifying session snapshot (~12 Hz, unreliable_ordered).
 @rpc("authority", "call_remote", "unreliable_ordered")
@@ -496,7 +501,7 @@ func _make_snapshot() -> Dictionary:
 	return {"elapsed": sim.elapsed, "laps": sim.track.laps,
 		"finished": sim.finished, "drivers": ds, "sc": sim.sc_active,
 		"track": sim.track.name, "arch": sim.track.archetype, "pit_lane": sim.track.pit_lane,
-		"wet": sim.wetness,
+		"wet": sim.wetness, "weather_state": sim.weather_state,
 		"energy_limit": sim.track.energy_limit, "aero_zones": sim.track.aero_zones,
 		"corners": sim.track.corners, "straight_km": sim.track.straight_km, "evolution": sim.track.evolution,
 		"team_pit_cooldown": sim.team_pit_cooldown,
@@ -745,6 +750,7 @@ func _update_hud() -> void:
 	_update_panels(entries)
 	_update_track_map(entries)
 	_update_net_label()
+	_update_weather_chip()
 
 	# one-shot race events from the sim (stacked pit, etc.)
 	if game_mode != "client" and sim != null and sim.last_event != "":
@@ -929,6 +935,34 @@ func _update_panels(entries: Array) -> void:
 			stack_warn = "Дабл-стак: +7 с!"
 		if p.has("stack_label"):
 			(p["stack_label"] as Label).text = stack_warn
+
+func _update_weather_chip() -> void:
+	if weather_chip_label == null:
+		return
+	var wstate: String
+	if game_mode == "client":
+		wstate = String(snapshot.get("weather_state", RaceSim.WEATHER_DRY))
+	elif sim != null:
+		wstate = sim.weather_state
+	else:
+		wstate = RaceSim.WEATHER_DRY
+	if wstate == RaceSim.WEATHER_DRY:
+		weather_chip_label.visible = false
+		return
+	weather_chip_label.visible = true
+	var wlabels: Dictionary = {
+		RaceSim.WEATHER_VARIABLE: "ПЕРЕМЕННО",
+		RaceSim.WEATHER_RAIN:     "ДОЖДЬ",
+		RaceSim.WEATHER_STORM:    "ЛИВЕНЬ",
+	}
+	weather_chip_label.text = "☁ %s" % String(wlabels.get(wstate, wstate.to_upper()))
+	var chip_color: Color
+	match wstate:
+		RaceSim.WEATHER_VARIABLE: chip_color = Color("#aaccff")
+		RaceSim.WEATHER_RAIN:     chip_color = Color("#66aaff")
+		RaceSim.WEATHER_STORM:    chip_color = Color("#ee8844")
+		_:                        chip_color = Color("#66c2ff")
+	weather_chip_label.add_theme_color_override("font_color", chip_color)
 
 func _update_net_label() -> void:
 	if net_label == null:
@@ -1452,6 +1486,11 @@ func _build_race_ui(root: Control) -> void:
 	col.add_child(track_char_label)
 	net_label = _mklabel(15, "#66c2ff")
 	col.add_child(net_label)
+
+	# Weather chip — shown only when weather_state is not dry.
+	weather_chip_label = _mklabel(14, "#66c2ff")
+	weather_chip_label.visible = false
+	col.add_child(weather_chip_label)
 
 	var mid := HBoxContainer.new()
 	mid.add_theme_constant_override("separation", 16)
@@ -2267,19 +2306,17 @@ func _finish_practice_phase() -> void:
 # ============================================================================
 
 func _start_quali_phase() -> void:
-	_player_choices = {}
 	quali_accum = 0.0
 	quali_phase = true
 	pre_race_open = true   # blocks race-sim ticking during the whole quali phase
+	_quali_p5_release_btn = null
+	_quali_p5_box_btn     = null
+	_quali_p6_release_btn = null
+	_quali_p6_box_btn     = null
 	# Create the QualiSim with our sim's field + seed.
+	# Player cars have no scheduled release (_run_time = NO_TIME); they press the button.
 	quali_sim = QualiSim.new(sim.drivers, seed_value)
 	quali_sim.set_track(sim.track)
-	# Apply default player choices (mid/bank).
-	for d in sim.drivers:
-		if d.team:
-			var did: int = int(d.id)
-			_player_choices[did] = {"window": "mid", "mode": "bank", "second_requested": false}
-			quali_sim.set_player_choice(did, "mid", "bank")
 	_build_quali_overlay()
 
 func _build_quali_overlay() -> void:
@@ -2354,7 +2391,7 @@ func _build_quali_overlay() -> void:
 	# Segment progress bar
 	_quali_prog_bar = ProgressBar.new()
 	_quali_prog_bar.min_value = 0.0
-	_quali_prog_bar.max_value = QualiSim.SEG_DURATION
+	_quali_prog_bar.max_value = 1080.0   # Q1 duration; updated each tick via _update_quali_hud
 	_quali_prog_bar.value = 0.0
 	_quali_prog_bar.show_percentage = false
 	_quali_prog_bar.custom_minimum_size = Vector2(0, 4)
@@ -2491,41 +2528,35 @@ func _build_quali_car_card(car_id: int, is_client: bool) -> Control:
 		_quali_p6_status = status_lbl
 
 	v.add_child(HSeparator.new())
-	v.add_child(_mklabel(12, Palette.MUTED_HEX, "ОКНО ВЫЕЗДА"))
 
-	var win_row := HBoxContainer.new()
-	win_row.add_theme_constant_override("separation", 4)
-	v.add_child(win_row)
-	for wspec in [["early", "Рано"], ["mid", "Середина"], ["late", "Поздно"]]:
-		var wb := _small_button(String(wspec[1]))
-		wb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		wb.toggle_mode = true
-		if String(wspec[0]) == "mid":
-			wb.set_pressed_no_signal(true)
-		wb.disabled = is_client
-		var wval: String = String(wspec[0])
-		var cid_w: int = did
-		wb.pressed.connect(func(): _on_quali_window(cid_w, wval, win_row))
-		win_row.add_child(wb)
+	# Action row: Release and Box buttons
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 8)
+	v.add_child(btn_row)
 
-	v.add_child(_mklabel(12, Palette.MUTED_HEX, "РЕЖИМ"))
-	var mode_row := HBoxContainer.new()
-	mode_row.add_theme_constant_override("separation", 4)
-	v.add_child(mode_row)
-	for mspec in [["bank", "Банк"], ["attack", "Атака"]]:
-		var mb := _small_button(String(mspec[1]))
-		mb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		mb.toggle_mode = true
-		if String(mspec[0]) == "bank":
-			mb.set_pressed_no_signal(true)
-		mb.disabled = is_client
-		var mval: String = String(mspec[0])
-		var cid_m: int = did
-		mb.pressed.connect(func(): _on_quali_mode(cid_m, mval, mode_row))
-		mode_row.add_child(mb)
+	var can_act: bool = not is_client or (my_car_id == car_id)
 
-	var best_lbl := _mklabel(13, Palette.CREAM_HEX, "Лучшее: —")
-	v.add_child(best_lbl)
+	var rel_btn := _small_button("ОТПРАВИТЬ НА ТРАССУ")
+	rel_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rel_btn.disabled = not can_act
+	var cid_r: int = did
+	rel_btn.pressed.connect(func(): _on_quali_release(cid_r))
+	btn_row.add_child(rel_btn)
+	if car_id == 4:
+		_quali_p5_release_btn = rel_btn
+	else:
+		_quali_p6_release_btn = rel_btn
+
+	var box_btn := _small_button("В БОКСЫ")
+	box_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box_btn.disabled = true   # enabled only when on a flying lap
+	var cid_b: int = did
+	box_btn.pressed.connect(func(): _on_quali_box(cid_b))
+	btn_row.add_child(box_btn)
+	if car_id == 4:
+		_quali_p5_box_btn = box_btn
+	else:
+		_quali_p6_box_btn = box_btn
 
 	return pc2
 
@@ -2540,11 +2571,12 @@ func _update_quali_hud() -> void:
 			seg_name = "КВАЛИФИКАЦИЯ ЗАВЕРШЕНА"
 		_quali_seg_label.text = "КВАЛИФИКАЦИЯ — " + seg_name
 	if _quali_clock_label != null:
-		var rem: float = maxf(0.0, QualiSim.SEG_DURATION - quali_sim.elapsed)
+		var rem: float = maxf(0.0, quali_sim.seg_duration - quali_sim.elapsed)
 		var m: int = int(rem) / 60
 		var s: int = int(rem) % 60
 		_quali_clock_label.text = "%d:%02d" % [m, s]
 	if _quali_prog_bar != null:
+		_quali_prog_bar.max_value = quali_sim.seg_duration
 		_quali_prog_bar.value = quali_sim.elapsed
 
 	# Build sorted tower list
@@ -2625,39 +2657,52 @@ func _update_quali_hud() -> void:
 func _update_quali_car_status() -> void:
 	var base: float = sim.track.base_laptime if sim != null else 80.0
 	for car_id in [4, 5]:
-		var slbl: Label = _quali_p5_status if car_id == 4 else _quali_p6_status
+		var slbl:    Label  = _quali_p5_status       if car_id == 4 else _quali_p6_status
+		var rel_btn: Button = _quali_p5_release_btn  if car_id == 4 else _quali_p6_release_btn
+		var box_btn: Button = _quali_p5_box_btn      if car_id == 4 else _quali_p6_box_btn
 		if slbl == null:
 			continue
 		var did: int = car_id
-		var cs: Dictionary = quali_sim.car_state(did)
-		var st: String = String(cs.get("state", "garage"))
-		var best: float = float(cs.get("best", QualiSim.NO_TIME))
+		var cs: Dictionary  = quali_sim.car_state(did)
+		var st: String      = String(cs.get("state", "garage"))
+		var best: float     = float(cs.get("best", QualiSim.NO_TIME))
+		var lap_num: int    = int(cs.get("lap_num", 1))
+		var boxing: bool    = bool(cs.get("boxing", false))
 		var best_txt: String = ("  ▸ %s" % _fmt_laptime(base + best)) if best < 1.0e17 else ""
+
 		var txt: String
 		var col: String
-		if quali_sim.eliminated.has(did):
+		if st == "elimd":
 			txt = "Выбыли" + best_txt
 			col = Palette.FINE_HEX
 		elif st == "outlap":
 			txt = "Прогревочный круг…"
 			col = Palette.INFO_HEX
 		elif st == "push":
-			# live sector splits as the flying lap unfolds
 			var sp: Array = cs.get("splits", [])
 			var parts: Array = []
 			for i in 3:
 				var sv: float = float(sp[i]) if i < sp.size() else -1.0
 				parts.append("S%d %.1f" % [i + 1, sv] if sv >= 0.0 else "S%d --" % (i + 1))
-			txt = "БЫСТРЫЙ КРУГ  " + "  ".join(parts)
+			var boxing_hint: String = "  (→ боксы)" if boxing else ""
+			txt = "БЫСТРЫЙ КРУГ %d  " % lap_num + "  ".join(parts) + boxing_hint
 			col = "#ffd166"
-		elif st == "done":
-			txt = "В боксах" + best_txt
-			col = Palette.GOOD_HEX
-		else:
-			txt = "В боксах — выбери окно выезда" + best_txt
-			col = Palette.MUTED_HEX
+		else:   # garage
+			txt = ("В боксах" if best < 1.0e17 else "В боксах — нажмите 'Отправить'") + best_txt
+			col = Palette.GOOD_HEX if best < 1.0e17 else Palette.MUTED_HEX
+
 		slbl.text = "Статус: " + txt
 		slbl.add_theme_color_override("font_color", Color(col))
+
+		# Enable / disable action buttons based on current car state
+		var is_my_car: bool = (game_mode != "client") or (my_car_id == car_id)
+		if rel_btn != null:
+			var can_release: bool = bool(cs.get("can_release", false)) \
+				and not quali_sim.eliminated.has(did) and not quali_sim.finished
+			rel_btn.disabled = not (is_my_car and can_release)
+		if box_btn != null:
+			# Box is active only while doing flying laps (not outlap) and not already flagged
+			box_btn.disabled = not (is_my_car and st == "push" and not boxing)
 
 # Called when quali_sim.finished is set — freeze the display, start 2-s delay.
 func _on_quali_finished_display() -> void:
@@ -2701,48 +2746,19 @@ func _finish_quali_phase() -> void:
 	# Open the tyre-choice modal (pre_race_open remains true until the user clicks GO).
 	_show_prerace_modal()
 
-func _on_quali_window(car_id: int, window: String, row: HBoxContainer) -> void:
-	if not _player_choices.has(car_id):
-		_player_choices[car_id] = {"window": "mid", "mode": "bank", "second_requested": false}
-	_player_choices[car_id]["window"] = window
-	if quali_sim != null:
-		var mode: String = String(_player_choices[car_id].get("mode", "bank"))
-		quali_sim.set_player_choice(car_id, window, mode)
+func _on_quali_release(car_id: int) -> void:
+	if quali_sim == null:
+		return
+	quali_sim.release(int(car_id))
 	if game_mode == "client":
-		var mode2: String = String(_player_choices[car_id].get("mode", "bank"))
-		net_quali_choice.rpc_id(1, car_id, window, mode2)
-	# Highlight active button
-	for b in row.get_children():
-		if b is Button:
-			b.set_pressed_no_signal(false)
-	# The pressed button is already toggled by Godot; refresh to ensure exclusivity
-	for i in row.get_child_count():
-		var b: Node = row.get_child(i)
-		if b is Button:
-			var labels: Array = [["Рано", "early"], ["Середина", "mid"], ["Поздно", "late"]]
-			var lbl_txt: String = String((b as Button).text)
-			for ls in labels:
-				if String(ls[0]) == lbl_txt:
-					(b as Button).set_pressed_no_signal(String(ls[1]) == window)
+		net_quali_release.rpc_id(1, car_id)
 
-func _on_quali_mode(car_id: int, mode: String, row: HBoxContainer) -> void:
-	if not _player_choices.has(car_id):
-		_player_choices[car_id] = {"window": "mid", "mode": "bank", "second_requested": false}
-	_player_choices[car_id]["mode"] = mode
-	if quali_sim != null:
-		var window2: String = String(_player_choices[car_id].get("window", "mid"))
-		quali_sim.set_player_choice(car_id, window2, mode)
+func _on_quali_box(car_id: int) -> void:
+	if quali_sim == null:
+		return
+	quali_sim.box(int(car_id))
 	if game_mode == "client":
-		var window3: String = String(_player_choices[car_id].get("window", "mid"))
-		net_quali_choice.rpc_id(1, car_id, window3, mode)
-	for i in row.get_child_count():
-		var b: Node = row.get_child(i)
-		if b is Button:
-			var labels2: Array = [["Банк", "bank"], ["Атака", "attack"]]
-			var lbl_txt2: String = String((b as Button).text)
-			for ls2 in labels2:
-				if String(ls2[0]) == lbl_txt2:
-					(b as Button).set_pressed_no_signal(String(ls2[1]) == mode)
+		net_quali_box.rpc_id(1, car_id)
 
 func _on_quali_simulate_to_end() -> void:
 	if quali_sim == null:

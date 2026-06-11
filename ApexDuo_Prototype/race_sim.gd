@@ -221,6 +221,21 @@ const PU_WEAR := 0.0011       # component health lost per lap of racing (× push
 const WET_K := 16.0          # s/lap per (wetness − tyre wet_opt)² mismatch
 const WET_BASE := 3.0        # base wet-running slowdown (× wetness, × inverse wet skill)
 
+# Discrete weather states — derived each tick from the continuous wetness float.
+const WEATHER_DRY      := "dry"
+const WEATHER_VARIABLE := "variable"
+const WEATHER_RAIN     := "rain"
+const WEATHER_STORM    := "storm"
+
+# Lap-time penalty (seconds) for compound mismatch with the current weather state.
+# Rows: 0=slick (soft/med/hard), 1=inter, 2=wet
+# Cols indexed by [dry, variable, rain, storm]
+const WEATHER_COMPOUND_PENALTY: Array = [
+	[0.0, 1.5, 4.0, 8.0],   # slick
+	[3.0, 0.0, 0.5, 2.0],   # inter
+	[6.0, 2.0, 0.0, 0.0],   # wet
+]
+
 # Thermal model: tyre temperature (0..~1.2), optimal window, warm-up/overheat.
 const TYRE_TEMP_START := 0.20  # cold tyres out of the pits (forces an out-lap cost)
 const TYRE_TEMP_GRID := 0.55   # warmer at the race start (formation lap)
@@ -633,6 +648,7 @@ var mini_global_best: Array = []                      # track record per mini-se
 var erng: RNG                        # race-events RNG (hashed seed)
 var sc_active: bool = false
 var wetness: float = 0.0             # 0..1 track wetness (0 = dry)
+var weather_state: String = WEATHER_DRY  # discrete state derived from wetness each tick
 var race_frac: float = 0.0           # 0..1 race completion (leader) — drives track rubbering-in
 var passes_on_straight: int = 0      # diagnostics: how many completed passes happened on a straight
 var covers_called: int = 0           # diagnostics: undercut-cover calls made (M-S1)
@@ -943,6 +959,25 @@ func _m_thermal(d: Driver) -> float:
 	pen += d.graining * GRAIN_PACE              # #5 graining costs grip until it cleans up
 	return pen
 
+# Map continuous wetness to a named weather state.
+func _current_weather_state() -> String:
+	if wetness < 0.15:
+		return WEATHER_DRY
+	elif wetness < 0.40:
+		return WEATHER_VARIABLE
+	elif wetness < 0.75:
+		return WEATHER_RAIN
+	else:
+		return WEATHER_STORM
+
+# Compound category index for the WEATHER_COMPOUND_PENALTY table.
+func _compound_category(compound: String) -> int:
+	if compound == "inter":
+		return 1
+	elif compound == "wet":
+		return 2
+	return 0  # slick (soft / medium / hard)
+
 # Wet running: a slick in the rain is hopeless; intermediates/wets suit a wetter
 # track. Penalty grows with the mismatch between wetness and the tyre's wet_opt,
 # plus a base wet slowdown a wet-skilled driver (attr "wet") softens.
@@ -1012,6 +1047,13 @@ func current_laptime(d: Driver, ahead_gap: float = -1.0) -> float:
 		lt += (wear - c["cliff"]) * 0.10
 	lt += _m_thermal(d)
 	lt += _m_weather(d)
+	# Compound mismatch penalty for the current discrete weather state.
+	var weather_states_ordered: Array = [WEATHER_DRY, WEATHER_VARIABLE, WEATHER_RAIN, WEATHER_STORM]
+	var state_idx: int = weather_states_ordered.find(weather_state)
+	if state_idx < 0:
+		state_idx = 0
+	var comp_cat: int = _compound_category(d.compound)
+	lt += float(WEATHER_COMPOUND_PENALTY[comp_cat][state_idx])
 	lt += d.fuel_laps * 0.018
 	var amp := 0.025 * (1.25 - _attr(d, "consistency") * 0.6)   # consistent = tighter
 	# Gaussian-ish lap noise (sum of 3 uniforms ≈ normal, SAME std as the old uniform
@@ -1566,6 +1608,22 @@ func step(dt: float) -> void:
 		team_pit_cooldown = max(0.0, team_pit_cooldown - dt)
 	_update_safety_car()
 	_update_weather()
+	# Discrete weather state: derived from the just-updated wetness. Emit a feed
+	# event when the state changes and reset track_evo if rain starts (rubber washes off).
+	var prev_weather: String = weather_state
+	weather_state = _current_weather_state()
+	if weather_state != prev_weather:
+		var cur_lap_est: int = 0
+		if not drivers.is_empty():
+			cur_lap_est = int((drivers[0] as Driver).lap)
+		var wstate_names: Dictionary = {
+			WEATHER_DRY:      "Трасса высыхает",
+			WEATHER_VARIABLE: "Переменная погода",
+			WEATHER_RAIN:     "Дождь!",
+			WEATHER_STORM:    "Ливень!",
+		}
+		var wmsg: String = String(wstate_names.get(weather_state, "Погода меняется"))
+		_emit("[погода] %s (круг %d)" % [wmsg, cur_lap_est], "weather")
 	# phase 1 — advance every car at its own clean pace
 	var ordered := order()
 	# track rubbering-in: race completion (leader) drives the grip-evolution term
