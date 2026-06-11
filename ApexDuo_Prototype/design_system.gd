@@ -27,7 +27,9 @@ const SP_LG  := 16; const SP_XL  := 24; const SP_XXL := 32
 static var mono_font: Font = null
 
 static func setup_fonts() -> void:
-	mono_font = load("res://assets/fonts/JetBrainsMono-Regular.ttf")
+	var path := "res://assets/fonts/JetBrainsMono-Regular.ttf"
+	if ResourceLoader.exists(path, "FontFile"):
+		mono_font = load(path)
 
 # ── StyleBox helper ───────────────────────────────────────────────────────────
 static func _sb(bg: Color, border: Color, radius: int = 4) -> StyleBoxFlat:

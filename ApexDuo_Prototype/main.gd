@@ -117,6 +117,7 @@ const TT_COL_SEP: int = 4
 
 # ---------------------------------------------------------------- lifecycle
 func _ready() -> void:
+	DesignSystem.setup_fonts()
 	theme = Palette.base_theme()
 	add_child(Palette.vignette_layer())
 	_build_bg()
@@ -1183,75 +1184,94 @@ func _build_bg() -> void:
 
 func _build_menu() -> void:
 	menu_overlay = ColorRect.new()
-	(menu_overlay as ColorRect).color = BG
+	(menu_overlay as ColorRect).color = DesignSystem.BG_PRIMARY
 	menu_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(menu_overlay)
 
-	# CenterContainer (full-rect) truly centres the menu block on both axes — the
-	# old PRESET_CENTER anchored the VBox's top-left to the centre, so the content
-	# spilled toward the bottom-right and the footer note clipped off-screen.
 	var centerc := CenterContainer.new()
 	centerc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	menu_overlay.add_child(centerc)
+
 	var center := VBoxContainer.new()
-	center.add_theme_constant_override("separation", 12)
+	center.add_theme_constant_override("separation", DesignSystem.SP_SM)
 	center.alignment = BoxContainer.ALIGNMENT_CENTER
 	centerc.add_child(center)
 
+	var wordmark := Label.new()
+	wordmark.text = "APEX DUO"
+	wordmark.add_theme_color_override("font_color", DesignSystem.TEXT_3)
+	wordmark.add_theme_font_size_override("font_size", 10)
+	wordmark.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	center.add_child(wordmark)
+
 	var title := Label.new()
-	title.text = "APEX DUO"
-	title.add_theme_font_size_override("font_size", 52)
-	title.add_theme_color_override("font_color", ACCENT)
-	title.add_theme_font_override("font", Palette.display_font(700, 6))
+	title.text = "ФОРМУЛА 1"
+	title.add_theme_font_size_override("font_size", 36)
+	title.add_theme_color_override("font_color", DesignSystem.TEXT_1)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	center.add_child(title)
 
-	var sub := Label.new()
-	sub.text = "Кооперативный менеджер гонки · прототип"
-	sub.add_theme_font_size_override("font_size", 16)
-	sub.add_theme_color_override("font_color", Color("#9aa4b2"))
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	center.add_child(sub)
+	var season_lbl := Label.new()
+	season_lbl.text = "Сезон 2026"
+	season_lbl.add_theme_font_size_override("font_size", 13)
+	season_lbl.add_theme_color_override("font_color", DesignSystem.GOLD)
+	season_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	center.add_child(season_lbl)
 
-	center.add_child(_spacer_v(10))
+	center.add_child(_spacer_v(DesignSystem.SP_XL))
+
+	var btn_wrap := VBoxContainer.new()
+	btn_wrap.add_theme_constant_override("separation", DesignSystem.SP_SM)
+	btn_wrap.custom_minimum_size = Vector2(340.0, 0.0)
+	center.add_child(btn_wrap)
 
 	if Season.has_save():
-		center.add_child(_menu_button("▶ ПРОДОЛЖИТЬ СЕЗОН", func(): _continue_season()))
-		center.add_child(_spacer_v(6))
+		var b_cont: Button = DesignSystem.make_button("▶ ПРОДОЛЖИТЬ СЕЗОН", "primary")
+		b_cont.pressed.connect(func(): _continue_season())
+		btn_wrap.add_child(b_cont)
 
-	center.add_child(_menu_button("Быстрая гонка — соло", func(): _start("solo")))
-	center.add_child(_menu_button("Быстрая гонка — локальный кооп", func(): _start("local")))
-	center.add_child(_spacer_v(6))
-	center.add_child(_menu_button("СЕЗОН — новый чемпионат", func(): _begin_season_setup()))
-	center.add_child(_spacer_v(6))
-	center.add_child(_menu_button("Сезон-онлайн (хост)", func(): _begin_online_season_host()))
-	center.add_child(_spacer_v(6))
-	center.add_child(_menu_button("Создать игру по сети (хост)", func(): _start("host")))
+	var b_solo: Button = DesignSystem.make_button("Быстрая гонка — соло", "secondary")
+	b_solo.pressed.connect(func(): _start("solo"))
+	btn_wrap.add_child(b_solo)
+
+	var b_local: Button = DesignSystem.make_button("Быстрая гонка — локальный кооп", "secondary")
+	b_local.pressed.connect(func(): _start("local"))
+	btn_wrap.add_child(b_local)
+
+	btn_wrap.add_child(_spacer_v(DesignSystem.SP_XS))
+
+	var b_season: Button = DesignSystem.make_button("СЕЗОН — новый чемпионат", "primary")
+	b_season.pressed.connect(func(): _begin_season_setup())
+	btn_wrap.add_child(b_season)
+
+	btn_wrap.add_child(_spacer_v(DesignSystem.SP_XS))
+
+	var b_host: Button = DesignSystem.make_button("Сезон-онлайн (хост)", "secondary")
+	b_host.pressed.connect(func(): _begin_online_season_host())
+	btn_wrap.add_child(b_host)
+
+	var b_net: Button = DesignSystem.make_button("Создать игру по сети (хост)", "secondary")
+	b_net.pressed.connect(func(): _start("host"))
+	btn_wrap.add_child(b_net)
 
 	var join_row := HBoxContainer.new()
-	join_row.add_theme_constant_override("separation", 6)
+	join_row.add_theme_constant_override("separation", DesignSystem.SP_SM)
 	join_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	ip_input = LineEdit.new()
 	ip_input.text = "127.0.0.1"
-	ip_input.custom_minimum_size = Vector2(180, 38)
+	ip_input.custom_minimum_size = Vector2(180.0, 38.0)
 	join_row.add_child(ip_input)
-	join_row.add_child(_menu_button("Подключиться", func(): _join_online(ip_input.text)))
-	center.add_child(join_row)
+	var b_join: Button = DesignSystem.make_button("Подключиться", "secondary")
+	b_join.pressed.connect(func(): _join_online(ip_input.text))
+	join_row.add_child(b_join)
+	btn_wrap.add_child(join_row)
 
 	var note := Label.new()
-	note.text = "Онлайн (бета): нужны 2 копии игры. В одной — «Сезон-онлайн (хост)», в другой\nвведи IP (например 127.0.0.1) и «Подключиться». В редакторе Godot:\nDebug → Run Multiple Instances → Run 2 Instances."
-	note.add_theme_font_size_override("font_size", 13)
-	note.add_theme_color_override("font_color", Color("#7c8694"))
+	note.text = "Онлайн (бета): нужны 2 копии игры. Debug → Run Multiple Instances → 2."
+	note.add_theme_font_size_override("font_size", 11)
+	note.add_theme_color_override("font_color", DesignSystem.TEXT_3)
 	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	center.add_child(note)
-
-func _menu_button(txt: String, cb: Callable) -> Button:
-	var b := Button.new()
-	b.text = txt
-	b.add_theme_font_size_override("font_size", 17)
-	b.custom_minimum_size = Vector2(340, 42)
-	b.pressed.connect(cb)
-	return b
 
 func _spacer_v(h: int) -> Control:
 	var c := Control.new()
