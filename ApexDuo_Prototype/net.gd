@@ -373,6 +373,23 @@ func net_season_hire_staff(cand_id: int) -> void:
 		net_season_feed.rpc("Партнёр: переманивание — %s %s" % [cand_name, verb])
 		get_tree().call_group("season_hub", "_on_season_updated")
 
+# client → host: start building an HQ facility (HQ buildings system).
+@rpc("any_peer", "call_remote", "reliable")
+func net_season_hq_build(building_id: String) -> void:
+	if not multiplayer.is_server():
+		return
+	if Season.active == null:
+		return
+	if Season.active.hq_start_build(building_id):
+		Season.active.save_to_disk()
+		net_season_full.rpc(Season.active.to_dict())
+		var bname: String = building_id
+		var bdef: Variant = Season.HQ_BUILDINGS.get(building_id, null)
+		if bdef != null:
+			bname = String((bdef as Dictionary).get("name", building_id))
+		net_season_feed.rpc("Партнёр: строится «%s»" % bname)
+		get_tree().call_group("season_hub", "_on_season_updated")
+
 # client → host: readiness ping (informational; not required to start the race).
 @rpc("any_peer", "call_remote", "reliable")
 func net_season_ready(ready: bool) -> void:

@@ -256,6 +256,33 @@ const JUNIOR_LOAN_INCOME: int = 100_000
 const PROMOTE_ATTR_DIV: float = 250.0      # dev delta = (attr − 10) / 250
 
 # ============================================================
+# HQ BUILDINGS
+# ---------------------------------------------------------------
+static var HQ_BUILDINGS := {
+	"factory":       {"name": "Завод",                   "costs": [300_000, 500_000, 800_000]},
+	"design_centre": {"name": "Дизайн-центр",            "costs": [350_000, 600_000, 900_000]},
+	"wind_tunnel":   {"name": "Аэродинамическая труба",  "costs": [400_000, 650_000, 1_000_000]},
+	"simulator":     {"name": "Симулятор",               "costs": [400_000, 600_000, 850_000]},
+	"pit_workshop":  {"name": "Мастерская пит-крю",      "costs": [300_000, 550_000, 800_000]},
+	"academy_hq":    {"name": "Академия",                "costs": [350_000, 600_000, 950_000]},
+	"telemetry":     {"name": "Телеметрия",              "costs": [500_000, 750_000, 1_100_000], "unlock": "factory@3"},
+	"commercial":    {"name": "Коммерческий отдел",      "costs": [450_000, 700_000, 1_000_000], "unlock": "design_centre@2"},
+	"weather_centre":{"name": "Метеоцентр",              "costs": [400_000, 600_000, 850_000],   "unlock_season": 3},
+}
+static var HQ_BUILD_ROUNDS: int = 1
+static var HQ_EFFECT_DESC := {
+	"factory":       ["R&D скорость ×1.15", "R&D скорость ×1.30", "R&D скорость ×1.50"],
+	"design_centre": ["Базовое аэро +0.010", "Базовое аэро +0.020", "Базовое аэро +0.030"],
+	"wind_tunnel":   ["Аэро-R&D ×1.20", "Аэро-R&D ×1.40", "Аэро-R&D ×1.60"],
+	"simulator":     ["FP1 инженер +0.15", "Все FP +0.15", "Все FP +0.25"],
+	"pit_workshop":  ["Пит-стоп −0.10с", "Пит-стоп −0.20с", "Пит-стоп −0.30с"],
+	"academy_hq":    ["1 скаут/сезон", "2 скаута", "3 скаута"],
+	"telemetry":     ["Прогноз износа шин", "HUD окна пит-стопов", "Предиктивная модель"],
+	"commercial":    ["Спонсоры +20%", "Спонсоры +35%", "Спонсоры +50% + $100к/этап"],
+	"weather_centre":["Точный прогноз", "Прогноз квалы", "Мгновенные оповещения"],
+}
+
+# ============================================================
 # CAR-2: PART CONDITION / WEAR
 # ---------------------------------------------------------------
 # Every DEVELOPED part (level > 0, not supplier-bought) wears each round.
@@ -459,6 +486,11 @@ var custom_driver_names: Dictionary = {}
 # CAR-2: part condition (part_key -> 0..1, 1.0 = fresh) + season replacement pool
 var part_condition: Dictionary = {}
 var replacements_used: int = 0
+
+# HQ: persistent team base buildings (building_id -> level 0..3)
+var hq_levels: Dictionary = {}
+var hq_building_in_progress: String = ""
+var hq_build_completes_after: int = -1
 
 func _init() -> void:
 	for id in TEAM_IDS:
@@ -699,7 +731,7 @@ func _sync_legacy_steps() -> void:
 # Build the season calendar from the F1-archetype track generator: one circuit
 # of each character (power / street / high-speed / technical / modern), jittered.
 func _rebuild_calendar() -> void:
-	calendar = RaceSim.real_calendar(cal_seed, 5)
+	calendar = RaceSim.real_calendar(cal_seed, 25)   # full 25-round real calendar
 
 # ---------------------------------------------------------------- META-3 helpers
 
@@ -1131,9 +1163,11 @@ func income_per_round() -> int:
 	var pos: int = constructor_position()
 	var prize: int = constructor_prize(pos)
 	var sponsor_base: int = 0
-	for sp in active_sponsors:
-		if bool((sp as Dictionary).get("active", true)):
-			sponsor_base += int((sp as Dictionary).get("base_payment", 0))
+	var comm_mult: float = hq_commercial_mult()
+	for sp: Dictionary in active_sponsors:
+		if bool(sp.get("active", true)):
+			sponsor_base += int(float(sp.get("base_payment", 0)) * comm_mult)
+	sponsor_base += hq_commercial_flat()
 	return prize + sponsor_base + supplier_income_per_round()
 
 # ---- Sponsor serialisation helpers ----
@@ -1318,8 +1352,8 @@ func rd_speed_mult() -> float:
 	if not m_des.is_empty():
 		des = int((m_des.get("attrs", {}) as Dictionary).get("aero_dev", 10))
 	var avg: float = float(td + des) / 2.0
-	return clampf(0.85 + (avg - 6.0) / 12.0 * 0.35,
-		RD_SPEED_MULT_MIN, RD_SPEED_MULT_MAX)
+	var mult: float = 0.85 + (avg - 6.0) / 12.0 * 0.35
+	return clampf(mult * hq_rd_mult(), RD_SPEED_MULT_MIN, RD_SPEED_MULT_MAX * hq_rd_mult())
 
 # Role keys of the top-3 salaries (exempt from the cost cap, real F1 rule).
 func cap_exempt_roles() -> Array:
@@ -2329,12 +2363,89 @@ func apply_car_rd() -> void:
 	var d: Dictionary = car_rd_deltas()
 	F1_2026.apply_rd_upgrades(
 		player_team,
-		float(d["d_aero"]),
+		float(d["d_aero"]) + hq_aero_bonus(),
 		float(d["d_power"]),
 		float(d["d_energy"]),
 		float(d["d_ch_rel"]),
 		float(d["d_eng_rel"])
 	)
+
+# ================================================================ HQ BUILDINGS
+
+func hq_level(id: String) -> int:
+	return int(hq_levels.get(id, 0))
+
+func hq_can_unlock(id: String) -> bool:
+	if not HQ_BUILDINGS.has(id):
+		return false
+	var bdef: Dictionary = HQ_BUILDINGS[id]
+	if bdef.has("unlock_season"):
+		var needed_season: int = int(bdef["unlock_season"])
+		var cur_season: int = round_index / 25 + 1
+		if cur_season < needed_season:
+			return false
+	if bdef.has("unlock"):
+		var parts: Array = String(bdef["unlock"]).split("@")
+		if parts.size() == 2:
+			var req_id: String = String(parts[0])
+			var req_lv: int = int(parts[1])
+			if hq_level(req_id) < req_lv:
+				return false
+	return true
+
+func hq_build_cost(id: String) -> int:
+	var lv: int = hq_level(id)
+	if lv >= 3:
+		return 0
+	var costs: Array = HQ_BUILDINGS[id]["costs"]
+	return int(costs[lv])
+
+func hq_start_build(id: String) -> bool:
+	if not HQ_BUILDINGS.has(id):
+		return false
+	if not hq_can_unlock(id):
+		return false
+	if hq_level(id) >= 3:
+		return false
+	if hq_building_in_progress != "":
+		return false
+	var cost: int = hq_build_cost(id)
+	if money < cost:
+		return false
+	money -= cost
+	hq_building_in_progress = id
+	hq_build_completes_after = round_index + HQ_BUILD_ROUNDS
+	return true
+
+func hq_try_complete() -> String:
+	if hq_building_in_progress.is_empty():
+		return ""
+	if round_index < hq_build_completes_after:
+		return ""
+	var id: String = hq_building_in_progress
+	var cur: int = hq_level(id)
+	hq_levels[id] = cur + 1
+	hq_building_in_progress = ""
+	hq_build_completes_after = -1
+	return id
+
+func hq_rd_mult() -> float:
+	var factory_mults: Array = [1.0, 1.15, 1.30, 1.50]
+	return float(factory_mults[hq_level("factory")])
+
+func hq_aero_bonus() -> float:
+	return float(hq_level("design_centre")) * 0.010
+
+func hq_commercial_mult() -> float:
+	var mults: Array = [1.0, 1.20, 1.35, 1.50]
+	return float(mults[hq_level("commercial")])
+
+func hq_commercial_flat() -> int:
+	return 100_000 if hq_level("commercial") >= 3 else 0
+
+func hq_pit_reduction() -> float:
+	var reductions: Array = [0.0, 0.10, 0.20, 0.30]
+	return float(reductions[hq_level("pit_workshop")])
 
 # Per-TEAM constructor position (1-based), keyed by F1_2026 team_idx.
 # standings are keyed by GRID id (0..21); the grid maps each id -> team_idx, so we
@@ -2468,6 +2579,7 @@ func apply_results(order_ids: Array, dnf_ids: Array = [], fl_id: int = -1,
 	# AI development: rivals improve their cars this round (ATR catch-up curve).
 	_advance_ai_dev()
 	round_index += 1
+	hq_try_complete()
 	# META-3: pay driver salaries and evaluate cap after each round
 	_pay_salaries()
 
@@ -2631,6 +2743,10 @@ func to_dict() -> Dictionary:
 		"replacements_used":   replacements_used,
 		# AI development (rival team_idx string -> 5-scalar float dict)
 		"ai_dev": ai_dev.duplicate(true),
+		# HQ buildings
+		"hq_levels":                hq_levels.duplicate(true),
+		"hq_building_in_progress":  hq_building_in_progress,
+		"hq_build_completes_after": hq_build_completes_after,
 	}
 
 func save_to_disk() -> void:
@@ -2980,6 +3096,14 @@ static func _apply_dict(s: Season, data: Dictionary) -> void:
 			s.custom_driver_names[str(cid)] = String((cn_raw as Dictionary)[ck])
 			if cid >= 0 and cid < s.grid_names.size():
 				s.grid_names[cid] = String((cn_raw as Dictionary)[ck])
+	# HQ buildings restore
+	s.hq_levels = {}
+	var hq_raw: Variant = data.get("hq_levels", null)
+	if typeof(hq_raw) == TYPE_DICTIONARY:
+		for k: String in (hq_raw as Dictionary):
+			s.hq_levels[k] = int(float((hq_raw as Dictionary)[k]))
+	s.hq_building_in_progress = String(data.get("hq_building_in_progress", ""))
+	s.hq_build_completes_after = int(float(data.get("hq_build_completes_after", -1)))
 	# Prime F1_2026's static R&D state so the loaded upgrades take effect immediately.
 	s.apply_car_rd()
 	s.apply_ai_dev()   # re-prime F1_2026._dev_deltas with the loaded rival development

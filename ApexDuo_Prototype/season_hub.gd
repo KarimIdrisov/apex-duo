@@ -35,8 +35,9 @@ const TAB_CAR       := 1
 const TAB_SPONSORS  := 2
 const TAB_STAFF     := 3
 const TAB_PILOTS    := 4
+const TAB_BASE      := 5
 
-const TAB_NAMES: Array = ["ОБЗОР", "БОЛИД", "СПОНСОРЫ", "ШТАБ", "ПИЛОТЫ"]
+const TAB_NAMES: Array = ["ОБЗОР", "БОЛИД", "СПОНСОРЫ", "ШТАБ", "ПИЛОТЫ", "БАЗА"]
 
 # Active tab — static so it survives scene re-entry (the script class persists
 # in memory even after scene change; reset to 0 when season starts fresh).
@@ -514,6 +515,8 @@ func _populate_page(v: VBoxContainer, s: Season) -> void:
 			_build_page_staff(v, s)
 		TAB_PILOTS:
 			_build_page_pilots(v, s)
+		TAB_BASE:
+			_build_page_base(v, s)
 
 # ================================================================ PAGE: ОБЗОР
 func _build_page_overview(v: VBoxContainer, s: Season) -> void:
@@ -685,6 +688,92 @@ func _build_page_staff(v: VBoxContainer, s: Season) -> void:
 func _build_page_pilots(v: VBoxContainer, s: Season) -> void:
 	v.add_child(_build_contracts(s))
 	v.add_child(_build_academy(s))
+
+# ================================================================ PAGE: БАЗА
+func _build_page_base(v: VBoxContainer, s: Season) -> void:
+	v.add_child(_build_hq(s))
+
+func _build_hq(s: Season) -> Control:
+	var pc := _panel()
+	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 10)
+	v.add_child(_hlabel("ШТАБ-КВАРТИРА КОМАНДЫ", 18, Palette.CREAM_HEX))
+
+	if s.hq_building_in_progress != "":
+		var rem: int = s.hq_build_completes_after - s.round_index
+		var bname: String = String(Season.HQ_BUILDINGS[s.hq_building_in_progress].get("name", ""))
+		v.add_child(_label("Строится: %s (осталось %d этапов)" % [bname, rem], 14, Palette.INFO_HEX))
+	v.add_child(_spacer(4))
+
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 10)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	for bid: String in Season.HQ_BUILDINGS:
+		var bdef: Dictionary = Season.HQ_BUILDINGS[bid]
+		var cur_lv: int = s.hq_level(bid)
+		var can_unlock: bool = s.hq_can_unlock(bid)
+
+		var building_card := _panel()
+		building_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var bv := VBoxContainer.new()
+		bv.add_theme_constant_override("separation", 5)
+
+		var name_col: String = Palette.GOLD_HEX if cur_lv > 0 else (Palette.CREAM_HEX if can_unlock else Palette.MUTED_HEX)
+		bv.add_child(_hlabel(String(bdef.get("name", bid)), 14, name_col))
+
+		var pip_row := HBoxContainer.new()
+		pip_row.add_theme_constant_override("separation", 4)
+		for li: int in range(3):
+			var pip := PanelContainer.new()
+			pip.custom_minimum_size = Vector2(16, 8)
+			var pip_sb := StyleBoxFlat.new()
+			pip_sb.bg_color = Color(Palette.GOLD_HEX) if li < cur_lv else Color(0.3, 0.3, 0.3, 1.0)
+			pip.add_theme_stylebox_override("panel", pip_sb)
+			pip_row.add_child(pip)
+		bv.add_child(pip_row)
+
+		if cur_lv > 0 and cur_lv <= 3:
+			var eff_arr: Array = Season.HQ_EFFECT_DESC.get(bid, [])
+			if eff_arr.size() >= cur_lv:
+				bv.add_child(_label(String(eff_arr[cur_lv - 1]), 12, Palette.GOOD_HEX))
+
+		if cur_lv < 3 and can_unlock:
+			var cost: int = s.hq_build_cost(bid)
+			var desc_arr: Array = Season.HQ_EFFECT_DESC.get(bid, [""])
+			var next_eff: String = String(desc_arr[cur_lv]) if desc_arr.size() > cur_lv else ""
+			bv.add_child(_label("Ур.%d: %s · $%s" % [cur_lv + 1, next_eff, _money(cost)], 11, Palette.MUTED_HEX))
+			var can_build: bool = s.hq_building_in_progress.is_empty() and s.money >= cost
+			var build_btn := _button("Построить Ур.%d" % (cur_lv + 1), 12)
+			build_btn.disabled = not can_build
+			var bid_cap: String = bid
+			var net_role2: String = Net.role()
+			if net_role2 == "client":
+				build_btn.pressed.connect(func():
+					Net.net_season_hq_build.rpc_id(1, bid_cap))
+			else:
+				build_btn.pressed.connect(func():
+					if s.hq_start_build(bid_cap):
+						_rebuild())
+			bv.add_child(build_btn)
+		elif not can_unlock:
+			var bdef2: Dictionary = Season.HQ_BUILDINGS.get(bid, {})
+			var lock_txt: String = ""
+			if bdef2.has("unlock"):
+				lock_txt = "Требует: %s" % String(bdef2["unlock"]).replace("@", " Ур.")
+			elif bdef2.has("unlock_season"):
+				lock_txt = "Доступно с %d-го сезона" % int(bdef2["unlock_season"])
+			bv.add_child(_label(lock_txt, 11, Palette.MUTED_HEX))
+
+		building_card.add_child(bv)
+		grid.add_child(building_card)
+
+	v.add_child(grid)
+	pc.add_child(v)
+	return pc
 
 # ---------------------------------------------------------------- standings
 func _build_standings(s: Season) -> Control:
