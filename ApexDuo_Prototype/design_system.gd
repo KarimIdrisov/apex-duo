@@ -89,8 +89,8 @@ static func make_badge(text: String, color: Color) -> PanelContainer:
 static func make_button(text: String, style: String = "primary") -> Button:
 	var btn := Button.new()
 	btn.text = text
-	btn.custom_minimum_size = Vector2(0.0, 34.0)
-	btn.add_theme_font_size_override("font_size", 11)
+	btn.custom_minimum_size = Vector2(0.0, 46.0)
+	btn.add_theme_font_size_override("font_size", 16)
 
 	var lbl_color: Color
 	var sb_n: StyleBoxFlat

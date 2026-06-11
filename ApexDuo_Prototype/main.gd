@@ -1320,20 +1320,20 @@ func _build_menu() -> void:
 	var wordmark := Label.new()
 	wordmark.text = "APEX DUO"
 	wordmark.add_theme_color_override("font_color", DesignSystem.TEXT_3)
-	wordmark.add_theme_font_size_override("font_size", 10)
+	wordmark.add_theme_font_size_override("font_size", 16)
 	wordmark.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	center.add_child(wordmark)
 
 	var title := Label.new()
 	title.text = "ФОРМУЛА 1"
-	title.add_theme_font_size_override("font_size", 36)
+	title.add_theme_font_size_override("font_size", 52)
 	title.add_theme_color_override("font_color", DesignSystem.TEXT_1)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	center.add_child(title)
 
 	var season_lbl := Label.new()
 	season_lbl.text = "Сезон 2026"
-	season_lbl.add_theme_font_size_override("font_size", 13)
+	season_lbl.add_theme_font_size_override("font_size", 20)
 	season_lbl.add_theme_color_override("font_color", DesignSystem.GOLD)
 	season_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	center.add_child(season_lbl)
@@ -1342,7 +1342,7 @@ func _build_menu() -> void:
 
 	var btn_wrap := VBoxContainer.new()
 	btn_wrap.add_theme_constant_override("separation", DesignSystem.SP_SM)
-	btn_wrap.custom_minimum_size = Vector2(340.0, 0.0)
+	btn_wrap.custom_minimum_size = Vector2(480.0, 0.0)
 	center.add_child(btn_wrap)
 
 	if Season.has_save():
@@ -1379,7 +1379,7 @@ func _build_menu() -> void:
 	join_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	ip_input = LineEdit.new()
 	ip_input.text = "127.0.0.1"
-	ip_input.custom_minimum_size = Vector2(180.0, 38.0)
+	ip_input.custom_minimum_size = Vector2(220.0, 46.0)
 	join_row.add_child(ip_input)
 	var b_join: Button = DesignSystem.make_button("Подключиться", "secondary")
 	b_join.pressed.connect(func(): _join_online(ip_input.text))
@@ -1388,7 +1388,7 @@ func _build_menu() -> void:
 
 	var note := Label.new()
 	note.text = "Онлайн (бета): нужны 2 копии игры. Debug → Run Multiple Instances → 2."
-	note.add_theme_font_size_override("font_size", 11)
+	note.add_theme_font_size_override("font_size", 14)
 	note.add_theme_color_override("font_color", DesignSystem.TEXT_3)
 	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	center.add_child(note)
