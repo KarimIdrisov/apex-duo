@@ -231,10 +231,13 @@ const WEATHER_STORM    := "storm"
 # Rows: 0=slick (soft/med/hard), 1=inter, 2=wet
 # Cols indexed by [dry, variable, rain, storm]
 const WEATHER_COMPOUND_PENALTY: Array = [
-	[0.0, 1.5, 4.0, 8.0],   # slick
+	[0.0, 1.0, 2.0, 4.0],   # slick
 	[3.0, 0.0, 0.5, 2.0],   # inter
 	[6.0, 2.0, 0.0, 0.0],   # wet
 ]
+# Fast lookup: weather-state string → column index in WEATHER_COMPOUND_PENALTY.
+# Avoids allocating a temporary Array on every _car_pace() call (~22×/tick).
+const _WEATHER_STATE_IDX: Dictionary = {"dry": 0, "variable": 1, "rain": 2, "storm": 3}
 
 # Thermal model: tyre temperature (0..~1.2), optimal window, warm-up/overheat.
 const TYRE_TEMP_START := 0.20  # cold tyres out of the pits (forces an out-lap cost)
@@ -650,6 +653,7 @@ var sc_active: bool = false
 var wetness: float = 0.0             # 0..1 track wetness (0 = dry)
 var weather_state: String = WEATHER_DRY  # discrete state derived from wetness each tick
 var race_frac: float = 0.0           # 0..1 race completion (leader) — drives track rubbering-in
+var _rain_evo_reset: bool = false    # skip leader-update for one tick after a weather-driven race_frac=0 reset
 var passes_on_straight: int = 0      # diagnostics: how many completed passes happened on a straight
 var covers_called: int = 0           # diagnostics: undercut-cover calls made (M-S1)
 var start_incidents: int = 0         # diagnostics: getaway incidents (bog/jump/stall) at the start
@@ -1048,10 +1052,7 @@ func current_laptime(d: Driver, ahead_gap: float = -1.0) -> float:
 	lt += _m_thermal(d)
 	lt += _m_weather(d)
 	# Compound mismatch penalty for the current discrete weather state.
-	var weather_states_ordered: Array = [WEATHER_DRY, WEATHER_VARIABLE, WEATHER_RAIN, WEATHER_STORM]
-	var state_idx: int = weather_states_ordered.find(weather_state)
-	if state_idx < 0:
-		state_idx = 0
+	var state_idx: int = _WEATHER_STATE_IDX.get(weather_state, 0)
 	var comp_cat: int = _compound_category(d.compound)
 	lt += float(WEATHER_COMPOUND_PENALTY[comp_cat][state_idx])
 	lt += d.fuel_laps * 0.018
@@ -1626,11 +1627,14 @@ func step(dt: float) -> void:
 		_emit("[погода] %s (круг %d)" % [wmsg, cur_lap_est], "weather")
 		if weather_state == WEATHER_RAIN or weather_state == WEATHER_VARIABLE:
 			race_frac = 0.0
+			_rain_evo_reset = true
 	# phase 1 — advance every car at its own clean pace
 	var ordered := order()
 	# track rubbering-in: race completion (leader) drives the grip-evolution term
-	if not ordered.is_empty():
-		race_frac = clampf(ordered[0].progress() / float(maxi(1, track.laps)), 0.0, 1.0)
+	if not _rain_evo_reset:
+		if not ordered.is_empty():
+			race_frac = clampf(ordered[0].progress() / float(maxi(1, track.laps)), 0.0, 1.0)
+	_rain_evo_reset = false
 	for i in ordered.size():
 		var d: Driver = ordered[i]
 		if d.finished:
