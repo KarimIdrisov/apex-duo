@@ -201,3 +201,86 @@ static func make_stat_label(
 	col.add_child(val_lbl)
 
 	return panel
+
+# ── make_card ────────────────────────────────────────────────────────────────
+# Dark panel with optional titled header row.
+# Returns PanelContainer; content is placed inside a MarginContainer (SP_MD).
+static func make_card(title: String, content: Control) -> PanelContainer:
+	var panel := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = BG_CARD
+	sb.border_color = BORDER
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(6)
+	panel.add_theme_stylebox_override("panel", sb)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	panel.add_child(col)
+
+	if title != "":
+		var header := PanelContainer.new()
+		var hdr_sb := StyleBoxFlat.new()
+		hdr_sb.bg_color = Color(0.0, 0.0, 0.0, 0.0)
+		hdr_sb.border_color = BORDER
+		hdr_sb.border_width_bottom = 1
+		hdr_sb.content_margin_left   = float(SP_MD)
+		hdr_sb.content_margin_right  = float(SP_MD)
+		hdr_sb.content_margin_top    = float(SP_SM)
+		hdr_sb.content_margin_bottom = float(SP_SM)
+		header.custom_minimum_size = Vector2(0.0, 34.0)
+		header.add_theme_stylebox_override("panel", hdr_sb)
+		var hdr_lbl := Label.new()
+		hdr_lbl.text = title
+		hdr_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		hdr_lbl.add_theme_color_override("font_color", TEXT_2)
+		hdr_lbl.add_theme_font_size_override("font_size", 12)
+		header.add_child(hdr_lbl)
+		col.add_child(header)
+
+	var wrap := MarginContainer.new()
+	for side: String in ["left", "right", "top", "bottom"]:
+		wrap.add_theme_constant_override("margin_" + side, SP_MD)
+	wrap.add_child(content)
+	col.add_child(wrap)
+
+	return panel
+
+# ── make_data_row ─────────────────────────────────────────────────────────────
+# Horizontal row (height 28 px) for leaderboard / stat rows.
+# cols: Array of { "text": String, "width": int, "color": Color, "mono": bool }
+# Returns { "node": PanelContainer, "cells": Array } — caller updates cells[i].text per tick.
+static func make_data_row(cols: Array) -> Dictionary:
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(0.0, 28.0)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = BG_RAISED
+	sb.set_corner_radius_all(3)
+	sb.content_margin_top    = 0.0
+	sb.content_margin_bottom = 0.0
+	sb.content_margin_left   = 0.0
+	sb.content_margin_right  = 0.0
+	panel.add_theme_stylebox_override("panel", sb)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 0)
+	panel.add_child(row)
+
+	var cells: Array = []
+	for col_data: Dictionary in cols:
+		var lbl := Label.new()
+		lbl.text = col_data.get("text", "")
+		var w: int = col_data.get("width", 0)
+		if w > 0:
+			lbl.custom_minimum_size = Vector2(float(w), 0.0)
+		var col_color: Color = col_data.get("color", TEXT_1)
+		lbl.add_theme_color_override("font_color", col_color)
+		lbl.add_theme_font_size_override("font_size", 11)
+		lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		var is_mono: bool = col_data.get("mono", false)
+		if is_mono and mono_font != null:
+			lbl.add_theme_font_override("font", mono_font)
+		row.add_child(lbl)
+		cells.append(lbl)
+
+	return {"node": panel, "cells": cells}
