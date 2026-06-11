@@ -80,3 +80,43 @@ static func make_badge(text: String, color: Color) -> PanelContainer:
 	lbl.add_theme_font_size_override("font_size", 10)
 	panel.add_child(lbl)
 	return panel
+
+# ── make_button ──────────────────────────────────────────────────────────────
+# Returns a Button node with custom StyleBoxes for normal/hover/pressed.
+# style: "primary" (gold) | "secondary" (outline) | "danger" (red)
+static func make_button(text: String, style: String = "primary") -> Button:
+	var btn := Button.new()
+	btn.text = text
+	btn.custom_minimum_size = Vector2(0.0, 34.0)
+	btn.add_theme_font_size_override("font_size", 11)
+
+	var lbl_color: Color
+	var sb_n: StyleBoxFlat
+	var sb_h: StyleBoxFlat
+	var sb_p: StyleBoxFlat
+
+	match style:
+		"primary":
+			lbl_color = GOLD
+			sb_n = _sb(Color(GOLD.r, GOLD.g, GOLD.b, 0.10), Color(GOLD.r, GOLD.g, GOLD.b, 0.70))
+			sb_h = _sb(Color(GOLD.r, GOLD.g, GOLD.b, 0.20), Color(GOLD.r, GOLD.g, GOLD.b, 0.90))
+			sb_p = _sb(Color(GOLD.r, GOLD.g, GOLD.b, 0.06), Color(GOLD.r, GOLD.g, GOLD.b, 0.50))
+		"danger":
+			lbl_color = RED
+			sb_n = _sb(Color(RED.r, RED.g, RED.b, 0.10), Color(RED.r, RED.g, RED.b, 0.60))
+			sb_h = _sb(Color(RED.r, RED.g, RED.b, 0.20), Color(RED.r, RED.g, RED.b, 0.80))
+			sb_p = _sb(Color(RED.r, RED.g, RED.b, 0.06), Color(RED.r, RED.g, RED.b, 0.40))
+		_:  # secondary
+			lbl_color = TEXT_2
+			sb_n = _sb(Color(0.0, 0.0, 0.0, 0.00), BORDER)
+			sb_h = _sb(Color(1.0, 1.0, 1.0, 0.05), BORDER)
+			sb_p = _sb(Color(0.0, 0.0, 0.0, 0.00), BORDER)
+
+	btn.add_theme_stylebox_override("normal",  sb_n)
+	btn.add_theme_stylebox_override("hover",   sb_h)
+	btn.add_theme_stylebox_override("pressed", sb_p)
+	btn.add_theme_color_override("font_color",         lbl_color)
+	btn.add_theme_color_override("font_hover_color",   lbl_color)
+	btn.add_theme_color_override("font_pressed_color", lbl_color)
+	btn.add_theme_color_override("font_focus_color",   lbl_color)
+	return btn
