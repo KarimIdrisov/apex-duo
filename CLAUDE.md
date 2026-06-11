@@ -22,7 +22,9 @@ Current state (stages 0–3.5, "engine v0.3"). Implemented:
 - **Race core** with a **2026 energy model**: battery State-of-Charge, clipping
   when spent, Overtake boost (DRS successor, only within ~1s), active-aero/dirty
   air, tyres (compound + wear + cliff), fuel, pace modes.
-- **Real circuits 2026** (10 named tracks with researched 0..1 characteristics)
+- **Real circuits 2026** (25 named tracks — the full modern calendar — with
+  researched 0..1 characteristics; outlines in `track_shapes.gd` from
+  f1-circuits-svg, CC BY 4.0, via `tools/svg_to_trackshapes.py`)
   and a **safety car** driven by each track's `sc_prob` (field bunching, cheaper
   pit). A hashed **events RNG** (`mix32`) keeps the SC roll well-distributed.
 - **Real 2026 grid** (11 teams / 22 drivers / power units) in `f1_2026.gd`.

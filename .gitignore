@@ -39,7 +39,14 @@ Thumbs.db
 
 # Session scratch (lint extracts, throwaway harness runs)
 outputs/
+scratch/
+
+# Fast-F1 downloaded data cache (real F1 timing/telemetry)
+.fastf1_cache/
 
 # Godot user-specific
 export_presets.cfg
 export_sections.cfg
+
+# Superpowers plugin cache
+.superpowers/
