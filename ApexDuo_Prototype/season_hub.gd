@@ -259,8 +259,7 @@ func _build_tab_overview(col: VBoxContainer, s: Season) -> void:
 
 	var track_name: String = "—"
 	if s.round_index < s.calendar.size():
-		var cal_entry: Dictionary = s.calendar[s.round_index]
-		track_name = String(cal_entry.get("name", "—"))
+		track_name = s.round_name()
 
 	var stats_row := HBoxContainer.new()
 	stats_row.add_theme_constant_override("separation", DesignSystem.SP_SM)
