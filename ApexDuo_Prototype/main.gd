@@ -175,6 +175,9 @@ func _process(delta: float) -> void:
 				quali_sim.tick(STEP)
 				quali_accum -= STEP
 				guard2 += 1
+			# parc fermé: setup locks the instant the first car is released in Q1.
+			if sim != null and quali_sim.first_release_done and not sim.parc_ferme:
+				sim.parc_ferme = true
 			_update_quali_hud()
 			if quali_sim.finished:
 				_quali_result_timer = 2.0
@@ -2327,18 +2330,14 @@ func _update_quali_hud() -> void:
 		var did: int = int(d.id)
 		if quali_sim.eliminated.has(did):
 			continue   # already eliminated — don't show unless finished
-		var t: float = float(quali_sim.times.get(did, -1.0))
+		var t: float = float(quali_sim.times.get(did, QualiSim.NO_TIME))
 		entry_list.append({"id": did, "name": d.name, "color": d.color,
 			"team": d.team, "time": t,
 			"time_set_at": float(quali_sim._time_set_at.get(did, 1e9))})
-	# Sort: drivers with times first (fastest), then no-time drivers
+	# Quali scores are NEGATIVE (lower = faster); no-time = NO_TIME (huge), so a
+	# plain ascending sort puts pole first and untimed cars last.
 	entry_list.sort_custom(func(a, b):
-		var ta: float = float(a["time"])
-		var tb: float = float(b["time"])
-		if ta < 0.0 and tb >= 0.0: return false
-		if ta >= 0.0 and tb < 0.0: return true
-		if ta < 0.0 and tb < 0.0:  return false
-		return ta < tb
+		return float(a["time"]) < float(b["time"])
 	)
 	# If session is finished, show all 22 from grid_ids
 	if quali_sim.finished:
@@ -2348,15 +2347,15 @@ func _update_quali_hud() -> void:
 			var d: RaceSim.Driver = sim.get_driver_by_id(did)
 			if d == null:
 				continue
-			var t: float = float(quali_sim.times.get(did, -1.0))
+			var t: float = float(quali_sim.times.get(did, QualiSim.NO_TIME))
 			entry_list.append({"id": did, "name": d.name, "color": d.color,
 				"team": d.team, "time": t, "pos": gp + 1})
 
-	# Find leader time
-	var leader_time: float = -1.0
+	# Find leader time (most-negative real score; ignore untimed = NO_TIME)
+	var leader_time: float = QualiSim.NO_TIME
 	for e in entry_list:
 		var et: float = float(e["time"])
-		if et >= 0.0 and (leader_time < 0.0 or et < leader_time):
+		if et < 1.0e17 and et < leader_time:
 			leader_time = et
 
 	# Determine cut-line index (P10 for Q3 display, P16 for Q1/Q2)
@@ -2375,16 +2374,12 @@ func _update_quali_hud() -> void:
 		var et: float     = float(e["time"])
 
 		var time_txt: String
-		var gap_txt: String
-		if et < 0.0:
-			time_txt = "—"
-			gap_txt  = ""
-		elif i == 0:
+		if et >= 1.0e17:
+			time_txt = "—"                       # no time set yet
+		elif i == 0 or et <= leader_time:
 			time_txt = _fmt_laptime(sim.track.base_laptime + et) if sim != null else "—"
-			gap_txt  = ""
 		else:
-			time_txt = "—" if et < 0.0 else ("+%.3f" % (et - leader_time))
-			gap_txt  = ""
+			time_txt = "+%.3f" % (et - leader_time)   # gap to pole
 
 		var display_col: String
 		if dteam:
@@ -2403,37 +2398,39 @@ func _update_quali_hud() -> void:
 	_update_quali_car_status()
 
 func _update_quali_car_status() -> void:
+	var base: float = sim.track.base_laptime if sim != null else 80.0
 	for car_id in [4, 5]:
 		var slbl: Label = _quali_p5_status if car_id == 4 else _quali_p6_status
 		if slbl == null:
 			continue
 		var did: int = car_id
-		var t: float = float(quali_sim.times.get(did, -1.0))
-		var rc: int  = int(quali_sim._run_count.get(did, 0))
-		var is_elim: bool = quali_sim.eliminated.has(did)
+		var cs: Dictionary = quali_sim.car_state(did)
+		var st: String = String(cs.get("state", "garage"))
+		var best: float = float(cs.get("best", QualiSim.NO_TIME))
+		var best_txt: String = ("  ▸ %s" % _fmt_laptime(base + best)) if best < 1.0e17 else ""
 		var txt: String
 		var col: String
-		if is_elim:
-			txt = "Выбыли"
+		if quali_sim.eliminated.has(did):
+			txt = "Выбыли" + best_txt
 			col = Palette.FINE_HEX
-		elif rc == 0:
-			var rt: float = float(quali_sim._run_time.get(did, QualiSim.SEG_DURATION))
-			if quali_sim.elapsed >= rt:
-				txt = "На круге…"
-				col = Palette.INFO_HEX
-			else:
-				txt = "Ожидает старта сегмента"
-				col = Palette.MUTED_HEX
-		elif rc >= 1 and t >= 0.0:
-			if t < 0.0:
-				txt = "Испорченная попытка!"
-				col = Palette.DANG_HEX
-			else:
-				txt = "Лучшее: %s" % _fmt_laptime(sim.track.base_laptime + t if sim != null else t)
-				col = Palette.GOOD_HEX
-		else:
-			txt = "На круге…"
+		elif st == "outlap":
+			txt = "Прогревочный круг…"
 			col = Palette.INFO_HEX
+		elif st == "push":
+			# live sector splits as the flying lap unfolds
+			var sp: Array = cs.get("splits", [])
+			var parts: Array = []
+			for i in 3:
+				var sv: float = float(sp[i]) if i < sp.size() else -1.0
+				parts.append("S%d %.1f" % [i + 1, sv] if sv >= 0.0 else "S%d --" % (i + 1))
+			txt = "БЫСТРЫЙ КРУГ  " + "  ".join(parts)
+			col = "#ffd166"
+		elif st == "done":
+			txt = "В боксах" + best_txt
+			col = Palette.GOOD_HEX
+		else:
+			txt = "В боксах — выбери окно выезда" + best_txt
+			col = Palette.MUTED_HEX
 		slbl.text = "Статус: " + txt
 		slbl.add_theme_color_override("font_color", Color(col))
 

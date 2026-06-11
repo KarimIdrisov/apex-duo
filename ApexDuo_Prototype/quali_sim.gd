@@ -35,6 +35,27 @@ const WINDOW_OFFSETS := {"early": 0.15, "mid": 0.50, "late": 0.85}
 # Scheduled run time midpoints inside the segment (deterministic, no extra rng).
 const WINDOW_MIDPOINTS := {"early": 0.15, "mid": 0.50, "late": 0.81}
 
+# ---- Release & watch (interactive: the player sends the car out, then watches
+# the flying lap unfold sector-by-sector). All deterministic. ----
+const OUTLAP_SECONDS := 6.0     # sim-seconds of out-lap before the push lap begins
+const PUSH_SECONDS   := 6.0     # sim-seconds the push lap takes (splits revealed across it)
+const INLAP_SECONDS  := 4.0     # cooldown after a push before the car can run again
+# Out-lap aggression → tyre-window heat delivered; quality peaks near OUTLAP_IDEAL.
+const OUTLAP_AGGR := {"cold": 0.55, "normal": 0.85, "hot": 1.15}
+const OUTLAP_IDEAL := 0.90
+const OUTLAP_FALLOFF := 0.35     # s/lap lost per unit² of heat miss
+const OUTLAP_PEN := 0.30         # scales (1-quality) into the lap time
+# Deterministic traffic: cars releasing within TRAFFIC_WINDOW of each other (and
+# ahead on the road) cost the later car time. Derived, never rolled.
+const TRAFFIC_WINDOW := 5.0      # sim-seconds proximity that shares the track
+const TRAFFIC_PEN := 0.035       # s/lap per clustered car ahead
+const TRAFFIC_CAP := 0.40        # max traffic loss
+# Tow: a car released just ahead gives a one-lap slipstream (power tracks).
+const TOW_WINDOW := 3.0
+const TOW_MAX := 0.10
+const NO_TIME := 1.0e18          # sentinel: no lap set (quali scores are NEGATIVE,
+								 # so 0/-1 collide with real values — use a huge value)
+
 # ---- State ------------------------------------------------------------------
 var segment: int = 0            # 0=Q1, 1=Q2, 2=Q3
 var elapsed: float = 0.0        # sim-seconds elapsed in the current segment
@@ -53,14 +74,20 @@ var sim_track_downforce: float = 0.6
 
 # Per-driver internal state for the current segment (reset each segment).
 # Stored as parallel Dictionaries for easy lookup without adding fields to Driver.
-var _window: Dictionary = {}    # driver_id -> "early"/"mid"/"late"
-var _mode:   Dictionary = {}    # driver_id -> "bank"/"attack"
-var _run_time: Dictionary = {}  # driver_id -> sim-elapsed when first run fires
-var _run_count: Dictionary = {} # driver_id -> 0/1/2
-var _second_requested: Dictionary = {} # driver_id -> bool
-var _second_run_time:  Dictionary = {} # driver_id -> float (or -1 if not scheduled)
+var _run_time: Dictionary = {}  # driver_id -> sim-elapsed scheduled AI auto-release (1e9 = player/manual)
+var _run_count: Dictionary = {} # driver_id -> attempts completed (mirrors runs)
 var _time_set_at: Dictionary = {}      # driver_id -> elapsed when best segment time set
 var _active_ids: Array = []            # driver_ids still competing (not eliminated)
+# Release & watch per-car state (current run):
+var _released: Dictionary = {}         # driver_id -> bool (out on track this run)
+var _release_t: Dictionary = {}        # driver_id -> elapsed at release
+var _outlap_aggr: Dictionary = {}      # driver_id -> "cold"/"normal"/"hot"
+var _run_type: Dictionary = {}         # driver_id -> "banker"/"flyer"
+var _push_start: Dictionary = {}       # driver_id -> elapsed when the push lap begins
+var _pending_lap: Dictionary = {}      # driver_id -> the computed lap time of the in-progress push
+var _ai_attempts: Dictionary = {}      # driver_id -> how many auto-releases the AI will make
+var _track: RaceSim.Track = null       # for sector bounds (live splits)
+var first_release_done: bool = false   # parc fermé trips on the first release in Q1
 
 # ---- _init ------------------------------------------------------------------
 func _init(drivers_in: Array, seed_value: int) -> void:
@@ -72,74 +99,104 @@ func _init(drivers_in: Array, seed_value: int) -> void:
 	for d in drivers:
 		var did: int = int(d.id)
 		_active_ids.append(did)
-		times[did]     = -1.0   # -1 = no time yet
-		runs[did]      = 0
+		times[did]     = NO_TIME   # sentinel: no time yet (quali scores are negative,
+		runs[did]      = 0         # so 0/-1 can't be a sentinel — use a huge value)
 	_start_segment()
 
 # ---- Public API -------------------------------------------------------------
 
-# Set a player's choices before or during the segment.
-# window: "early"/"mid"/"late", mode: "bank"/"attack"
-# If the run has already fired (run_count >= 1), the call is silently ignored.
+# RELEASE the car onto the circuit now (the core interactive action). It does an
+# out-lap (OUTLAP_SECONDS), then a push lap (PUSH_SECONDS, splits revealed live),
+# then sets its time. aggr: "cold"/"normal"/"hot" out-lap; run_type: "banker"/"flyer".
+# Up to 2 attempts per segment; ignored while already out or out of attempts/time.
+func release(driver_id: int, aggr: String = "normal", run_type: String = "flyer") -> void:
+	var did: int = int(driver_id)
+	if not _active_ids.has(did):
+		return
+	if bool(_released.get(did, false)):
+		return                                   # already on track this run
+	if int(runs.get(did, 0)) >= 2:
+		return                                   # used both attempts
+	# need room for out-lap + push before the segment ends
+	if finished or elapsed + OUTLAP_SECONDS + PUSH_SECONDS > SEG_DURATION:
+		return
+	_released[did] = true
+	_release_t[did] = elapsed
+	_push_start[did] = elapsed + OUTLAP_SECONDS
+	_pending_lap[did] = NO_TIME
+	if aggr in OUTLAP_AGGR:
+		_outlap_aggr[did] = aggr
+	if run_type == "banker" or run_type == "flyer":
+		_run_type[did] = run_type
+	if not first_release_done:
+		first_release_done = true                # parc fermé trips here (read by main.gd)
+
+# Window/mode UI → SCHEDULE the release: window picks when in the segment the car
+# goes out (early=greener track, late=more rubber but busier), mode picks the run
+# type. Deterministic (the car auto-releases at the scheduled tick — not on the
+# button press), so player release timing can't desync host/client.
 func set_player_choice(driver_id: int, window: String, mode: String) -> void:
 	var did: int = int(driver_id)
-	if not _active_ids.has(did):
+	if not _active_ids.has(did) or int(runs.get(did, 0)) >= 1:
 		return
-	if int(_run_count.get(did, 0)) >= 1:
-		return   # attempt already resolved; choice is too late
-	if window in WINDOW_MIDPOINTS:
-		_window[did] = window
-		_run_time[did] = SEG_DURATION * float(WINDOW_MIDPOINTS[window])
-	if mode == "bank" or mode == "attack":
-		_mode[did] = mode
+	var frac: float = float(WINDOW_MIDPOINTS.get(window, 0.50))
+	var latest: float = (SEG_DURATION - OUTLAP_SECONDS - PUSH_SECONDS - 1.0) / SEG_DURATION
+	_run_time[did] = SEG_DURATION * clampf(frac, 0.04, maxf(0.04, latest))
+	_run_type[did] = "flyer" if mode == "attack" else "banker"
+	if not _outlap_aggr.has(did):
+		_outlap_aggr[did] = "normal"
 
-# Request a second flying lap for driver_id (human call).
-# Allowed only if: first run completed, segment not ended, not already requested.
+# Set the out-lap aggression for the next release (cold/normal/hot).
+func set_outlap(driver_id: int, aggr: String) -> void:
+	if aggr in OUTLAP_AGGR:
+		_outlap_aggr[int(driver_id)] = aggr
+
+# Second run = schedule another release now (kept for the old call site).
 func request_second_run(driver_id: int) -> void:
 	var did: int = int(driver_id)
-	if not _active_ids.has(did):
+	if not _active_ids.has(did) or int(runs.get(did, 0)) != 1:
 		return
-	if int(_run_count.get(did, 0)) != 1:
+	if elapsed + OUTLAP_SECONDS + PUSH_SECONDS > SEG_DURATION:
 		return
-	if bool(_second_requested.get(did, false)):
-		return
-	if finished or elapsed >= SEG_DURATION:
-		return
-	_second_requested[did] = true
-	_second_run_time[did]  = SEG_DURATION * 0.88   # late window for the 2nd lap
+	_ai_attempts[did] = 2
+	_run_time[did] = elapsed + 0.5
 
 # Tick the simulation forward by dt sim-seconds.
 func tick(dt: float) -> void:
 	if finished:
 		return
 	elapsed += dt
-	# Resolve any car whose scheduled run time has passed.
 	for did_v in _active_ids:
 		var did: int = int(did_v)
-		# First run
-		if int(_run_count.get(did, 0)) == 0 and elapsed >= float(_run_time.get(did, SEG_DURATION)):
-			var t: float = _calc_laptime(did, elapsed)
-			_run_count[did] = 1
-			_time_set_at[did] = elapsed
-			runs[did] = 1
-			if float(times.get(did, -1.0)) < 0.0 or t < float(times.get(did, 1e9)):
-				times[did] = t
-			# AI second-run decision
-			if not bool(_second_requested.get(did, false)):
-				_ai_maybe_request_second(did, t)
-		# Second run
-		if int(_run_count.get(did, 0)) == 1 \
-				and bool(_second_requested.get(did, false)) \
-				and float(_second_run_time.get(did, -1.0)) >= 0.0 \
-				and elapsed >= float(_second_run_time.get(did, SEG_DURATION + 1.0)):
-			var t2: float = _calc_laptime(did, elapsed, "late", "attack")
-			_run_count[did] = 2
-			runs[did] = 2
-			var prev: float = float(times.get(did, 1e9))
-			if t2 < prev:
-				times[did] = t2
-				_time_set_at[did] = elapsed
-	# Segment end
+		var d: RaceSim.Driver = _get_driver(did)
+		# Scheduled auto-release at _run_time. AI cars are scheduled in
+		# _start_segment; player cars are scheduled from their window choice
+		# (set_player_choice) or an explicit release() that sets _run_time=elapsed.
+		# Deterministic (a scheduled tick, not a real-time button press → no desync).
+		if not bool(_released.get(did, false)) \
+				and int(runs.get(did, 0)) < int(_ai_attempts.get(did, 1)) \
+				and elapsed >= float(_run_time.get(did, NO_TIME)):
+			release(did, String(_outlap_aggr.get(did, "normal")),
+				String(_run_type.get(did, "flyer")))
+		# A released car: compute the push lap at push-start, finalize at push-end.
+		if bool(_released.get(did, false)):
+			var pstart: float = float(_push_start.get(did, NO_TIME))
+			if elapsed >= pstart and float(_pending_lap.get(did, NO_TIME)) > 1.0e17:
+				# push begins: lock in the lap score (splits revealed live during PUSH)
+				_pending_lap[did] = _calc_laptime(did, pstart + PUSH_SECONDS)
+			if elapsed >= pstart + PUSH_SECONDS and float(_pending_lap.get(did, NO_TIME)) < 1.0e17:
+				# push complete: bank the time (keep the BEST across attempts)
+				var t: float = float(_pending_lap[did])
+				runs[did] = int(runs.get(did, 0)) + 1
+				_run_count[did] = int(runs[did])
+				if t < float(times.get(did, NO_TIME)):
+					times[did] = t
+					_time_set_at[did] = elapsed
+				_released[did] = false
+				_pending_lap[did] = NO_TIME
+				# AI: decide on a second run (schedule another auto-release)
+				if d != null and not d.is_player and int(runs[did]) < 2:
+					_ai_maybe_request_second(did, t)
 	if elapsed >= SEG_DURATION:
 		_close_segment()
 
@@ -164,14 +221,15 @@ func apply_to_sim(sim: RaceSim) -> void:
 
 # Calculate a qualifying lap time for the given driver id.
 # If window/mode are not provided, looks them up from _window/_mode.
-func _calc_laptime(driver_id: int, cur_elapsed: float,
-		window_override: String = "", mode_override: String = "") -> float:
+func _calc_laptime(driver_id: int, set_elapsed: float,
+		_window_override: String = "", mode_override: String = "") -> float:
 	var d: RaceSim.Driver = _get_driver(driver_id)
 	if d == null:
 		return 1000.0
 	var did: int = int(driver_id)
-	var window: String = window_override if window_override != "" else String(_window.get(did, "mid"))
-	var mode:   String = mode_override   if mode_override   != "" else String(_mode.get(did,   "bank"))
+	var run_type: String = String(_run_type.get(did, "flyer"))
+	var mode: String = mode_override if mode_override != "" \
+		else ("attack" if run_type == "flyer" else "bank")
 
 	# Base pace (same terms as _run_qualifying)
 	var qt: float = -d.skill * RaceSim.SKILL_K
@@ -179,58 +237,116 @@ func _calc_laptime(driver_id: int, cur_elapsed: float,
 	qt += (1.0 - d.setup_q_quali) * RaceSim.SETUP_PEN   # qualifying reads the one-lap ideal
 	qt += float(RaceSim.COMPOUNDS["soft"]["pace"])
 
-	# Evolution bonus (§4.1): late car on a rubbered-in track is faster
-	var evo_frac: float = cur_elapsed / SEG_DURATION
-	var win_off: float  = float(WINDOW_OFFSETS.get(window, 0.5))
-	qt -= evo_frac * win_off * EVO_GAIN
+	# Track evolution: WHEN you set the lap matters — later in the segment the
+	# surface is more rubbered-in (faster). This is the early-vs-late gamble.
+	var evo_frac: float = clampf(set_elapsed / SEG_DURATION, 0.0, 1.0)
+	qt -= evo_frac * EVO_GAIN
 
-	# Mode delta (§4.2)
+	# Out-lap quality: hitting the tyre window (peaks near OUTLAP_IDEAL).
+	qt += (1.0 - _outlap_quality(did)) * OUTLAP_PEN
+	# Traffic (deterministic) + tow (slipstream on power tracks).
+	qt += _traffic_pen(did)
+	qt -= _tow_bonus(did)
+
+	# Mode delta (flyer = attack)
 	var noise_mult: float = 1.0
 	if mode == "attack":
 		qt += ATTACK_DELTA
 		noise_mult = ATTACK_SIGMA
 
-	# Noise (§4.3)
+	# Noise
 	var consist: float = _attr(d, "consistency")
 	var qnoise: float  = float(RaceSim.QUALI_NOISE_BASE) * (1.3 - consist * 0.6) * noise_mult
 	qt += qrng.rangef(-qnoise, qnoise)
 
-	# Scrappy penalty (§4.4)
+	# Scrappy penalty (worse on attack + late, when the track is busiest)
 	var comp: float     = _attr(d, "composure")
 	var scrappy_p: float = float(RaceSim.QUALI_SCRAPPY_P) * (1.3 - comp * 0.6)
 	if mode == "attack":
 		scrappy_p *= 1.6
-	if window == "late":
-		scrappy_p *= 2.0
+	if evo_frac > 0.8:
+		scrappy_p *= 1.6
 	if qrng.unit() < scrappy_p:
 		qt += qrng.rangef(float(RaceSim.QUALI_SCRAPPY_MIN), float(RaceSim.QUALI_SCRAPPY_MAX))
 
 	return qt
 
-# AI policy (§4.5): deterministic from attrs + qrng.
-# Called once per car at the start of each segment.
+
+# Out-lap quality 0..1 — heat delivered into the tyre window vs the ideal. Skill
+# (tyre + race_iq) nudges it toward ideal; the default "normal" is already near it.
+func _outlap_quality(did: int) -> float:
+	var d: RaceSim.Driver = _get_driver(did)
+	var aggr: String = String(_outlap_aggr.get(did, "normal"))
+	var heat: float = float(OUTLAP_AGGR.get(aggr, 0.85))
+	if d != null:
+		heat += (_attr(d, "tyre") - 0.5) * 0.10 + (_attr(d, "race_iq") - 0.5) * 0.06
+	var miss: float = heat - OUTLAP_IDEAL
+	return clampf(1.0 - OUTLAP_FALLOFF * miss * miss, 0.0, 1.0)
+
+
+# Deterministic traffic: count cars released within TRAFFIC_WINDOW of this car and
+# ahead on the road (earlier release_t). Iterate the fixed _active_ids order.
+func _traffic_pen(did: int) -> float:
+	var my_t: float = float(_release_t.get(did, -1.0))
+	if my_t < 0.0:
+		return 0.0
+	var cluster := 0
+	for od_v in _active_ids:
+		var od: int = int(od_v)
+		if od == did:
+			continue
+		var ot: float = float(_release_t.get(od, -1e9))
+		if ot >= 0.0 and ot < my_t and my_t - ot < TRAFFIC_WINDOW:
+			cluster += 1
+	return minf(TRAFFIC_CAP, TRAFFIC_PEN * float(cluster))
+
+
+# Tow: a car released just ahead (within TOW_WINDOW) gives a slipstream, strong on
+# power tracks (Monza), ~0 on downforce circuits (Monaco).
+func _tow_bonus(did: int) -> float:
+	var my_t: float = float(_release_t.get(did, -1.0))
+	if my_t < 0.0:
+		return 0.0
+	var best := 0.0
+	for od_v in _active_ids:
+		var od: int = int(od_v)
+		if od == did:
+			continue
+		var ot: float = float(_release_t.get(od, -1e9))
+		var gap: float = my_t - ot
+		if gap > 0.0 and gap < TOW_WINDOW:
+			best = maxf(best, (1.0 - gap / TOW_WINDOW) * TOW_MAX * sim_track_power)
+	return best
+
+# AI out-lap aggression + run type from aggression (used at auto-release).
+func _ai_policy_for(driver_id: int) -> Dictionary:
+	var d: RaceSim.Driver = _get_driver(driver_id)
+	var aggr: float = _attr(d, "aggression") if d != null else 0.5
+	var typ := "flyer" if aggr > 0.45 else "banker"
+	var ol := "hot" if aggr > 0.65 else ("normal" if aggr > 0.40 else "cold")
+	return {"aggr": ol, "type": typ}
+
+# AI release scheduling (§4.5): pick WHEN to send the car out. Aggressive drivers
+# go later (more rubber, more risk); the timing is NOISED by strat_skill so a good
+# human can match a good AI rather than face an analytic optimum (fairness rule).
 func _apply_ai_policy(driver_id: int) -> void:
 	var d: RaceSim.Driver = _get_driver(driver_id)
 	if d == null:
 		return
 	var did: int = int(driver_id)
 	var aggr: float = _attr(d, "aggression")
-	var window: String
-	var mode: String
-	if aggr > 0.65:
-		window = "late"
-		mode   = "attack"
-	elif aggr > 0.40:
-		window = "mid"
-		mode   = "attack" if qrng.unit() < 0.5 else "bank"
-	else:
-		window = "early"
-		mode   = "bank"
-	_window[did]   = window
-	_mode[did]     = mode
-	_run_time[did] = SEG_DURATION * float(WINDOW_MIDPOINTS.get(window, 0.50))
+	var base_frac: float = 0.22 + aggr * 0.45            # later for aggressive
+	var jitter: float = qrng.rangef(-0.15, 0.15) * (1.2 - d.strat_skill)
+	var latest: float = (SEG_DURATION - OUTLAP_SECONDS - PUSH_SECONDS - 1.0) / SEG_DURATION
+	var rel_frac: float = clampf(base_frac + jitter, 0.04, maxf(0.04, latest))
+	_run_time[did] = SEG_DURATION * rel_frac
+	_ai_attempts[did] = 1
+	var pol: Dictionary = _ai_policy_for(did)
+	_outlap_aggr[did] = String(pol["aggr"])
+	_run_type[did] = String(pol["type"])
 
-# AI second-run request: Q3 + time worse than estimated cut + aggressive.
+# AI second-run: Q3 + time worse than the estimated cut + aggressive → schedule
+# one more auto-release later in the segment.
 func _ai_maybe_request_second(driver_id: int, lap_time: float) -> void:
 	var did: int = int(driver_id)
 	if segment != 2:
@@ -238,31 +354,41 @@ func _ai_maybe_request_second(driver_id: int, lap_time: float) -> void:
 	var d: RaceSim.Driver = _get_driver(did)
 	if d == null or _attr(d, "aggression") <= 0.50:
 		return
-	# Estimate the P10 cut time from current times array.
 	var known: Array = []
 	for k in times:
 		var tv: float = float(times[k])
-		if tv >= 0.0:
+		if tv < 1.0e17:                  # has a real (negative) score
 			known.append(tv)
 	if known.size() < 4:
 		return
 	known.sort()
-	var cut_idx: int = mini(9, known.size() - 1)
-	var p_cut: float = float(known[cut_idx])
-	if lap_time > p_cut + SECOND_RUN_THRESHOLD:
-		_second_requested[did] = true
-		_second_run_time[did]  = SEG_DURATION * 0.88
+	var p_cut: float = float(known[mini(9, known.size() - 1)])
+	if lap_time > p_cut + SECOND_RUN_THRESHOLD \
+			and elapsed + OUTLAP_SECONDS + PUSH_SECONDS < SEG_DURATION:
+		_ai_attempts[did] = 2
+		_run_time[did] = elapsed + 1.0                  # go again now
 
 # Start a new segment: assign AI policy, schedule run times.
 func _start_segment() -> void:
 	for did_v in _active_ids:
 		var did: int = int(did_v)
+		var d: RaceSim.Driver = _get_driver(did)
 		_run_count[did]        = 0
-		_second_requested[did] = false
-		_second_run_time[did]  = -1.0
 		_time_set_at[did]      = -1.0
 		runs[did]              = 0
-		_apply_ai_policy(did)   # sets _window/_mode/_run_time for non-players
+		_released[did]         = false
+		_release_t[did]        = -1.0
+		_push_start[did]       = NO_TIME
+		_pending_lap[did]      = NO_TIME
+		_ai_attempts[did]      = 1
+		_outlap_aggr[did]      = "normal"
+		_run_type[did]         = "flyer"
+		if d != null and not d.is_player:
+			_apply_ai_policy(did)       # AI: schedule auto-release by aggression
+		else:
+			# player default: a mid-window run if the engineer leaves it alone
+			# (never a punishment); the window/mode UI overrides this.
+			_run_time[did] = SEG_DURATION * 0.50
 
 # Close the current segment: eliminate the slowest cars, advance to next.
 func _close_segment() -> void:
@@ -334,16 +460,47 @@ func _build_final_grid() -> void:
 	for did in q1_elim:
 		grid_ids.append(int(did))
 
+# Per-car interactive state for the watch UI: state name + live sector splits.
+# state: "garage" / "outlap" / "push" / "done". splits: 3 floats (-1 = not yet).
+func car_state(did: int) -> Dictionary:
+	var splits: Array = [-1.0, -1.0, -1.0]
+	var st := "garage"
+	if not _active_ids.has(int(did)):
+		st = "done"
+	elif bool(_released.get(did, false)):
+		var pstart: float = float(_push_start.get(did, 1e18))
+		if elapsed < pstart:
+			st = "outlap"
+		else:
+			st = "push"
+			var score: float = float(_pending_lap.get(did, NO_TIME))
+			if score < 1.0e17:
+				# absolute lap time for display = base + relative quali score
+				var lap: float = _track.base_laptime + score if _track != null else 80.0 + score
+				var prog: float = clampf((elapsed - pstart) / PUSH_SECONDS, 0.0, 1.0)
+				var b1: float = 0.33
+				var b2: float = 0.67
+				if _track != null and _track.sector_bounds.size() >= 2:
+					b1 = float(_track.sector_bounds[0])
+					b2 = float(_track.sector_bounds[1])
+				var bounds: Array = [b1, b2, 1.0]
+				var prev := 0.0
+				for i in 3:
+					if prog >= float(bounds[i]):
+						splits[i] = lap * (float(bounds[i]) - prev)
+					prev = float(bounds[i])
+	elif int(runs.get(did, 0)) > 0:
+		st = "done"
+	return {"state": st, "splits": splits, "best": float(times.get(int(did), -1.0))}
+
 # Build a compact snapshot Dictionary for network broadcast.
 func make_snapshot() -> Dictionary:
 	var times_str: Dictionary = {}
 	for k in times:
 		times_str[str(k)] = float(times[k])
-	var on_lap: Array = []
+	var cars: Dictionary = {}
 	for did_v in _active_ids:
-		var did: int = int(did_v)
-		if int(_run_count.get(did, 0)) == 0 and float(_run_time.get(did, SEG_DURATION)) <= elapsed:
-			on_lap.append(did)
+		cars[str(int(did_v))] = car_state(int(did_v))
 	var elim_copy: Array = []
 	for v in eliminated:
 		elim_copy.append(int(v))
@@ -352,13 +509,14 @@ func make_snapshot() -> Dictionary:
 		"elapsed":      elapsed,
 		"seg_duration": SEG_DURATION,
 		"times":        times_str,
-		"on_lap":       on_lap,
+		"cars":         cars,
 		"eliminated":   elim_copy,
 		"finished":     finished,
 	}
 
 # Convenience: set track params from the RaceSim track.
 func set_track(track: RaceSim.Track) -> void:
+	_track              = track
 	sim_track_power     = track.power
 	sim_track_downforce = track.downforce
 
