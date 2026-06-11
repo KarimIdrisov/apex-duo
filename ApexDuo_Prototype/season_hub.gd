@@ -597,6 +597,7 @@ func _build_car_stats(s: Season) -> Control:
 		v.add_child(row_lbl)
 
 		var pb := ProgressBar.new()
+		pb.show_percentage = false
 		pb.max_value = 1.0
 		pb.value = stat_val
 		pb.custom_minimum_size = Vector2(0.0, 10.0)
