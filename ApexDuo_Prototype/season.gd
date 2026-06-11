@@ -1133,10 +1133,11 @@ func _collect_sponsor_income(dnf_ids: Array, fl_id: int, order_ids: Array) -> in
 	# Goals are evaluated first (before income collection).
 	_evaluate_sponsor_goals(order_ids, dnf_ids, fl_id)
 	var total: int = 0
-	for sp in active_sponsors:
+	var comm_mult: float = hq_commercial_mult()
+	for sp: Dictionary in active_sponsors:
 		if not bool(sp.get("active", true)):
 			continue
-		var base: int = int(sp.get("base_payment", 0))
+		var base: int = int(float(sp.get("base_payment", 0)) * comm_mult)
 		total += base
 		# Bonus: single-race goals that were just met this round, or any-3-races that
 		# just hit 3, or season-scope that just met.
@@ -1152,6 +1153,7 @@ func _collect_sponsor_income(dnf_ids: Array, fl_id: int, order_ids: Array) -> in
 				})
 		payout_log.append({"round": round_index + 1, "amount": base,
 			"from": String(sp.get("name", "?"))})
+	total += hq_commercial_flat()
 	# Trim log to last 20 entries (UI only needs recent)
 	if payout_log.size() > 20:
 		payout_log = payout_log.slice(payout_log.size() - 20)
