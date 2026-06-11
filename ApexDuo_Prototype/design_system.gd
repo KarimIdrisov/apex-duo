@@ -185,7 +185,7 @@ static func make_stat_label(
 	panel.add_child(col)
 
 	var key_lbl := Label.new()
-	key_lbl.text = key
+	key_lbl.text = key.to_upper()
 	key_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	key_lbl.add_theme_color_override("font_color", TEXT_3)
 	key_lbl.add_theme_font_size_override("font_size", 9)
