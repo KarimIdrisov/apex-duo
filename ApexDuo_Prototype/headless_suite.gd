@@ -47,6 +47,7 @@ func _run_race(ti: int, seed_v: int) -> Dictionary:
 			viol += 1
 	return {
 		"track": track.name, "seed": seed_v, "passes": passes, "dnfs": dnfs,
+		"start_inc": sim.start_incidents,
 		"avg_pits": snappedf(float(pits) / float(sim.drivers.size()), 0.01),
 		"plan2": plan2, "two_stoppers": two_stop, "covers": covers,
 		"fin_soc": snappedf(soc_sum / float(max(1, nfin)), 0.1),

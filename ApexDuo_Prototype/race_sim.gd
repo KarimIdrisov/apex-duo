@@ -163,6 +163,26 @@ const QUALI_SCRAPPY_MAX := 0.55    # maximum time cost of a scrappy lap (s)
 const START_GAIN_K     := 0.012   # lap-frac per (starts − 0.5) unit
 const START_NOISE_AMP  := 0.002   # random noise added to the start launch (lap-frac)
 const START_MAX_SHIFT  := 2       # hard cap: max grid slots gained/lost at start
+# Getaway outcomes (one erng roll per car at lights-out, by attributes — NOT a
+# reaction minigame, so co-op latency / AFK is never punished; AI rolls the same).
+const BOG_BASE := 0.60            # bog-down chance scale × (1−starts) × (1.3−composure)
+								  # (tuned for ~1.3 bogs/race with a high-skill F1 field)
+const BOG_LOSS_MIN := 1.2
+const BOG_LOSS_MAX := 3.5
+const JUMP_BASE := 0.06           # jump-start chance × (1−discipline) × (1−composure)
+const JUMP_PENALTY := 5.0         # s added to finish_time + finish_key (like 2-compound +20)
+const JUMP_GAIN := 0.0015         # small launch gain from anticipating (lap-frac)
+const STALL_BASE := 0.035         # stall chance × (1−starts)²  (rare, big loss)
+const STALL_LOSS_MIN := 6.0
+const STALL_LOSS_MAX := 12.0
+# In-race "save" lever (lift-and-coast): trade pace for energy bank + fuel margin.
+const SAVE_PACE := 0.25           # s/lap slower while saving
+const SAVE_SOC_REGEN := 0.6       # extra %/s SoC regen on straights while saving
+const SAVE_FUEL_RATE := 0.82      # fuel laps burned per lap while saving (vs 1.0)
+const FUEL_PUSH_BURN := 1.06      # fuel laps burned per lap in push pace
+const FUEL_MARGIN_LAPS := 1.0     # default load = race distance + this (so doing nothing is safe)
+const FUEL_CRITICAL := 0.4        # below this many laps of fuel → starvation penalty
+const FUEL_STARVE_PEN := 1.5      # s/lap when starving (v1: pace-only, NO DNF)
 
 # FM-style driver attributes (1..20). Verified in the Python harness: they shape
 # behaviour (tyre life, overtaking, defending, errors) on top of base pace.
@@ -401,6 +421,7 @@ class Driver:
 	var pace_mode: String = "balanced"
 	# --- 2026 energy (battery State of Charge) ---
 	var ers_mode: String = "balanced"  # harvest / balanced / attack
+	var save: bool = false             # lift-and-coast: bank energy + fuel for SAVE_PACE s/lap
 	var overtake: bool = false         # Overtake boost armed (fires within 1s)
 	var soc: float = 80.0              # battery charge 0..100 (%) — pulses within a lap (v0.5)
 	var soc_avg: float = 80.0          # lap-smoothed SoC: AI/radio decisions read this, not the raw pulse
@@ -416,6 +437,7 @@ class Driver:
 	var pitting: bool = false
 	var pit_request_compound: String = ""
 	var finished: bool = false
+	var time_penalty: float = 0.0  # added to finish_time + finish_key (jump-start, etc.)
 	var finish_time: float = -1.0
 	var finish_key: float = 0.0    # classification: shared-timeline instant the
 	                               # finish line was crossed (sub-tick precise);
@@ -613,6 +635,7 @@ var wetness: float = 0.0             # 0..1 track wetness (0 = dry)
 var race_frac: float = 0.0           # 0..1 race completion (leader) — drives track rubbering-in
 var passes_on_straight: int = 0      # diagnostics: how many completed passes happened on a straight
 var covers_called: int = 0           # diagnostics: undercut-cover calls made (M-S1)
+var start_incidents: int = 0         # diagnostics: getaway incidents (bog/jump/stall) at the start
 var wet_start: float = 1.1           # race fraction the rain starts (>1 = stays dry)
 var wet_end: float = 1.2             # race fraction the rain stops
 var wet_peak: float = 0.7            # peak wetness of the shower
@@ -659,7 +682,9 @@ func _init(track_in: Track, drivers_in: Array, seed_value: int = 12345) -> void:
 	# RNG sequence (pace/wear/pits) is identical to a sim that had no qualifying at all.
 	qrng = RNG.new(mix32(mix32(seed_value)))
 	for d in drivers:
-		d.fuel_laps = float(track.laps)
+		# default load = race distance + margin → finishing without managing fuel is
+		# always safe; pushing burns it faster (risk), saving banks it (FUEL_*).
+		d.fuel_laps = float(track.laps) + FUEL_MARGIN_LAPS
 		d.ai_pit_wear = _strat_pit_wear(d)
 		# M-S2: plan two stops where the wear maths demand it (abrasive track
 		# identity); only a competent strategist commits to the aggressive plan.
@@ -836,6 +861,27 @@ func _race_start() -> void:
 			+ rng.rangef(-START_NOISE_AMP, START_NOISE_AMP)
 		launch = clampf(launch, -max_shift, max_shift)
 		d.lap_frac = maxf(0.0, d.lap_frac + launch)
+		# Getaway outcome — one erng roll per car, by attributes (no reaction input).
+		var st: float = _attr(d, "starts")
+		var comp: float = _attr(d, "composure")
+		var p_stall: float = STALL_BASE * pow(1.0 - st, 2.0)
+		var p_jump: float = JUMP_BASE * (1.0 - _attr(d, "discipline")) * (1.0 - comp)
+		var p_bog: float = BOG_BASE * (1.0 - st) * (1.3 - comp)
+		var g: float = erng.unit()
+		if g < p_stall:
+			d.pit_timer = maxf(d.pit_timer, erng.rangef(STALL_LOSS_MIN, STALL_LOSS_MAX))
+			d.had_incident = true
+			start_incidents += 1
+			_emit("%s: заглох на старте!" % d.name, "incident")
+		elif g < p_stall + p_jump:
+			d.lap_frac = maxf(0.0, d.lap_frac + JUMP_GAIN)   # anticipated → small jump
+			d.time_penalty += JUMP_PENALTY                   # but a 5 s penalty
+			start_incidents += 1
+			_emit("%s: фальстарт — штраф 5 секунд." % d.name, "penalty")
+		elif g < p_stall + p_jump + p_bog:
+			d.pit_timer = maxf(d.pit_timer, erng.rangef(BOG_LOSS_MIN, BOG_LOSS_MAX))
+			start_incidents += 1
+			_emit("%s: пробуксовка на старте — потеря позиций." % d.name, "incident")
 	# First-lap incident: a seeded shuffle at Turn 1.
 	if erng.unit() < _t1_incident_prob():
 		var pool: Array = []
@@ -933,6 +979,10 @@ func current_laptime(d: Driver, ahead_gap: float = -1.0) -> float:
 	lt += d.aero_damage * DMG_K        # floor/wing damage until repaired in the pits
 	lt += COMPOUNDS[d.compound]["pace"]
 	lt += PACE_MODES[d.pace_mode]["pace"]
+	if d.save:
+		lt += SAVE_PACE                # lift-and-coast: slower, but banks energy + fuel
+	if d.fuel_laps < FUEL_CRITICAL and not d.finished:
+		lt += FUEL_STARVE_PEN          # running on fumes (v1: pace-only, no DNF)
 	# 2026 energy: a spent battery loses the electric boost (worse on power tracks).
 	if d.clipped:
 		lt += CLIP_PENALTY * (0.6 + 0.8 * track.power)
@@ -999,6 +1049,8 @@ func _update_soc(d: Driver, dt: float, lt: float, ahead_gap: float) -> void:
 			# store no longer bottoms out in balanced. High-el tracks ~unaffected.
 			var el_scale: float = SOC_EL_SCALE0 + (1.0 - SOC_EL_SCALE0) * pow(track.energy_limit, SOC_EL_EXP)
 			rate = -float(SOC_DEPLOY_PS[d.ers_mode]) * el_scale
+			if d.save:
+				rate += SAVE_SOC_REGEN    # lift before the braking zone → bank charge
 			if _ot_effective(d, ahead_gap):
 				rate -= OT_DRAIN_PS
 	else:
@@ -1079,6 +1131,13 @@ func _ai_energy(d: Driver, ahead_gap: float, behind_gap: float) -> void:
 		return
 	d.pace_mode = _situational_pace(d, ahead_gap)
 	_situational_energy(d, ahead_gap, behind_gap)
+	# Fuel save (lift-and-coast): an AI lifts only when it lacks a comfortable
+	# margin to the flag; a smart driver (race_iq) saves a touch earlier. With the
+	# default load this almost never fires — it bites a car that over-pushed.
+	var fuel_left := track.laps - d.lap
+	d.save = fuel_left > 1 and d.fuel_laps - float(fuel_left) < (0.3 + _attr(d, "race_iq") * 0.5)
+	if d.save and d.pace_mode == "push":
+		d.pace_mode = "balanced"
 	# M-S3: the race leader manages the gap, not flat-out — with a 4s+ cushion
 	# and healthy tyres he cruises (saves tyres, banks battery); racing resumes
 	# when the cushion shrinks. Never in the final laps.
@@ -1586,7 +1645,13 @@ func step(dt: float) -> void:
 					fastest_lap = d.best_lap
 					fastest_id = d.id
 					_emit("%s — быстрейший круг (%.1f)" % [d.name, d.best_lap], "flap")
-			d.fuel_laps = max(0.0, d.fuel_laps - 1.0)
+			# fuel burn rate: push burns more, save (lift-and-coast) burns less.
+			var burn := 1.0
+			if d.save:
+				burn = SAVE_FUEL_RATE
+			elif d.pace_mode == "push":
+				burn = FUEL_PUSH_BURN
+			d.fuel_laps = max(0.0, d.fuel_laps - burn)
 			if d.yield_laps > 0:
 				d.yield_laps -= 1
 			if d.lap >= track.laps:
@@ -1597,6 +1662,11 @@ func step(dt: float) -> void:
 				d.finish_key = elapsed - clampf(d.lap_frac, 0.0, 1.0) * maxf(d.last_lt, 1.0)
 				d.lap_frac = 0.0
 				d.finish_time = elapsed
+				# accrued time penalties (jump-start, etc.) apply to both the
+				# displayed time and the classification key.
+				if d.time_penalty > 0.0:
+					d.finish_time += d.time_penalty
+					d.finish_key += d.time_penalty
 				# Two-compound rule: in a dry race, at least two different slick
 				# compounds must be used. AI always complies; this only bites a human
 				# car that started and finished on the same compound without a pit stop.
@@ -2062,6 +2132,11 @@ func set_overtake(car_id: int, on: bool) -> void:
 	var d := get_driver_by_id(car_id)
 	if d != null and d.is_player:
 		d.overtake = on
+
+func set_save(car_id: int, on: bool) -> void:
+	var d := get_driver_by_id(car_id)
+	if d != null and d.is_player:
+		d.save = on
 
 func get_driver_by_id(car_id: int) -> Driver:
 	for d in drivers:
