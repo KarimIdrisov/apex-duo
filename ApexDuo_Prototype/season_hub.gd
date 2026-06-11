@@ -561,7 +561,117 @@ func _build_page_overview(v: VBoxContainer, s: Season) -> void:
 	v.add_child(_build_standings(s))
 
 # ================================================================ PAGE: БОЛИД
+func _build_car_stats(s: Season) -> Control:
+	s.apply_car_rd()
+	var car: Dictionary = F1_2026.team_car(s.player_team)
+	var power_val: float = float(car.get("power", 0.0))
+	var aero_val: float = float(car.get("aero", 0.0))
+	var energy_val: float = float(car.get("energy", 0.0))
+	var rel_val: float = float(car.get("rel", 0.0))
+
+	var pc := _panel()
+	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	v.add_child(_hlabel("ХАРАКТЕРИСТИКИ БОЛИДА", 16, Palette.CREAM_HEX))
+
+	var stats: Array = [
+		["МОЩНОСТЬ",    power_val,  Palette.WARN_HEX],
+		["АЭРО",        aero_val,   Palette.GOLD_HEX],
+		["ЭНЕРГИЯ",     energy_val, Palette.INFO_HEX],
+		["НАДЁЖНОСТЬ",  rel_val,    Palette.GOOD_HEX],
+	]
+
+	for si: int in range(stats.size()):
+		var stat_info: Array = stats[si]
+		var stat_name: String = String(stat_info[0])
+		var stat_val: float = float(stat_info[1])
+		var stat_col: String = String(stat_info[2])
+
+		var row_lbl := HBoxContainer.new()
+		row_lbl.add_theme_constant_override("separation", 4)
+		var name_l := _label(stat_name, 12, stat_col)
+		name_l.custom_minimum_size = Vector2(110.0, 0.0)
+		row_lbl.add_child(name_l)
+		row_lbl.add_child(_label("%d%%" % int(round(stat_val * 100.0)), 12, Palette.CREAM_HEX))
+		v.add_child(row_lbl)
+
+		var pb := ProgressBar.new()
+		pb.max_value = 1.0
+		pb.value = stat_val
+		pb.custom_minimum_size = Vector2(0.0, 10.0)
+		pb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		pb.add_theme_color_override("fill_color", Color(stat_col))
+		v.add_child(pb)
+
+	pc.add_child(v)
+	return pc
+
+
+func _build_field_comparison(s: Season) -> Control:
+	s.apply_car_rd()
+	s.apply_ai_dev()
+
+	var pc := _panel()
+	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 4)
+	v.add_child(_hlabel("СРАВНЕНИЕ С ПЕЛОТОНОМ", 16, Palette.CREAM_HEX))
+
+	# Build list of [combined, team_name, is_player]
+	var teams_data: Array = []
+	for ti: int in range(11):
+		var tc: Dictionary = F1_2026.team_car(ti)
+		var combined: float = float(tc.get("power", 0.0)) + float(tc.get("aero", 0.0))
+		var tname: String = String((F1_2026.TEAMS[ti] as Dictionary).get("name", "?"))
+		var is_player: bool = ti == s.player_team
+		teams_data.append([combined, tname, is_player])
+
+	# Sort descending by combined
+	teams_data.sort_custom(func(a: Array, b: Array) -> bool:
+		return float(a[0]) > float(b[0]))
+
+	for td_entry in teams_data:
+		var combined: float = float(td_entry[0])
+		var tname: String = String(td_entry[1])
+		var is_player: bool = bool(td_entry[2])
+		var bar_col: String = Palette.GOLD_HEX if is_player else Palette.MUTED_HEX
+
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+
+		var name_lbl := _label(tname, 11, bar_col)
+		name_lbl.custom_minimum_size = Vector2(120.0, 0.0)
+		name_lbl.clip_text = true
+		row.add_child(name_lbl)
+
+		var bar_outer := PanelContainer.new()
+		bar_outer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var bar_outer_sb := StyleBoxFlat.new()
+		bar_outer_sb.bg_color = Color(0.12, 0.12, 0.16, 1.0)
+		bar_outer_sb.content_margin_top    = 0.0
+		bar_outer_sb.content_margin_bottom = 0.0
+		bar_outer_sb.content_margin_left   = 0.0
+		bar_outer_sb.content_margin_right  = 0.0
+		bar_outer.add_theme_stylebox_override("panel", bar_outer_sb)
+
+		var bar_inner := ColorRect.new()
+		bar_inner.color = Color(bar_col)
+		# combined max is ~2.0 (two stats each up to ~1.0); scale bar to 150px per unit
+		bar_inner.custom_minimum_size = Vector2(combined * 150.0, 12.0)
+		bar_outer.add_child(bar_inner)
+		row.add_child(bar_outer)
+
+		row.add_child(_label("%.0f" % (combined * 50.0), 11, Palette.MUTED_HEX))
+		v.add_child(row)
+
+	pc.add_child(v)
+	return pc
+
+
 func _build_page_car(v: VBoxContainer, s: Season) -> void:
+	v.add_child(_build_car_stats(s))
+	v.add_child(_build_field_comparison(s))
 	v.add_child(_build_rnd(s))
 	v.add_child(_build_suppliers(s))
 
