@@ -493,6 +493,7 @@ class Driver:
 	var mini_entry_time: float = -1.0     # elapsed when entered current mini-sector
 	var mini_times_this_lap: Array = []   # size 17; -1.0 = not yet done this lap
 	var mini_best: Array = []             # size 17; personal best per mini
+	var mini_prev: Array = []             # last completed lap mini times (for green sector tier)
 	# --- AI brain v2 (Phase 1): attack patience ---
 	var attack_laps: int = 0       # consecutive laps camped within attack range
 	var attack_backed: bool = false  # stalled attack abandoned — strike at the stops
@@ -759,9 +760,11 @@ func _init_sector_state(d: Driver) -> void:
 	var n_mini: int = track.mini_sector_bounds.size()
 	d.mini_times_this_lap = []
 	d.mini_best = []
+	d.mini_prev = []
 	for _i in n_mini:
 		d.mini_times_this_lap.append(-1.0)
 		d.mini_best.append(-1.0)
+		d.mini_prev.append(-1.0)
 	d.cur_mini = 0
 	for mi in n_mini:
 		if d.lap_frac >= float(track.mini_sector_bounds[mi]):
@@ -1911,6 +1914,7 @@ func _on_lap_complete(d: Driver) -> void:
 	d.cur_sector = 0
 	d.sector_entry_time = elapsed
 	d.soc_at_sector[0] = d.soc_avg
+	d.mini_prev = d.mini_times_this_lap.duplicate()
 	d.cur_mini = 0
 	d.mini_entry_time = elapsed
 	d.mini_times_this_lap = []
