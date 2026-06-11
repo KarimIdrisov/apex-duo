@@ -64,6 +64,7 @@ func _ready() -> void:
 	if Net.role() == "host" and Net.partner_connected:
 		Net.net_season_full.rpc(Season.active.to_dict())
 	_rebuild()
+	_show_pending_event()
 
 # Called by Net when the host broadcasts net_season_full (client side only).
 func _on_season_updated() -> void:
@@ -1738,6 +1739,57 @@ func _goal_ru(sp: Dictionary) -> String:
 		"no_dnf":      return "Ни одного схода (%s)" % scope_ru
 		"fastest_lap": return "Быстрейший круг (%s)" % scope_ru
 	return gtype
+
+func _show_pending_event() -> void:
+	var s: Season = Season.active
+	if s == null or s.pending_event.is_empty():
+		return
+	var ev: Dictionary = s.pending_event
+
+	# Dark overlay covering the whole scene
+	var overlay := ColorRect.new()
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.color = Color(0.0, 0.0, 0.0, 0.65)
+	add_child(overlay)
+
+	# Modal card centred on screen
+	var modal := PanelContainer.new()
+	modal.custom_minimum_size = Vector2(480.0, 0.0)
+	modal.set_anchors_preset(Control.PRESET_CENTER)
+	add_child(modal)
+
+	var mv := VBoxContainer.new()
+	mv.add_theme_constant_override("separation", 14)
+	mv.custom_minimum_size = Vector2(440.0, 0.0)
+	var title_txt: String = String(ev.get("title", "Событие"))
+	mv.add_child(_hlabel(title_txt, 20, Palette.GOLD_HEX))
+	mv.add_child(_label(String(ev.get("body", "")), 14, Palette.CREAM_HEX))
+	mv.add_child(_spacer(8))
+
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 12)
+	btn_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var btn_a := _button(String(ev.get("opt_a", "А")), 14)
+	btn_a.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_a.pressed.connect(func():
+		s.resolve_event(0)
+		overlay.queue_free()
+		modal.queue_free()
+		_rebuild())
+	btn_row.add_child(btn_a)
+
+	var btn_b := _button(String(ev.get("opt_b", "Б")), 14)
+	btn_b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_b.pressed.connect(func():
+		s.resolve_event(1)
+		overlay.queue_free()
+		modal.queue_free()
+		_rebuild())
+	btn_row.add_child(btn_b)
+
+	mv.add_child(btn_row)
+	modal.add_child(mv)
 
 func _arch_ru(a: String) -> String:
 	match a:

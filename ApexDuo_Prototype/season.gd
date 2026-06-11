@@ -256,6 +256,86 @@ const JUNIOR_LOAN_INCOME: int = 100_000
 const PROMOTE_ATTR_DIV: float = 250.0      # dev delta = (attr − 10) / 250
 
 # ============================================================
+# RANDOM EVENTS
+static var EVENT_CHANCE: float = 0.70
+static var EVENT_SEED_MIX2: int = 0x6E7E77
+
+static var EVENT_TEMPLATES: Array = [
+	{
+		"id": "engineering",
+		"title": "Инженерное решение",
+		"body": "Инженеры предлагают рискованный апгрейд: временная прибавка мощности, но стоит $80к.",
+		"opt_a": "Одобрить (риск)",
+		"opt_b": "Отказаться",
+		"eff_a": {"money": -80_000, "car_power": 0.015, "expires_after": 2},
+		"eff_b": {}
+	},
+	{
+		"id": "sponsor_bonus",
+		"title": "Спонсорский бонус",
+		"body": "Спонсор предлагает $60к немедленно или $100к при финише в топ-8.",
+		"opt_a": "Взять сейчас (+$60к)",
+		"opt_b": "Поставить на результат",
+		"eff_a": {"money": 60_000},
+		"eff_b": {"conditional_money": 100_000, "condition": "top8", "expires_after": 1}
+	},
+	{
+		"id": "driver_conflict",
+		"title": "Конфликт в гараже",
+		"body": "Пилоты поссорились из-за тактики. Штраф $40к или потеря морали.",
+		"opt_a": "Заплатить ($40к)",
+		"opt_b": "Принять потери (−мораль)",
+		"eff_a": {"money": -40_000},
+		"eff_b": {"morale": -0.10}
+	},
+	{
+		"id": "part_failure",
+		"title": "Отказ компонента",
+		"body": "Обнаружена трещина в шасси. Замена $70к или риск надёжности.",
+		"opt_a": "Заменить ($70к)",
+		"opt_b": "Рискнуть",
+		"eff_a": {"money": -70_000},
+		"eff_b": {"car_rel": -0.020, "expires_after": 2}
+	},
+	{
+		"id": "staff_offer",
+		"title": "Предложение сотруднику",
+		"body": "Соперник переманивает нашего специалиста. Удержать (+$50к) или отпустить.",
+		"opt_a": "Удержать (+$50к)",
+		"opt_b": "Отпустить",
+		"eff_a": {"money": -50_000},
+		"eff_b": {"staff_loyalty": -0.15}
+	},
+	{
+		"id": "media",
+		"title": "Медийный момент",
+		"body": "Интервью пилота стало вирусным: команда на подъёме.",
+		"opt_a": "Отлично!",
+		"opt_b": "Без комментариев",
+		"eff_a": {"morale": 0.05},
+		"eff_b": {}
+	},
+	{
+		"id": "rule_vote",
+		"title": "Голосование FIA",
+		"body": "Голосование по изменению техрегламента. Поддержать или заблокировать.",
+		"opt_a": "Поддержать (аэро +)",
+		"opt_b": "Заблокировать (мощность +)",
+		"eff_a": {"car_aero": 0.008, "expires_after": 4},
+		"eff_b": {"car_power": 0.008, "expires_after": 4}
+	},
+	{
+		"id": "logistics",
+		"title": "Логистический кризис",
+		"body": "Груз застрял на таможне. Экстренная доставка $60к или опоздание (−мораль).",
+		"opt_a": "Экстренная доставка ($60к)",
+		"opt_b": "Опоздать",
+		"eff_a": {"money": -60_000},
+		"eff_b": {"morale": -0.08}
+	},
+]
+
+# ============================================================
 # HQ BUILDINGS
 # ---------------------------------------------------------------
 static var HQ_BUILDINGS := {
@@ -486,6 +566,10 @@ var custom_driver_names: Dictionary = {}
 # CAR-2: part condition (part_key -> 0..1, 1.0 = fresh) + season replacement pool
 var part_condition: Dictionary = {}
 var replacements_used: int = 0
+
+# Random events
+var pending_event: Dictionary = {}
+var active_event_effects: Array = []
 
 # HQ: persistent team base buildings (building_id -> level 0..3)
 var hq_levels: Dictionary = {}
@@ -2182,6 +2266,56 @@ func cap_status_text() -> String:
 	var penalty: int = maxi(1, over / CAP_PENALTY_DIVISOR)
 	return "Зарплатный кап: ПРЕВЫШЕН на $%s (штраф %d RP)" % [_format_money(over), penalty]
 
+# ---------------------------------------------------------------- Random events
+func generate_event() -> void:
+	pending_event = {}
+	var erng2 := RandomNumberGenerator.new()
+	erng2.seed = (cal_seed + round_index * 7919) & 0xFFFFFFFF
+	erng2.seed = erng2.seed ^ EVENT_SEED_MIX2
+	if erng2.randf() > EVENT_CHANCE:
+		return
+	var tidx: int = erng2.randi() % EVENT_TEMPLATES.size()
+	pending_event = (EVENT_TEMPLATES[tidx] as Dictionary).duplicate(true)
+
+func resolve_event(choice: int) -> void:
+	if pending_event.is_empty():
+		return
+	var eff_key: String = "eff_a" if choice == 0 else "eff_b"
+	var eff: Dictionary = pending_event.get(eff_key, {})
+	_apply_event_effect(eff)
+	pending_event = {}
+
+func _apply_event_effect(eff: Dictionary) -> void:
+	if eff.is_empty():
+		return
+	if eff.has("money"):
+		money += int(eff["money"])
+	if eff.has("morale"):
+		for id: int in TEAM_IDS:
+			driver_morale[id] = clampi(int(float(driver_morale.get(id, 70)) + float(eff["morale"]) * 100.0), 0, 100)
+	if eff.has("staff_loyalty"):
+		for s: Dictionary in staff:
+			s["loyalty"] = clampf(float(s.get("loyalty", 0.5)) + float(eff["staff_loyalty"]), 0.0, 1.0)
+	if eff.has("car_aero") or eff.has("car_power") or eff.has("car_rel") or eff.has("conditional_money"):
+		var entry: Dictionary = eff.duplicate(true)
+		entry["expires_after_race"] = round_index + int(eff.get("expires_after", 1))
+		active_event_effects.append(entry)
+
+func tick_event_effects() -> void:
+	var keep: Array = []
+	for e: Dictionary in active_event_effects:
+		if round_index < int(e.get("expires_after_race", 0)):
+			keep.append(e)
+	active_event_effects = keep
+
+func event_car_delta() -> Dictionary:
+	var out: Dictionary = {"d_aero": 0.0, "d_power": 0.0, "d_rel": 0.0}
+	for e: Dictionary in active_event_effects:
+		out["d_aero"]  += float(e.get("car_aero",  0.0))
+		out["d_power"] += float(e.get("car_power", 0.0))
+		out["d_rel"]   += float(e.get("car_rel",   0.0))
+	return out
+
 # Simple money formatter (no Godot deps — mirrors _money() in season_hub.gd).
 func _format_money(v: int) -> String:
 	var s := str(absi(v))
@@ -2263,6 +2397,9 @@ func configure(tier: int, diff: int, is_coop: bool) -> void:
 		_init_staff()
 	# M5: scouting market for the season (loads restore it directly).
 	ensure_junior_market()
+	# Random events: generate the first round's event if not already loaded from a save.
+	if pending_event.is_empty() and active_event_effects.is_empty() and round_index == 0:
+		generate_event()
 
 func difficulty_name() -> String:
 	return DIFFICULTY[difficulty]["name"]
@@ -2363,12 +2500,13 @@ func car_rd_deltas() -> Dictionary:
 # player car for this race. Call this before _make_sim (e.g. from the race launch).
 func apply_car_rd() -> void:
 	var d: Dictionary = car_rd_deltas()
+	var ev: Dictionary = event_car_delta()
 	F1_2026.apply_rd_upgrades(
 		player_team,
-		float(d["d_aero"]) + hq_aero_bonus(),
-		float(d["d_power"]),
+		float(d["d_aero"]) + hq_aero_bonus() + float(ev["d_aero"]),
+		float(d["d_power"]) + float(ev["d_power"]),
 		float(d["d_energy"]),
-		float(d["d_ch_rel"]),
+		float(d["d_ch_rel"]) + float(ev["d_rel"]),
 		float(d["d_eng_rel"])
 	)
 
@@ -2587,6 +2725,8 @@ func apply_results(order_ids: Array, dnf_ids: Array = [], fl_id: int = -1,
 	_advance_ai_dev()
 	round_index += 1
 	hq_try_complete()
+	tick_event_effects()
+	generate_event()
 	# META-3: pay driver salaries and evaluate cap after each round
 	_pay_salaries()
 
@@ -2754,6 +2894,9 @@ func to_dict() -> Dictionary:
 		"hq_levels":                hq_levels.duplicate(true),
 		"hq_building_in_progress":  hq_building_in_progress,
 		"hq_build_completes_after": hq_build_completes_after,
+		# Random events
+		"pending_event":        pending_event.duplicate(true),
+		"active_event_effects": active_event_effects.duplicate(true),
 	}
 
 func save_to_disk() -> void:
@@ -3111,6 +3254,16 @@ static func _apply_dict(s: Season, data: Dictionary) -> void:
 			s.hq_levels[k] = int(float((hq_raw as Dictionary)[k]))
 	s.hq_building_in_progress = String(data.get("hq_building_in_progress", ""))
 	s.hq_build_completes_after = int(float(data.get("hq_build_completes_after", -1)))
+	# Random events restore
+	s.pending_event = {}
+	var pe_raw: Variant = data.get("pending_event", null)
+	if typeof(pe_raw) == TYPE_DICTIONARY:
+		s.pending_event = (pe_raw as Dictionary).duplicate(true)
+	s.active_event_effects = []
+	var aee_raw: Variant = data.get("active_event_effects", null)
+	if typeof(aee_raw) == TYPE_ARRAY:
+		for e: Dictionary in (aee_raw as Array):
+			s.active_event_effects.append((e as Dictionary).duplicate(true))
 	# Prime F1_2026's static R&D state so the loaded upgrades take effect immediately.
 	s.apply_car_rd()
 	s.apply_ai_dev()   # re-prime F1_2026._dev_deltas with the loaded rival development
