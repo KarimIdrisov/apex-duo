@@ -1789,7 +1789,7 @@ func _build_practice_overlay() -> void:
 	# track temp from the weekend conditions — drives the setup/тyre puzzle
 	var rtemp: float = float(sim.conditions.get("race_temp", 30.0)) if sim != null else 30.0
 	var temp_word := "прохладно" if rtemp < 28.0 else ("жарко" if rtemp > 35.0 else "умеренно")
-	var focus := ["грубый поиск — убей крупные ошибки",
+	var focus: String = ["грубый поиск — убей крупные ошибки",
 		"направления + длинная серия (данные на гонку)",
 		"финальная доводка перед закрытым парком"][clampi(_practice_session, 0, 2)]
 	var hint := Label.new()
@@ -1894,7 +1894,7 @@ func _build_practice_card(cid: int) -> Control:
 		b.text = "%s (%s)" % [String(spec["ru"]), cost]
 		b.add_theme_font_size_override("font_size", 13)
 		b.custom_minimum_size = Vector2(150, 34)
-		var rk_c := rk
+		var rk_c: String = rk
 		b.pressed.connect(func() -> void: _on_practice_run(cid_b, rk_c))
 		type_btns[rk] = b
 		btn_row.add_child(b)
