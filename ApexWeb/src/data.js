@@ -53,9 +53,9 @@ export const ERS_MODES = {
 };
 
 // tuning constants (start points from race_sim.gd; calibrated in tools/balance.mjs)
-export const SKILL_K   = 3.0;    // s/lap per unit skill above 0.5
+export const SKILL_K   = 7.0;    // s/lap per unit skill above 0.5
 export const CAR_K     = 1.2;    // s/lap per (power-aero)*(pw-df) track-character bias
-export const DNF_BASE  = 0.005;  // per-lap mechanical-failure scale * (1-rel)
+export const DNF_BASE  = 0.0075; // per-lap mechanical-failure scale * (1-rel)
 export const CLIP_PEN  = 0.32;   // s/lap when battery spent
 export const STEP      = 0.25;   // sim time-step (seconds)
 export const COMBAT_GAP = 0.8;   // seconds: within this, two cars fight
