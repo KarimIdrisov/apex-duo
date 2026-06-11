@@ -1624,6 +1624,8 @@ func step(dt: float) -> void:
 		}
 		var wmsg: String = String(wstate_names.get(weather_state, "Погода меняется"))
 		_emit("[погода] %s (круг %d)" % [wmsg, cur_lap_est], "weather")
+		if weather_state == WEATHER_RAIN or weather_state == WEATHER_VARIABLE:
+			race_frac = 0.0
 	# phase 1 — advance every car at its own clean pace
 	var ordered := order()
 	# track rubbering-in: race completion (leader) drives the grip-evolution term
