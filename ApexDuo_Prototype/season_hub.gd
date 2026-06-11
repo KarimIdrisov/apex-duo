@@ -740,6 +740,9 @@ func _build_hq(s: Season) -> Control:
 			var eff_arr: Array = Season.HQ_EFFECT_DESC.get(bid, [])
 			if eff_arr.size() >= cur_lv:
 				bv.add_child(_label(String(eff_arr[cur_lv - 1]), 12, Palette.GOOD_HEX))
+			var unimplemented_buildings: Array = ["wind_tunnel", "simulator", "academy_hq", "telemetry"]
+			if unimplemented_buildings.has(bid):
+				bv.add_child(_label("(эффект в разработке)", 10, Palette.MUTED_HEX))
 
 		if cur_lv < 3 and can_unlock:
 			var cost: int = s.hq_build_cost(bid)
@@ -765,7 +768,7 @@ func _build_hq(s: Season) -> Control:
 			if bdef2.has("unlock"):
 				lock_txt = "Требует: %s" % String(bdef2["unlock"]).replace("@", " Ур.")
 			elif bdef2.has("unlock_season"):
-				lock_txt = "Доступно с %d-го сезона" % int(bdef2["unlock_season"])
+				lock_txt = "Доступно после %d этапов" % (int(bdef2["unlock_season"]) * 8)
 			bv.add_child(_label(lock_txt, 11, Palette.MUTED_HEX))
 
 		building_card.add_child(bv)
@@ -1416,7 +1419,8 @@ func _build_pitcrew(s: Season) -> Control:
 	var sim_staff: Dictionary = s.staff_for_sim()
 	var spd: float = Personnel.pit_speed(sim_staff)
 	var cons: float = Personnel.pit_consistency(sim_staff)
-	var est: float = RaceSim.STOP_TIME_BASE - RaceSim.STOP_TIME_SPEED_K * spd
+	var est_base: float = RaceSim.STOP_TIME_BASE - RaceSim.STOP_TIME_SPEED_K * spd
+	var est: float = s.pit_crew_time(est_base)
 	var sig: float = RaceSim.STOP_TIME_SIGMA_MIN + RaceSim.STOP_TIME_SIGMA_K * (1.0 - cons)
 	v.add_child(_label("Расчётный стоп: %.2f с ± %.2f с" % [est, sig], 14, "#5dd17a"))
 	if s.pit_fatigue_penalty() > 0.0:

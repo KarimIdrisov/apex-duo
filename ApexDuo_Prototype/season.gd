@@ -165,7 +165,7 @@ const HIRE_REP_BONUS: float = 0.20     # constructors P1-3 / P8+ reputation swin
 # Departure: loyalty below threshold -> LEAVE_PROB chance at end of round.
 const LEAVE_LOYALTY: float = 0.25
 const LEAVE_PROB: float = 0.30
-const ROUNDS_PER_SEASON: int = 5
+const ROUNDS_PER_SEASON: int = 25
 
 # ============================================================
 # M3: DEEP CAR — suppliers + buy-vs-develop + ATR
@@ -742,7 +742,7 @@ func _new_contract(driver_id: int, tier: int) -> Dictionary:
 		"driver_id": driver_id,
 		"salary_per_round": sal,
 		"length_seasons": CONTRACT_LENGTH_DEFAULT,
-		"rounds_remaining": CONTRACT_LENGTH_DEFAULT * 5,
+		"rounds_remaining": CONTRACT_LENGTH_DEFAULT * 25,
 		# M4: status (Первый/Второй, "" = not assigned) + podium bonus clause
 		"status": "",
 		"bonus_podium": BONUS_CLAUSE_PODIUM,
@@ -827,7 +827,7 @@ func resign_driver(driver_id: int) -> bool:
 	for i in contracts.size():
 		var c: Dictionary = contracts[i]
 		if int(c.get("driver_id", -1)) == driver_id:
-			c["rounds_remaining"] = CONTRACT_LENGTH_DEFAULT * 5
+			c["rounds_remaining"] = CONTRACT_LENGTH_DEFAULT * 25
 			c["length_seasons"] = CONTRACT_LENGTH_DEFAULT
 			return true
 	return false
@@ -848,7 +848,7 @@ func sign_rival(driver_id: int, rival_skill: float, rival_salary: int) -> bool:
 		var c: Dictionary = contracts[i]
 		if int(c.get("driver_id", -1)) == driver_id:
 			c["salary_per_round"] = rival_salary
-			c["rounds_remaining"] = CONTRACT_LENGTH_DEFAULT * 5
+			c["rounds_remaining"] = CONTRACT_LENGTH_DEFAULT * 25
 			c["length_seasons"] = CONTRACT_LENGTH_DEFAULT
 			return true
 	return false
@@ -2014,7 +2014,7 @@ func promote_junior(ji: int, driver_id: int) -> bool:
 		var c: Dictionary = contracts[i]
 		if int(c.get("driver_id", -1)) == driver_id:
 			c["salary_per_round"] = 60_000
-			c["rounds_remaining"] = CONTRACT_LENGTH_DEFAULT * 5
+			c["rounds_remaining"] = CONTRACT_LENGTH_DEFAULT * 25
 			c["length_seasons"] = CONTRACT_LENGTH_DEFAULT
 	_staff_log_add("Академия: %s повышен в Формулу-1!" % jname)
 	juniors.remove_at(ji)
@@ -2382,9 +2382,8 @@ func hq_can_unlock(id: String) -> bool:
 		return false
 	var bdef: Dictionary = HQ_BUILDINGS[id]
 	if bdef.has("unlock_season"):
-		var needed_season: int = int(bdef["unlock_season"])
-		var cur_season: int = round_index / 25 + 1
-		if cur_season < needed_season:
+		var required_rounds: int = int(bdef["unlock_season"]) * 8
+		if round_index < required_rounds:
 			return false
 	if bdef.has("unlock"):
 		var parts: Array = String(bdef["unlock"]).split("@")
@@ -2448,6 +2447,12 @@ func hq_commercial_flat() -> int:
 func hq_pit_reduction() -> float:
 	var reductions: Array = [0.0, 0.10, 0.20, 0.30]
 	return float(reductions[hq_level("pit_workshop")])
+
+# Returns the estimated pit-stop duration in seconds after applying the
+# pit_workshop HQ reduction. Floor of 1.8 s prevents nonsensical values.
+# base_time should be the crew-speed-based estimate before the HQ effect.
+func pit_crew_time(base_time: float) -> float:
+	return maxf(1.8, base_time - hq_pit_reduction())
 
 # Per-TEAM constructor position (1-based), keyed by F1_2026 team_idx.
 # standings are keyed by GRID id (0..21); the grid maps each id -> team_idx, so we
@@ -2952,7 +2957,7 @@ static func _apply_dict(s: Season, data: Dictionary) -> void:
 					"driver_id":         int(float(cd.get("driver_id", fallback_id))),
 					"salary_per_round":  int(float(cd.get("salary_per_round", fallback_sal))),
 					"length_seasons":    int(float(cd.get("length_seasons", CONTRACT_LENGTH_DEFAULT))),
-					"rounds_remaining":  int(float(cd.get("rounds_remaining", CONTRACT_LENGTH_DEFAULT * 5))),
+					"rounds_remaining":  int(float(cd.get("rounds_remaining", CONTRACT_LENGTH_DEFAULT * 25))),
 					# M4: status + podium clause (defaults for pre-M4 saves)
 					"status":            String(cd.get("status", "")),
 					"bonus_podium":      int(float(cd.get("bonus_podium", BONUS_CLAUSE_PODIUM))),
