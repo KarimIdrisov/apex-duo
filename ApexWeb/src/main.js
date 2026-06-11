@@ -2,7 +2,7 @@
 import { Weekend } from "./weekend.js";
 import { LocalNet, P2PNet } from "./net.js";
 import { Race } from "./sim.js";
-import { TEAMS, TRACK, STEP } from "./data.js";
+import { TEAMS, TRACK, STEP, GRID_GAP } from "./data.js";
 import * as lobby from "./ui/lobby.js";
 import * as practice from "./ui/practice.js";
 import * as setup from "./ui/setup.js";
@@ -39,7 +39,10 @@ function onCommand(cmd) {
     case "set_pace":  ctx.race?.setPace(cmd.car, cmd.mode); break;
     case "set_ers":   ctx.race?.setErs(cmd.car, cmd.mode); break;
     case "request_pit": ctx.race?.requestPit(cmd.car, cmd.compound); break;
-    case "toggle_pause": ctx.paused = !ctx.paused; break;
+    case "toggle_pause":
+      ctx.paused = !ctx.paused;
+      if (ctx.race) pushRaceState();   // reflect pause on both screens immediately
+      break;
     case "set_setup": ctx.setups = ctx.setups || {}; ctx.setups[cmd.player] = cmd.setup; break;
     case "quali_risk":
       ctx.qrisk = ctx.qrisk || {};
@@ -52,8 +55,17 @@ function onPhaseHost() {
   if (ctx.weekend.phase === "race") startRaceHost();
 }
 function startRaceHost() {
-  // build field: player team's two drivers flagged, rest AI (filled in Task 15)
-  // ctx.race = new Race(field, TRACK, seed); ctx.race.gridStart();
+  const field = buildField();
+  ctx.race = new Race(field, TRACK, 1000 + (ctx.seed || 0));
+  // apply the quali grid as the start order (fastest quali -> P1), spread by slot
+  const withRisk = field.map(f => ({ ...f, risk: f.player ? (ctx.qrisk?.[f.player] ?? 0.5) : 0.5 }));
+  const grid = buildGrid(withRisk, TRACK, 1234);
+  grid.forEach((g, slot) => {
+    const c = ctx.race.cars[g.idx];
+    c.lap = 0; c.lapFrac = -slot * (GRID_GAP / TRACK.lt);
+  });
+  ctx.paused = false;
+  ctx._frame = 0;
 }
 // build the full 22-car field: player team's two drivers flagged, rest AI.
 // Reused by quali grid and the race start (Task 15).
@@ -81,13 +93,31 @@ function broadcastQualiGrid() {
   rerender();
 }
 
+// serialise the authoritative race state for the client + the host's own UI.
+function raceSnapshot() {
+  return {
+    type: "snapshot", phase: "race", paused: ctx.paused, finished: ctx.race.finished,
+    cars: ctx.race.order().map(c => ({
+      idx: c.idx, pos: c.pos, abbrev: c.abbrev, color: c.color, player: c.player,
+      lap: c.lap, lapFrac: c.lapFrac, tyre: c.tyre, wear: c.wear, soc: c.soc,
+      pace: c.pace, ers: c.ers, retired: c.retired, isPlayer: c.isPlayer,
+    })),
+  };
+}
+function pushRaceState() {
+  const snap = raceSnapshot();
+  ctx.snapshot = snap;
+  if (ctx.net) ctx.net.send(snap);
+  rerender();
+}
 function hostLoop() {
   if (ctx.role === "host" && ctx.weekend.phase === "race" && ctx.race && !ctx.paused) {
-    ctx.race.step(STEP);
-    ctx.net.send({ type: "snapshot", phase: "race", paused: ctx.paused,
-      cars: ctx.race.order().map(c => ({ idx:c.idx, pos:c.pos, abbrev:c.abbrev, color:c.color,
-        lap:c.lap, lapFrac:c.lapFrac, tyre:c.tyre, wear:c.wear, soc:c.soc, pace:c.pace,
-        ers:c.ers, retired:c.retired, isPlayer:c.isPlayer })) });
+    ctx.race.step(STEP);                                    // ~60 ticks/s -> ~15x realtime (~6 min race)
+    if ((++ctx._frame % 5) === 0) pushRaceState();          // throttle broadcast/render to ~12 Hz
+    if (ctx.race.finished) {
+      pushRaceState();
+      ctx.weekend.setReady("p1"); ctx.weekend.setReady("p2");  // race -> result (onPhase broadcasts)
+    }
   }
   requestAnimationFrame(hostLoop);
 }
