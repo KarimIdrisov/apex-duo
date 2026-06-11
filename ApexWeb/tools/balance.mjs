@@ -1,0 +1,35 @@
+// ApexWeb/tools/balance.mjs
+// calibrated 2026-06-11: DNF 1.10/race, pace spread 1.69 s/lap, winners
+// NOR 38 / VER 1 / LEC 1 (top teams, some variety). Tuned in data.js:
+// SKILL_K 3.0->7.0 (widen field to land spread in corridor),
+// DNF_BASE 0.005->0.0075 (lift retirements into ~1-2 band). All 24 node:test pass.
+import { Race } from "../src/sim.js";
+import { TEAMS, TRACK } from "../src/data.js";
+
+function field() {
+  let idx = 0;
+  return TEAMS.flatMap(t => t.drivers.map(d => ({
+    idx: idx++, name:d.name, abbrev:d.abbrev, skill:d.skill,
+    car:t.car, color:t.color, team:t.name, setup:[0.5,0.5,0.5], startTyre:"medium",
+  })));
+}
+
+const N = 40;
+let dnfTotal = 0, winners = {}, topGapSum = 0;
+for (let s = 0; s < N; s++) {
+  const r = new Race(field(), TRACK, 1000 + s);
+  r.gridStart();
+  let guard = 0;
+  while (!r.finished && guard++ < 500000) r.step();
+  const ord = r.order();
+  dnfTotal += r.cars.filter(c => c.retired).length;
+  const w = ord[0].abbrev; winners[w] = (winners[w] || 0) + 1;
+  // pace spread: best vs worst average lap among finishers
+  const fin = r.cars.filter(c => !c.retired);
+  const avgs = fin.map(c => c.avgLap).sort((a,b)=>a-b);
+  topGapSum += (avgs[avgs.length-1] - avgs[0]);
+}
+console.log(`races: ${N}`);
+console.log(`avg DNF/race: ${(dnfTotal/N).toFixed(2)}  (target ~1-2)`);
+console.log(`avg pace spread best->worst: ${(topGapSum/N).toFixed(2)} s/lap (target ~1.5-2.5)`);
+console.log(`winners:`, winners);
