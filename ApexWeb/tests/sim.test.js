@@ -49,3 +49,38 @@ test("determinism: same seed -> identical finish order", () => {
   const b = runToFinish(7).order().map(c => c.abbrev);
   assert.deepEqual(a, b);
 });
+
+// append to ApexWeb/tests/sim.test.js
+import { COMBAT_GAP } from "../src/data.js";
+
+test("invariant: lap completions never exceed lap counter", () => {
+  const r = new Race(field(), TRACK, 99);
+  let guard = 0;
+  while (!r.finished && guard++ < 500000) {
+    r.step();
+    for (const c of r.cars) assert.ok(c.lapFrac >= 0 && c.lapFrac < 1.0001, `frac=${c.lapFrac}`);
+  }
+});
+
+test("a clearly faster car gains positions over a stint", () => {
+  const f = field();
+  const r = new Race(f, TRACK, 3);
+  // car 21 (Боттас) has the lowest skill -> grid him last FIRST, then give him a
+  // big pace edge and check he carves forward (gridStart sorts by skill, so the
+  // boost must come after the grid is set, or he'd start at the front).
+  r.gridStart(); // skill-sorted grid: lowest skill (car 21) starts last
+  r.cars[21].skill = 1.0; r.cars[21].car = { power:0.99, aero:0.99, energy:0.95, rel:0.99 };
+  const startPos = r.order().find(c => c.idx === 21).pos;
+  for (let i = 0; i < 6000; i++) r.step();
+  const endPos = r.order().find(c => c.idx === 21).pos;
+  assert.ok(endPos < startPos, `start=${startPos} end=${endPos}`);
+});
+
+test("requestPit serves a stop and switches compound", () => {
+  const r = new Race(field(), TRACK, 5);
+  r.requestPit(0, "hard");
+  let guard = 0;
+  while (r.cars[0].lap < 3 && guard++ < 50000) r.step();
+  assert.equal(r.cars[0].tyre, "hard");
+  assert.ok(r.cars[0].pitStops === 1);
+});

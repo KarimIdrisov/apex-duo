@@ -1,6 +1,6 @@
 // ApexWeb/src/sim.js
 import { RNG, mix32 } from "./rng.js";
-import { COMPOUNDS, PACE_MODES, ERS_MODES, SKILL_K, CAR_K, CLIP_PEN, STEP } from "./data.js";
+import { COMPOUNDS, PACE_MODES, ERS_MODES, SKILL_K, CAR_K, CLIP_PEN, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP } from "./data.js";
 
 export class Race {
   constructor(field, track, seed) {
@@ -18,6 +18,7 @@ export class Race {
       tyre: f.startTyre ?? "medium", wear: 0, soc: 60,
       pace: "balanced", ers: "balanced",
       retired: false, pitPending: null, pos: i + 1,
+      pitStops: 0, pitTimer: 0,
     }));
   }
 
@@ -63,10 +64,59 @@ export class Race {
         const comp = COMPOUNDS[c.tyre], pm = PACE_MODES[c.pace], em = ERS_MODES[c.ers];
         c.wear += comp.wear * pm.wear;
         c.soc = Math.max(0, Math.min(100, c.soc + em.soc));
-        if (c.lap >= this.track.laps) c.retired = c.retired; // finishers handled in order()
+        this._serveLapEnd(c); // phase 3: pit + DNF (finishers handled in order())
       }
     }
+    this._resolveCombat();
     if (this.cars.every(c => c.retired || c.lap >= this.track.laps)) this.finished = true;
+  }
+
+  requestPit(i, compound) { this.cars[i].pitPending = compound; }
+
+  // spread the start by skill: best skill -> P1, GRID_GAP seconds per slot
+  gridStart() {
+    const sorted = [...this.cars].sort((a, b) => b.skill - a.skill);
+    sorted.forEach((c, slot) => { c.lap = 0; c.lapFrac = -slot * (GRID_GAP / this.track.lt); });
+  }
+
+  // combat: a follower within COMBAT_GAP of the car ahead is held up and builds
+  // pass-credit from its pace edge; passes when credit beats track resistance.
+  // Writes ONLY lapFrac (relative to the car's own lap). Never assigns lap.
+  _resolveCombat() {
+    const ord = this.order(); // sorted leaders-first; pos set
+    for (let i = 1; i < ord.length; i++) {
+      const ahead = ord[i - 1], me = ord[i];
+      if (me.retired || ahead.retired) continue;
+      const gapLaps = (ahead.lap + ahead.lapFrac) - (me.lap + me.lapFrac);
+      const gapSec = gapLaps * this.track.lt;
+      if (gapSec > 0 && gapSec < COMBAT_GAP && me.lap === ahead.lap) {
+        const edge = this._lapTime(ahead) - this._lapTime(me);   // >0 => me faster
+        me._passCredit = (me._passCredit ?? 0) + Math.max(0, edge) * (me.ers === "attack" ? 1.5 : 1);
+        const resist = (1 - this.track.ot) * 2.0;                 // high where ot low
+        if (me._passCredit < resist) {
+          // pinned: clamp just behind the car ahead (dirty-air hold-up)
+          const target = (ahead.lap + ahead.lapFrac) - (COMBAT_GAP * 0.5) / this.track.lt;
+          const desiredFrac = target - me.lap;
+          if (desiredFrac < me.lapFrac) me.lapFrac = Math.max(0, desiredFrac);
+        } else {
+          me._passCredit = 0; // pass completes naturally next ticks (no lap write)
+        }
+      } else {
+        me._passCredit = 0;
+      }
+    }
+  }
+
+  _serveLapEnd(c) {
+    // called at lap completion in step(); handles pit + DNF
+    if (c.pitPending) {
+      c.tyre = c.pitPending; c.pitPending = null; c.wear = 0;
+      c.pitStops += 1; c.totalTime += this.track.pit;
+      c.lapFrac -= this.track.pit / this.track.lt;            // lose pit time on track
+      if (c.lapFrac < 0) c.lapFrac = 0;
+    }
+    const pm = PACE_MODES[c.pace];
+    if (this.erng.unit() < DNF_BASE * (1 - c.car.rel) * pm.risk) c.retired = true;
   }
 
   // race position: more laps first, then further along current lap
