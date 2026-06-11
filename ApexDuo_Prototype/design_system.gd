@@ -120,3 +120,84 @@ static func make_button(text: String, style: String = "primary") -> Button:
 	btn.add_theme_color_override("font_pressed_color", lbl_color)
 	btn.add_theme_color_override("font_focus_color",   lbl_color)
 	return btn
+
+# ── make_progress_bar ────────────────────────────────────────────────────────
+# Returns a VBox: key row (label + pct) + ProgressBar (height 5 px).
+# Caller updates pb.value per tick — get it via returned dict "pb" key.
+static func make_progress_bar(
+		label_text: String, value: float, max_val: float, color: Color) -> Dictionary:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 3)
+
+	var row := HBoxContainer.new()
+	col.add_child(row)
+
+	var key_lbl := Label.new()
+	key_lbl.text = label_text
+	key_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	key_lbl.add_theme_color_override("font_color", TEXT_3)
+	key_lbl.add_theme_font_size_override("font_size", 9)
+	row.add_child(key_lbl)
+
+	var safe_max: float = max_val if max_val > 0.0 else 1.0
+	var pct: int = int(value / safe_max * 100.0)
+	var val_lbl := Label.new()
+	val_lbl.text = "%d%%" % pct
+	val_lbl.add_theme_color_override("font_color", TEXT_3)
+	val_lbl.add_theme_font_size_override("font_size", 9)
+	if mono_font != null:
+		val_lbl.add_theme_font_override("font", mono_font)
+	row.add_child(val_lbl)
+
+	var pb := ProgressBar.new()
+	pb.custom_minimum_size = Vector2(0.0, 5.0)
+	pb.max_value = safe_max
+	pb.value = value
+	pb.show_percentage = false
+	var fill_sb := StyleBoxFlat.new()
+	fill_sb.bg_color = color
+	fill_sb.set_corner_radius_all(3)
+	var bg_sb := StyleBoxFlat.new()
+	bg_sb.bg_color = BORDER
+	bg_sb.set_corner_radius_all(3)
+	pb.add_theme_stylebox_override("fill", fill_sb)
+	pb.add_theme_stylebox_override("background", bg_sb)
+	col.add_child(pb)
+
+	return {"node": col, "pb": pb, "val_lbl": val_lbl}
+
+# ── make_stat_label ──────────────────────────────────────────────────────────
+# Returns a PanelContainer: small key label above large mono value.
+static func make_stat_label(
+		key: String, value: String, value_color: Color = TEXT_1) -> PanelContainer:
+	var panel := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = BG_RAISED
+	sb.set_corner_radius_all(4)
+	sb.content_margin_left   = float(SP_SM)
+	sb.content_margin_right  = float(SP_SM)
+	sb.content_margin_top    = float(SP_SM)
+	sb.content_margin_bottom = float(SP_SM)
+	panel.add_theme_stylebox_override("panel", sb)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 4)
+	panel.add_child(col)
+
+	var key_lbl := Label.new()
+	key_lbl.text = key
+	key_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	key_lbl.add_theme_color_override("font_color", TEXT_3)
+	key_lbl.add_theme_font_size_override("font_size", 9)
+	col.add_child(key_lbl)
+
+	var val_lbl := Label.new()
+	val_lbl.text = value
+	val_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	val_lbl.add_theme_color_override("font_color", value_color)
+	val_lbl.add_theme_font_size_override("font_size", 15)
+	if mono_font != null:
+		val_lbl.add_theme_font_override("font", mono_font)
+	col.add_child(val_lbl)
+
+	return panel
