@@ -961,11 +961,17 @@ func sign_free_agent(slot: int, skill: float, salary: int, age: int) -> bool:
 		var c: Dictionary = contracts[i]
 		if int(c.get("driver_id", -1)) == did:
 			c["salary_per_round"] = salary
-			c["rounds_remaining"] = ROUNDS_PER_SEASON
+			c["skill"] = skill
+			c["rounds_remaining"] = CONTRACT_LENGTH_DEFAULT * ROUNDS_PER_SEASON
 			c["length_seasons"] = CONTRACT_LENGTH_DEFAULT
-			c["status"] = "second"
+			c["status"] = "first" if slot == 4 else "second"
 			break
 	driver_age[did] = age
+	# Update F1_2026 static grid so the new skill affects the next race
+	var team_drivers: Array = F1_2026.TEAMS[player_team].get("drivers", [])
+	var driver_idx: int = slot - 4   # 0 for P5 (slot 4), 1 for P6 (slot 5)
+	if driver_idx < team_drivers.size():
+		(team_drivers[driver_idx] as Dictionary)["skill"] = skill
 	return true
 
 # Upgrade salary for a driver (promotes default -> premium).

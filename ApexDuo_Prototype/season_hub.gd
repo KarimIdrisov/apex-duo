@@ -1127,18 +1127,17 @@ func _build_contracts(s: Season) -> Control:
 
 	s.apply_car_rd()
 	s.apply_ai_dev()
-	var market_grid: Array = F1_2026.race_grid({})
+	var market_grid: Array = F1_2026.race_grid(s.player_team)
 	var net_role_mkt: String = Net.role()
 
 	for gi: int in range(market_grid.size()):
 		var gd: Dictionary = market_grid[gi]
-		var gid: int = int(gd.get("id", -1))
-		if Season.TEAM_IDS.has(gid):
+		if bool(gd.get("team", false)):
 			continue
 
 		var gname: String = String(gd.get("name", ""))
 		var gskill: float = float(gd.get("skill", 0.5))
-		var gage: int = 20 + (gid % 22)
+		var gage: int = 20 + (gi % 22)
 		var gsalary: int = int(gskill * 30_000.0) + 10_000
 		var fee: int = gsalary * 3
 		var tier_diff: float = gskill - float(s.team_tier) / 10.0
