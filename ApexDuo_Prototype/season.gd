@@ -503,6 +503,7 @@ var grid_names: Array = []         # 10 driver names by grid id (for standings)
 var driver_dev := {}               # team driver id -> accumulated skill growth (LEGACY; kept for migration)
 var driver_attr_dev := {}          # META-2: driver id -> {attr: cumulative_skill_delta}
 var driver_morale := {}            # team driver id -> morale 0..100
+var driver_age: Dictionary = {}    # driver_id (int) -> age (int)
 var standings := {}                # driver id -> championship points
 var calendar := []
 var last_summary := {}             # filled after each race for the hub
@@ -936,6 +937,36 @@ func sign_rival(driver_id: int, rival_skill: float, rival_salary: int) -> bool:
 			c["length_seasons"] = CONTRACT_LENGTH_DEFAULT
 			return true
 	return false
+
+# Effective skill for a player driver, accounting for age-based decline above 33.
+func driver_effective_skill(driver_id: int) -> float:
+	var c: Dictionary = contract_of(driver_id)
+	var base: float = float(c.get("skill", 0.80)) if not c.is_empty() else 0.80
+	var age: int = int(driver_age.get(driver_id, 27))
+	if age > 33:
+		base -= float(age - 33) * 0.005
+	return clampf(base, 0.50, 1.0)
+
+# Sign a free agent (from the market list) into one of the player's driver seats.
+# slot: 4 = P5, 5 = P6. Fee = salary * 3.
+# Returns true on success (money deducted), false if insufficient funds.
+func sign_free_agent(slot: int, skill: float, salary: int, age: int) -> bool:
+	var fee: int = salary * 3
+	if money < fee:
+		return false
+	money -= fee
+	var did: int = TEAM_IDS[slot - 4]
+	# Update the contract slot for this driver (contracts is an Array of Dicts)
+	for i in contracts.size():
+		var c: Dictionary = contracts[i]
+		if int(c.get("driver_id", -1)) == did:
+			c["salary_per_round"] = salary
+			c["rounds_remaining"] = ROUNDS_PER_SEASON
+			c["length_seasons"] = CONTRACT_LENGTH_DEFAULT
+			c["status"] = "second"
+			break
+	driver_age[did] = age
+	return true
 
 # Upgrade salary for a driver (promotes default -> premium).
 # Returns true if money was sufficient.
@@ -2400,6 +2431,13 @@ func configure(tier: int, diff: int, is_coop: bool) -> void:
 	# Random events: generate the first round's event if not already loaded from a save.
 	if pending_event.is_empty() and active_event_effects.is_empty() and round_index == 0:
 		generate_event()
+	# Driver age: generate once per season from cal_seed (load path restores via _apply_dict).
+	if driver_age.is_empty():
+		var age_rng := RandomNumberGenerator.new()
+		age_rng.seed = (cal_seed ^ 0xA6E5) & 0xFFFFFFFF
+		driver_age = {}
+		for did: int in TEAM_IDS:
+			driver_age[did] = age_rng.randi_range(22, 30)
 
 func difficulty_name() -> String:
 	return DIFFICULTY[difficulty]["name"]
@@ -2852,6 +2890,7 @@ func to_dict() -> Dictionary:
 		"difficulty": difficulty,
 		"driver_dev": [driver_dev[TEAM_IDS[0]], driver_dev[TEAM_IDS[1]]],
 		"driver_morale": [driver_morale[TEAM_IDS[0]], driver_morale[TEAM_IDS[1]]],
+		"driver_age": driver_age.duplicate(true),
 		# META-2: per-attribute dev (keyed by string id so JSON round-trips cleanly)
 		"driver_attr_dev": _attr_dev_to_dict(),
 		"standings": st,
@@ -3059,6 +3098,9 @@ static func _apply_dict(s: Season, data: Dictionary) -> void:
 	if typeof(mr) == TYPE_ARRAY and mr.size() == TEAM_IDS.size():
 		for i in TEAM_IDS.size():
 			s.driver_morale[TEAM_IDS[i]] = int(mr[i])
+	if data.has("driver_age"):
+		for k: String in (data["driver_age"] as Dictionary):
+			s.driver_age[int(k)] = int(float((data["driver_age"] as Dictionary)[k]))
 	var ls: Variant = data.get("last_summary", {})
 	if typeof(ls) == TYPE_DICTIONARY and not (ls as Dictionary).is_empty():
 		var lsd: Dictionary = ls as Dictionary

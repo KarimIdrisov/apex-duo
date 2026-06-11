@@ -1050,6 +1050,8 @@ func _build_contracts(s: Season) -> Control:
 				dname, role_txt, _money(sal), rem_txt, status_txt], 14, contract_col))
 			row.add_child(_label("клауза: +$%s пилоту за подиум" % _money(
 				int(c.get("bonus_podium", 0))), 12, "#7c8694"))
+			var age_lbl := _label("(возраст %d)" % s.driver_age.get(driver_id, 27), 12, MUTED)
+			row.add_child(age_lbl)
 
 			var bar2 := HBoxContainer.new()
 			bar2.add_theme_constant_override("separation", 6)
@@ -1117,41 +1119,63 @@ func _build_contracts(s: Season) -> Control:
 		v.add_child(_label("Следующий штраф за превышение: -%d RP" % s.cap_penalty_pending,
 			13, Palette.DANG_HEX))
 
-	# Basic transfer market: list available rival drivers to sign
-	v.add_child(_spacer(8))
-	v.add_child(_label("Трансферный рынок:", 15, Palette.CREAM_HEX))
-	var grid: Array = F1_2026.race_grid(s.player_team)
-	var shown := 0
-	for gi in grid.size():
-		if shown >= 5:
-			break
-		var gd: Dictionary = grid[gi]
-		if bool(gd.get("team", false)):
+	# Transfer market: full 2026 pelotone free agents
+	v.add_child(_spacer(10))
+	v.add_child(_hlabel("ТРАНСФЕРНЫЙ РЫНОК", 16, Palette.CREAM_HEX))
+	v.add_child(_label("Свободные агенты и гонщики из 2026 пелотона:", 12, MUTED))
+	v.add_child(_spacer(4))
+
+	s.apply_car_rd()
+	s.apply_ai_dev()
+	var market_grid: Array = F1_2026.race_grid({})
+	var net_role_mkt: String = Net.role()
+
+	for gi: int in range(market_grid.size()):
+		var gd: Dictionary = market_grid[gi]
+		var gid: int = int(gd.get("id", -1))
+		if Season.TEAM_IDS.has(gid):
 			continue
-		var rskill: float = float(gd.get("skill", 0.0))
-		var rname: String = String(gd.get("name", "?"))
-		var fee: int = s.transfer_fee(rskill)
-		var rival_sal: int = int(s.SALARY_DEFAULT[s._salary_tier_idx()])
+
+		var gname: String = String(gd.get("name", ""))
+		var gskill: float = float(gd.get("skill", 0.5))
+		var gage: int = 20 + (gid % 22)
+		var gsalary: int = int(gskill * 30_000.0) + 10_000
+		var fee: int = gsalary * 3
+		var tier_diff: float = gskill - float(s.team_tier) / 10.0
+		var accept_col: String = Palette.GOOD_HEX if tier_diff >= 0.0 else Palette.MUTED_HEX
+		var accept_txt: String = "высокая" if tier_diff >= 0.0 else ("средняя" if tier_diff > -0.1 else "низкая")
+
 		var trow := HBoxContainer.new()
 		trow.add_theme_constant_override("separation", 8)
-		trow.add_child(_label("%s · темп %.0f%%" % [rname, rskill * 100.0], 13, Palette.CREAM_HEX))
-		# Sign as P5 button
-		var s5_btn := _button("→P5 · $%s" % _money(fee), 12)
-		s5_btn.disabled = s.money < fee
-		var cap_gid := gi
-		s5_btn.pressed.connect(func():
-			if s.sign_rival(4, float(grid[cap_gid].get("skill", 0.0)), rival_sal):
+
+		var name_lbl := _label(gname, 13, Palette.CREAM_HEX)
+		name_lbl.custom_minimum_size = Vector2(140, 0)
+		trow.add_child(name_lbl)
+
+		trow.add_child(_label("Возраст: %d" % gage, 12, MUTED))
+		trow.add_child(_label("★%.0f%%" % (gskill * 100.0), 13, Palette.GOLD_HEX))
+		trow.add_child(_label("$%s" % _money(fee), 12, Palette.WARN_HEX))
+		trow.add_child(_label(accept_txt, 12, accept_col))
+
+		var gskill_cap: float = gskill
+		var gsalary_cap: int = gsalary
+		var gage_cap: int = gage
+
+		var s5b := _button("→P5", 11)
+		s5b.disabled = s.money < fee or net_role_mkt == "client"
+		s5b.pressed.connect(func():
+			if s.sign_free_agent(4, gskill_cap, gsalary_cap, gage_cap):
 				_rebuild())
-		trow.add_child(s5_btn)
-		# Sign as P6 button
-		var s6_btn := _button("→P6 · $%s" % _money(fee), 12)
-		s6_btn.disabled = s.money < fee
-		s6_btn.pressed.connect(func():
-			if s.sign_rival(5, float(grid[cap_gid].get("skill", 0.0)), rival_sal):
+		trow.add_child(s5b)
+
+		var s6b := _button("→P6", 11)
+		s6b.disabled = s.money < fee or net_role_mkt == "client"
+		s6b.pressed.connect(func():
+			if s.sign_free_agent(5, gskill_cap, gsalary_cap, gage_cap):
 				_rebuild())
-		trow.add_child(s6_btn)
+		trow.add_child(s6b)
+
 		v.add_child(trow)
-		shown += 1
 
 	pc.add_child(v)
 	return pc
