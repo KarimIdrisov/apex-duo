@@ -129,6 +129,10 @@ function onMessage(m) {
   if (m.type === "snapshot") { ctx.snapshot = m; rerender(); }
   if (m.type === "phase")    { ctx.weekend.phase = m.phase; rerender(); }
   if (ctx.role === "host" && m.type === "command") onCommand(m);
+  if (ctx.role === "host" && m.type === "hello") {       // late joiner: resync phase + state
+    ctx.net.send({ type: "phase", phase: ctx.weekend.phase });
+    if (ctx.snapshot) ctx.net.send({ type: "snapshot", ...ctx.snapshot });
+  }
 }
 
 // connection entry points used by lobby UI
@@ -145,6 +149,7 @@ export async function joinGame(code, useP2P) {
   ctx.net = useP2P ? new P2PNet("client") : new LocalNet("dev", "client");
   ctx.net.onMessage(onMessage);
   if (useP2P) await ctx.net.join(code);
+  ctx.net.send({ type: "hello" });   // ask the host to sync us to the current phase
 }
 
 rerender();

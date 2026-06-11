@@ -21,8 +21,7 @@ export function render(root, ctx) {
   root.querySelector("#host").onclick = async () => {
     const code = await hostGame(useP2P);
     root.querySelector("#status").textContent = `Код комнаты: ${code} — передай напарнику. Жми «Готов», когда оба тут.`;
-    ctx.weekend.start();          // host moves to practice; ready-gate handles the rest
-    ctx.net.send({ type:"phase", phase:"practice" });
+    ctx.weekend.start();          // host -> practice; onPhase broadcasts it, hello re-syncs late joiners
   };
   root.querySelector("#join").onclick = async () => {
     const code = root.querySelector("#code").value.trim();

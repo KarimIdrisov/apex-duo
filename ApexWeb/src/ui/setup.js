@@ -20,5 +20,8 @@ export function render(root, ctx) {
     el.oninput = e => { ctx.setup[+e.target.dataset.ax] = +e.target.value;
       ctx.send({ cmd:"set_setup", player:ctx.myPlayer, setup: ctx.setup }); };
   });
-  root.querySelector("#ready").onclick = () => ctx.send({ cmd:"ready", player: ctx.myPlayer });
+  root.querySelector("#ready").onclick = () => {
+    ctx.send({ cmd:"set_setup", player: ctx.myPlayer, setup: ctx.setup });  // commit final setup
+    ctx.send({ cmd:"ready", player: ctx.myPlayer });
+  };
 }
