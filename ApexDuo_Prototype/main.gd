@@ -1463,7 +1463,7 @@ func _build_race_ui(root: Control) -> void:
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 18)
+		margin.add_theme_constant_override("margin_" + side, 8)
 	# margin and col are configured fully (children added) before being inserted
 	# into the tree, so _ready fires only after all children are in place.
 
@@ -1545,7 +1545,7 @@ func _preload_assets() -> void:
 		if ResourceLoader.exists(path, "Texture2D"):
 			_team_tex[tname] = load(path)
 
-func _lb_cell(row: HBoxContainer, txt: String, w: int, col: Color, sz: int = 14) -> Label:
+func _lb_cell(row: HBoxContainer, txt: String, w: int, col: Color, sz: int = 18) -> Label:
 	var l := Label.new()
 	l.text = txt
 	l.custom_minimum_size = Vector2(float(w), 0.0)
@@ -1560,7 +1560,7 @@ func _hdr_cell(row: HBoxContainer, txt: String, w: int) -> void:
 	l.text = txt
 	l.custom_minimum_size = Vector2(float(w), 0.0)
 	l.add_theme_color_override("font_color", DesignSystem.TEXT_3)
-	l.add_theme_font_size_override("font_size", 10)
+	l.add_theme_font_size_override("font_size", 13)
 	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(l)
 
@@ -1680,26 +1680,26 @@ func _toggle_view_3d() -> void:
 
 func _build_leaderboard() -> Control:
 	var outer := VBoxContainer.new()
-	outer.add_theme_constant_override("separation", 2)
+	outer.add_theme_constant_override("separation", 1)
 	outer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	outer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 
 	# Header row
 	var hdr := HBoxContainer.new()
 	hdr.add_theme_constant_override("separation", 0)
-	hdr.custom_minimum_size = Vector2(0.0, 22.0)
-	_hdr_cell(hdr, "ПОЗ", 32);  _hdr_cell(hdr, "", 3);  _hdr_cell(hdr, "", 40)
-	_hdr_cell(hdr, "ПИЛ", 44);  _hdr_cell(hdr, "Δ", 36);  _hdr_cell(hdr, "КР", 28)
-	_hdr_cell(hdr, "ПИТ", 44);  _hdr_cell(hdr, "ШИНА", 72)
-	_hdr_cell(hdr, "ЛУЧШИЙ", 80);  _hdr_cell(hdr, "ОТРЫВ", 76)
-	_hdr_cell(hdr, "ИНТ", 68);  _hdr_cell(hdr, "СЕКТОРЫ", 78);  _hdr_cell(hdr, "ПРОШ", 80)
+	hdr.custom_minimum_size = Vector2(0.0, 26.0)
+	_hdr_cell(hdr, "ПОЗ", 44);  _hdr_cell(hdr, "", 3);  _hdr_cell(hdr, "", 40)
+	_hdr_cell(hdr, "ПИЛ", 56);  _hdr_cell(hdr, "Δ", 40);  _hdr_cell(hdr, "КР", 34)
+	_hdr_cell(hdr, "ПИТ", 52);  _hdr_cell(hdr, "ШИНА", 84)
+	_hdr_cell(hdr, "ЛУЧШИЙ", 94);  _hdr_cell(hdr, "ОТРЫВ", 94)
+	_hdr_cell(hdr, "ИНТ", 82);  _hdr_cell(hdr, "СЕКТОРЫ", 84);  _hdr_cell(hdr, "ПРОШ", 94)
 	outer.add_child(hdr)
 
 	board_rows.clear()
 
 	for _i in F1_2026.grid_size():
 		var row_panel := PanelContainer.new()
-		row_panel.custom_minimum_size = Vector2(0.0, 28.0)
+		row_panel.custom_minimum_size = Vector2(0.0, 34.0)
 		row_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var row_sb := StyleBoxFlat.new()
 		row_sb.bg_color = DesignSystem.BG_RAISED
@@ -1712,46 +1712,46 @@ func _build_leaderboard() -> Control:
 		row.add_theme_constant_override("separation", 0)
 		row_panel.add_child(row)
 
-		var pos_lbl: Label = _lb_cell(row, "—", 32, DesignSystem.TEXT_2, 15)
+		var pos_lbl: Label = _lb_cell(row, "—", 44, DesignSystem.TEXT_2, 20)
 		var stripe := ColorRect.new()
 		stripe.custom_minimum_size = Vector2(3.0, 0.0)
 		stripe.size_flags_vertical  = Control.SIZE_EXPAND_FILL
 		stripe.color = DesignSystem.BORDER
 		row.add_child(stripe)
 		var logo := TextureRect.new()
-		logo.custom_minimum_size = Vector2(40.0, 20.0)
+		logo.custom_minimum_size = Vector2(40.0, 22.0)
 		logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		logo.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(logo)
-		var abbrev_lbl: Label = _lb_cell(row, "???", 44, DesignSystem.TEXT_1, 15)
-		var delta_lbl: Label = _lb_cell(row, "—", 36, DesignSystem.TEXT_3, 12)
-		var lap_lbl: Label = _lb_cell(row, "—", 28, DesignSystem.TEXT_3, 12)
-		var pit_lbl: Label = _lb_cell(row, "—", 44, DesignSystem.TEXT_3, 13)
+		var abbrev_lbl: Label = _lb_cell(row, "???", 56, DesignSystem.TEXT_1, 20)
+		var delta_lbl: Label = _lb_cell(row, "—", 40, DesignSystem.TEXT_3, 16)
+		var lap_lbl: Label = _lb_cell(row, "—", 34, DesignSystem.TEXT_3, 16)
+		var pit_lbl: Label = _lb_cell(row, "—", 52, DesignSystem.TEXT_3, 17)
 		var tyre_wrap := HBoxContainer.new()
-		tyre_wrap.custom_minimum_size = Vector2(72.0, 0.0)
-		tyre_wrap.add_theme_constant_override("separation", 3)
+		tyre_wrap.custom_minimum_size = Vector2(84.0, 0.0)
+		tyre_wrap.add_theme_constant_override("separation", 4)
 		tyre_wrap.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		var tyre_icon := ColorRect.new()
-		tyre_icon.custom_minimum_size = Vector2(14.0, 14.0)
+		tyre_icon.custom_minimum_size = Vector2(18.0, 18.0)
 		tyre_icon.color = Color("#888888")
 		tyre_wrap.add_child(tyre_icon)
 		var tyre_age := Label.new()
-		tyre_age.add_theme_font_size_override("font_size", 12)
+		tyre_age.add_theme_font_size_override("font_size", 16)
 		tyre_age.add_theme_color_override("font_color", DesignSystem.TEXT_3)
 		tyre_age.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		tyre_wrap.add_child(tyre_age)
 		row.add_child(tyre_wrap)
-		var best_lbl: Label = _lb_cell(row, "—", 80, DesignSystem.TEXT_2, 13)
+		var best_lbl: Label = _lb_cell(row, "—", 94, DesignSystem.TEXT_2, 17)
 		if DesignSystem.mono_font != null:
 			best_lbl.add_theme_font_override("font", DesignSystem.mono_font)
-		var gap_lbl: Label = _lb_cell(row, "—", 76, DesignSystem.TEXT_1, 14)
+		var gap_lbl: Label = _lb_cell(row, "—", 94, DesignSystem.TEXT_1, 18)
 		if DesignSystem.mono_font != null:
 			gap_lbl.add_theme_font_override("font", DesignSystem.mono_font)
-		var int_lbl: Label = _lb_cell(row, "—", 68, DesignSystem.TEXT_2, 13)
+		var int_lbl: Label = _lb_cell(row, "—", 82, DesignSystem.TEXT_2, 17)
 		if DesignSystem.mono_font != null:
 			int_lbl.add_theme_font_override("font", DesignSystem.mono_font)
 		var ms_wrap := HBoxContainer.new()
-		ms_wrap.custom_minimum_size = Vector2(78.0, 0.0)
+		ms_wrap.custom_minimum_size = Vector2(84.0, 0.0)
 		ms_wrap.add_theme_constant_override("separation", 0)
 		ms_wrap.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		var ms_blocks: Array = []
@@ -1759,17 +1759,17 @@ func _build_leaderboard() -> Control:
 		for gi: int in ms_counts.size():
 			for _si in int(ms_counts[gi]):
 				var blk := ColorRect.new()
-				blk.custom_minimum_size = Vector2(3.0, 12.0)
+				blk.custom_minimum_size = Vector2(4.0, 16.0)
 				blk.color = Color("#1e1e28")
 				ms_wrap.add_child(blk)
 				ms_blocks.append(blk)
 			if gi < ms_counts.size() - 1:
 				var gap_rect := ColorRect.new()
-				gap_rect.custom_minimum_size = Vector2(2.0, 12.0)
+				gap_rect.custom_minimum_size = Vector2(2.0, 16.0)
 				gap_rect.color = Color(0.0, 0.0, 0.0, 0.0)
 				ms_wrap.add_child(gap_rect)
 		row.add_child(ms_wrap)
-		var last_lbl: Label = _lb_cell(row, "—", 80, DesignSystem.TEXT_2, 13)
+		var last_lbl: Label = _lb_cell(row, "—", 94, DesignSystem.TEXT_2, 17)
 		if DesignSystem.mono_font != null:
 			last_lbl.add_theme_font_override("font", DesignSystem.mono_font)
 
