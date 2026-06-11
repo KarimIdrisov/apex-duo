@@ -56,7 +56,9 @@ function onPhaseHost() {
 }
 function startRaceHost() {
   const field = buildField();
-  ctx.race = new Race(field, TRACK, 1000 + (ctx.seed || 0));
+  // host picks the race seed once; the sim run stays fully deterministic from it
+  if (ctx.seed == null) ctx.seed = 1000 + Math.floor(Math.random() * 100000);
+  ctx.race = new Race(field, TRACK, ctx.seed);
   // apply the quali grid as the start order (fastest quali -> P1), spread by slot
   const withRisk = field.map(f => ({ ...f, risk: f.player ? (ctx.qrisk?.[f.player] ?? 0.5) : 0.5 }));
   const grid = buildGrid(withRisk, TRACK, 1234);
