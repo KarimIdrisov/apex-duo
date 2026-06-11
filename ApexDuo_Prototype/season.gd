@@ -273,11 +273,11 @@ static var EVENT_TEMPLATES: Array = [
 	{
 		"id": "sponsor_bonus",
 		"title": "Спонсорский бонус",
-		"body": "Спонсор предлагает $60к немедленно или $100к при финише в топ-8.",
+		"body": "Спонсор предлагает $60к немедленно или инвестирует в аэро-обновление команды.",
 		"opt_a": "Взять сейчас (+$60к)",
-		"opt_b": "Поставить на результат",
+		"opt_b": "Инвестировать в болид",
 		"eff_a": {"money": 60_000},
-		"eff_b": {"conditional_money": 100_000, "condition": "top8", "expires_after": 1}
+		"eff_b": {"car_aero": 0.012, "expires_after": 3}
 	},
 	{
 		"id": "driver_conflict",
@@ -2296,7 +2296,7 @@ func _apply_event_effect(eff: Dictionary) -> void:
 	if eff.has("staff_loyalty"):
 		for s: Dictionary in staff:
 			s["loyalty"] = clampf(float(s.get("loyalty", 0.5)) + float(eff["staff_loyalty"]), 0.0, 1.0)
-	if eff.has("car_aero") or eff.has("car_power") or eff.has("car_rel") or eff.has("conditional_money"):
+	if eff.has("car_aero") or eff.has("car_power") or eff.has("car_rel"):
 		var entry: Dictionary = eff.duplicate(true)
 		entry["expires_after_race"] = round_index + int(eff.get("expires_after", 1))
 		active_event_effects.append(entry)
