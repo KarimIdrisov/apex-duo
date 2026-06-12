@@ -99,7 +99,7 @@ function startMapLoop(root, ctx) {
       if (meta.retired) { dot.style.display = "none"; if (lbl) lbl.style.display = "none"; continue; }
       dot.style.display = ""; if (lbl) lbl.style.display = "";
       let x, y;
-      if (ctx._pit[idx] && now < ctx._pit[idx]) { [x, y] = PIT_STOP; }                 // parked in the pits
+      if (meta.inPit || (ctx._pit[idx] && now < ctx._pit[idx])) { [x, y] = PIT_STOP; }  // in the box (or just-pitted tail)
       else { [x, y] = pointAt(sampleBuf(ctx._buf[idx], renderT)); }
       xy[idx] = [x, y];
       const baseR = meta.isPlayer ? 2.5 : 1.8;
@@ -243,7 +243,7 @@ function updateHud(root, ctx, snap) {
     if (prevPos[c.idx] != null && c.pos < prevPos[c.idx]) ctx._flash[c.idx] = now + 650; // gained a place -> flash
   }
   ctx._meta = Object.fromEntries(cars.map(c => [c.idx,
-    { pitStops: c.pitStops, retired: c.retired, isLeader: c.idx === leadIdx, player: c.player, isPlayer: c.isPlayer }]));
+    { pitStops: c.pitStops, retired: c.retired, inPit: c.inPit, isLeader: c.idx === leadIdx, player: c.player, isPlayer: c.isPlayer }]));
   ctx._prevPos = Object.fromEntries(cars.map(c => [c.idx, c.pos]));
   ctx._battlePairs = computeBattles(cars);
   const scOv = $("#trk-sc"); if (scOv) scOv.setAttribute("opacity", snap.scActive ? "0.95" : "0");

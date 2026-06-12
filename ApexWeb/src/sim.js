@@ -97,13 +97,21 @@ export class Race {
     this.wetness = wetnessAt(this.weather, leadProg);
     for (const c of this.cars) {
       if (c.retired) continue;
+      if (c.pitTimer > 0) {                 // stationary in the pit box: race time passes, no track progress
+        const d = Math.min(dt, c.pitTimer);
+        c.pitTimer -= d;
+        c.lapTimeAccum += d;                // the stop time lands on the out-lap (shows as a slow lap)
+        c.totalTime += d;
+        continue;
+      }
       const lt = this._lapTime(c);
       c.lapFrac += dt / lt;
       c.lapTimeAccum += dt;
       if (c.lapFrac >= 1) {            // lap completed (phase 3 owns bookkeeping)
+        const carry = (c.lapFrac - 1) * lt;   // time already spent past the line this tick (sub-step precision)
         c.lapFrac -= 1;
         c.lap += 1;
-        c.lastLap = c.lapTimeAccum;
+        c.lastLap = c.lapTimeAccum - carry;   // precise lap time (not quantized to STEP)
         this._recordMinis(c);
         if (c.lap > 1 && !this.scActive && c.lastLap < this._fastLap) {   // new overall fastest (ignore lap 1 / SC laps)
           this._fastLap = c.lastLap;
@@ -111,7 +119,7 @@ export class Race {
         }
         c._lapSum += c.lastLap; c._lapN++; c.avgLap = c._lapSum / c._lapN;
         c.totalTime += c.lastLap;
-        c.lapTimeAccum = 0;
+        c.lapTimeAccum = carry;               // carry the post-line remainder into the next lap
         // per-lap wear + fuel burn
         const comp = COMPOUNDS[c.tyre], pm = PACE_MODES[c.pace];
         const drvTyre = 1 - ATTRW.wear * (A(c).tyre - 0.5) * 2;          // <1 = kinder driver
@@ -182,7 +190,7 @@ export class Race {
     const ord = this.order(); // sorted leaders-first; pos set
     for (let i = 1; i < ord.length; i++) {
       const ahead = ord[i - 1], me = ord[i];
-      if (me.retired || ahead.retired) continue;
+      if (me.retired || ahead.retired || me.pitTimer > 0 || ahead.pitTimer > 0) continue;  // a car in the pits isn't racing
       const gapSec = ((ahead.lap + ahead.lapFrac) - (me.lap + me.lapFrac)) * this.track.lt;
       const s = sampleAt(me.lapFrac).straightness;          // local track character at the follower
       // dirty air: sitting close (even outside passing range) costs the follower tyre life, worse in corners
@@ -268,10 +276,9 @@ export class Race {
     if (c.pitPending) {
       c.tyre = c.pitPending; c.pitPending = null; c.wear = 0; c.tyreAge = 0; c.tyreTemp = TYRE.pitTemp;
       const pitLoss = this.track.pit * (this.scActive ? EVENT.scPitMult : 1) * (c.personnel ? c.personnel.pitMult : 1);
-      c.pitStops += 1; c.totalTime += pitLoss;
+      c.pitStops += 1;
+      c.pitTimer = pitLoss;   // sit stationary in the box for pitLoss s — drained in step() (race time passes, rivals gain, the out-lap shows it). Replaces the old lapFrac subtraction that got clamped to ~0.
       this._emit({ type: "pit", lap: c.lap, a: c.idx, abbr: c.abbrev, compound: c.tyre });
-      c.lapFrac -= pitLoss / this.track.lt;                   // lose pit time on track (cheaper under SC)
-      if (c.lapFrac < 0) c.lapFrac = 0;
     }
     if (c.fuel <= 0) { c.retired = true; return; }   // ran the tank dry
     const pm = PACE_MODES[c.pace];

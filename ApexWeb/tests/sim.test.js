@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Race } from "../src/sim.js";
-import { TEAMS, TRACK } from "../src/data.js";
+import { TEAMS, TRACK, STEP } from "../src/data.js";
 import { driverAttrs } from "../src/team.js";
 
 function field() {
@@ -369,4 +369,33 @@ test("determinism holds with overtake zones", () => {
   const run = s => { const r = new Race(field(), TRACK, s); r.gridStart(); let g = 0;
     while (!r.finished && g++ < 500000) r.step(); return r.order().map(c => c.abbrev).join(","); };
   assert.equal(run(6602), run(6602));
+});
+
+test("lap times carry sub-step precision (not all on the 0.25s grid)", () => {
+  const r = new Race(field(), TRACK, 2); r.gridStart();
+  const times = new Set();
+  for (let i = 0; i < 30000 && times.size < 30; i++) { r.step(); for (const c of r.cars) if (c.lastLap > 0) times.add(c.lastLap); }
+  const offGrid = [...times].some(t => Math.abs(t / 0.25 - Math.round(t / 0.25)) > 1e-6);
+  assert.ok(offGrid, "at least some lap time is off the 0.25s grid (sub-step precision)");
+});
+
+test("serving a pit sets pitTimer to the pit-loss and fits the new tyre", () => {
+  const r = new Race(field(), TRACK, 1);
+  const c = r.cars[0];
+  c.personnel = null; c.car = { ...c.car, rel: 1 }; c.pitPending = "hard";   // neutral crew, dry, no DNF
+  r._serveLapEnd(c);
+  assert.ok(Math.abs(c.pitTimer - TRACK.pit) < 1e-6, `pitTimer = pitLoss (${c.pitTimer})`);
+  assert.equal(c.tyre, "hard"); assert.equal(c.pitStops, 1);
+});
+
+test("a car in the pit box sits still while race time passes — the pit-loss is real (frac stays valid)", () => {
+  const r = new Race(field(), TRACK, 1);
+  const c = r.cars[0];
+  c.car = { ...c.car, rel: 1 };
+  c.pitTimer = TRACK.pit;                                   // a stop in progress
+  const prog0 = c.lap + c.lapFrac, t0 = c.totalTime;
+  const ticks = Math.ceil(TRACK.pit / STEP) - 1;
+  for (let i = 0; i < ticks; i++) { r.step(); assert.ok(c.lapFrac >= 0 && c.lapFrac < 1.0001, "frac stays valid"); }
+  assert.ok(Math.abs((c.lap + c.lapFrac) - prog0) < 1e-9, "car made no track progress during the stop");
+  assert.ok(c.totalTime - t0 >= TRACK.pit - 2 * STEP, `accrued ~the stop time (${(c.totalTime - t0).toFixed(1)}s of ${TRACK.pit})`);
 });
