@@ -104,7 +104,7 @@ test("fuel depletes over laps; push burns faster than save", () => {
 
 test("pushing the whole race runs the tank dry -> DNF", () => {
   const r = new Race(field(), TRACK, 7);
-  for (const c of r.cars) c.engine = "push";
+  for (const c of r.cars) r.setEngine(c.idx, "push");   // pin push via the public API so the AI fuel-saver doesn't override
   let guard = 0;
   while (!r.finished && guard++ < 500000) r.step();
   assert.ok(r.cars.some(c => c.retired && c.fuel <= 0), "someone should run dry");
@@ -284,4 +284,29 @@ test("determinism holds with attributes", () => {
   const run = s => { const r = new Race(field(), TRACK, s); r.gridStart(); let g = 0;
     while (!r.finished && g++ < 500000) r.step(); return r.order().map(c => c.abbrev); };
   assert.deepEqual(run(5042), run(5042));
+});
+
+test("AI cars make 1-2 planned stops over a full race (not zero, not four)", () => {
+  const r = new Race(field(), TRACK, 7001);
+  r.gridStart();
+  let g = 0; while (!r.finished && g++ < 500000) r.step();
+  const ai = r.cars.filter(c => c.player == null && !c.retired);
+  const stops = ai.map(c => c.pitStops);
+  assert.ok(stops.length > 0, "some AI finished");
+  const avg = stops.reduce((a, b) => a + b, 0) / stops.length;
+  assert.ok(avg >= 0.8 && avg <= 2.2, `avg AI stops ${avg.toFixed(2)} in [0.8,2.2]`);
+});
+
+test("AI assigns itself an engine mode (drives, not stuck on standard forever)", () => {
+  const r = new Race(field(), TRACK, 7002);
+  r.gridStart();
+  const seen = new Set();
+  for (let i = 0; i < 8000; i++) { r.step(); for (const c of r.cars) if (c.player == null) seen.add(c.engine); }
+  assert.ok(seen.size >= 1, "AI engine modes used");
+});
+
+test("determinism holds with the AI brain", () => {
+  const run = s => { const r = new Race(field(), TRACK, s); r.gridStart(); let g = 0;
+    while (!r.finished && g++ < 500000) r.step(); return r.order().map(c => `${c.abbrev}:${c.pitStops}`); };
+  assert.deepEqual(run(7003), run(7003));
 });

@@ -1,12 +1,13 @@
 // ApexWeb/src/sim.js
 import { RNG, mix32 } from "./rng.js";
 import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP, TYRE, DIRTY_GAP, EVENT, ATTRW } from "./data.js";
-import { startFuel, burnFor, weightTerm, engineTerm } from "./fuel.js";
+import { startFuel, burnFor, weightTerm, engineTerm, fuelLaps } from "./fuel.js";
 import { tyreTerm, warmStep } from "./tyres.js";
 import { miniSplits, MINI, N_MINI, sampleAt } from "./track.js";
 import { slipstream, dirtyWear, passAccrual } from "./overtake.js";
 import { scheduleSC, startIncidentHit } from "./events.js";
 import { scheduleWeather, wetnessAt, weatherTerm } from "./weather.js";
+import { planRace, pitDecision, engineMode, paceMode } from "./ai_strategy.js";
 import { ATTR_KEYS } from "./team.js";
 
 const ENGINE_KEYS = new Set(["save", "standard", "push"]);
@@ -40,10 +41,14 @@ export class Race {
       lastMini: [], bestMini: new Array(N_MINI).fill(Infinity), miniColors: [], sectorTimes: [0, 0, 0],
       _dirtyWear: 0, _startPenalty: 0,
     }));
+    this.difficulty = 0.85;   // scales AI sharpness (UI selection comes in Phase 9)
+    for (const c of this.cars) {
+      if (c.player == null) { c.aiPlan = planRace(c, track, seed); c.aiStopsDone = 0; }
+    }
   }
 
-  setPace(i, mode) { if (PACE_MODES[mode]) this.cars[i].pace = mode; }
-  setEngine(i, mode) { if (ENGINE_KEYS.has(mode)) this.cars[i].engine = mode; }
+  setPace(i, mode) { if (PACE_MODES[mode]) { this.cars[i].pace = mode; this.cars[i]._pin = true; } }
+  setEngine(i, mode) { if (ENGINE_KEYS.has(mode)) { this.cars[i].engine = mode; this.cars[i]._pin = true; } }
 
   // clean lap time for one car right now (seconds)
   _lapTime(c) {
@@ -96,6 +101,7 @@ export class Race {
       }
     }
     if (!this.scActive) this._resolveCombat();   // no green-flag passing under the safety car
+    this._aiDrive();   // AI engine/pace management (post-combat: pos + pass-credit are fresh)
     // safety-car lifecycle, driven by the leader's lap count
     const leadLap = this.cars.reduce((m, c) => Math.max(m, c.lap), 0);
     if (this.scLap != null && !this.scActive && !this.scEverActive && leadLap >= this.scLap) {
@@ -167,6 +173,26 @@ export class Race {
     }
   }
 
+  // AI drivers pick an engine/pace mode each tick from their race situation (writes only engine/pace)
+  _aiDrive() {
+    const ord = this.order();   // leaders-first; sets pos
+    for (let i = 0; i < ord.length; i++) {
+      const c = ord[i];
+      if (c.player != null || c.retired || c._pin) continue;   // human or explicitly-pinned mode wins over the AI brain
+      const ahead = ord[i - 1], behind = ord[i + 1];
+      const prog = x => x.lap + x.lapFrac;
+      const gapAhead = (ahead && !ahead.retired) ? (prog(ahead) - prog(c)) * this.track.lt : null;
+      const gapBehind = (behind && !behind.retired) ? (prog(c) - prog(behind)) * this.track.lt : null;
+      const dirtyAir = gapAhead != null && gapAhead < DIRTY_GAP && ahead.lap === c.lap;
+      const canPass = (c._passCredit || 0) > 0;
+      const lapsLeft = this.track.laps - c.lap;
+      const fl = fuelLaps(c.fuel, c.engine, c.car.fuel);
+      const ctx = { pos: c.pos, gapAhead, gapBehind, dirtyAir, canPass, lapsLeft, fuelLaps: fl, difficulty: this.difficulty };
+      c.engine = engineMode(c, ctx);
+      c.pace = paceMode(c, ctx);
+    }
+  }
+
   // finalise a completed lap's mini-sector splits, colours, and sector totals
   _recordMinis(c) {
     const sp = miniSplits(c.lastLap, c.car);
@@ -187,15 +213,12 @@ export class Race {
     // called at lap completion in step(); handles pit + DNF
     // AI cars (no human engineer) auto-pit once near the tyre cliff if enough race remains
     // AI weather reaction: get onto the right tyre for the conditions (not blocked by stop count)
-    if (c.player == null && !c.pitPending && c.tyreAge > 2) {
-      const slick = COMPOUNDS[c.tyre].wet_opt < 0.1;
-      if (this.wetness > 0.55 && slick) c.pitPending = this.wetness > 0.8 ? "wet" : "inter";
-      else if (this.wetness < 0.35 && !slick) c.pitPending = "medium";
-    }
-    if (c.player == null && c.pitStops === 0 && !c.pitPending) {
-      const comp = COMPOUNDS[c.tyre];
-      if (c.wear >= comp.cliff * 0.8 && (this.track.laps - c.lap) > 6) {
-        c.pitPending = c.tyre === "soft" ? "medium" : "hard";   // fresh, harder set
+    // AI strategy: planned stops, SC opportunism, weather changes, emergency cliff (ai_strategy.js)
+    if (c.player == null && !c.pitPending && c.tyreAge > 1) {
+      const want = pitDecision(c, { wetness: this.wetness, scActive: this.scActive, laps: this.track.laps });
+      if (want) {
+        c.pitPending = want.compound;
+        if (want.reason !== "weather") c.aiStopsDone = (c.aiStopsDone || 0) + 1;  // consume a dry plan stop
       }
     }
     if (c.pitPending) {
