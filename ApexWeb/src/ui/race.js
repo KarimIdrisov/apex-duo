@@ -5,9 +5,9 @@
 import { TRACK, TRACK_PATH, DRIVER_INFO } from "../data.js";
 import { sfx } from "../audio.js";
 
-const PACE = ["conserve", "balanced", "push"], ERS = ["harvest", "balanced", "attack"];
+const PACE = ["conserve", "balanced", "push"], ENGINE = ["save", "standard", "push"];
 const PACE_L = { conserve: "Save", balanced: "Norm", push: "Push" };
-const ERS_L = { harvest: "Harv", balanced: "Bal", attack: "Atk" };
+const ENGINE_L = { save: "Save", standard: "Std", push: "Push" };
 const SPEEDS = [1, 2, 4];
 
 const logo = (a, s = 18) => { const l = DRIVER_INFO[a] && DRIVER_INFO[a].logo; return l ? `<img src="assets/teams/${l}.png" alt="" style="height:${s}px;width:${s}px;object-fit:contain;vertical-align:middle;margin-right:6px">` : ""; };
@@ -70,12 +70,12 @@ function buildHud(root, ctx) {
         </div>
         <p class="label" id="d-tyrelabel"></p>
         <div class="bar"><i id="d-wear"></i></div>
-        <p class="label" style="margin-top:8px">Заряд ERS</p>
-        <div class="bar"><i id="d-soc"></i></div>
+        <p class="label" style="margin-top:8px">Топливо <span id="d-fuel-txt"></span></p>
+        <div class="bar"><i id="d-fuel"></i></div>
         <p class="label" style="margin-top:10px">Темп</p>
         <div class="seg" id="d-pace">${PACE.map(p => `<button data-v="${p}">${PACE_L[p]}</button>`).join("")}</div>
-        <p class="label" style="margin-top:8px">ERS</p>
-        <div class="seg" id="d-ers">${ERS.map(e => `<button data-v="${e}">${ERS_L[e]}</button>`).join("")}</div>
+        <p class="label" style="margin-top:8px">Мотор</p>
+        <div class="seg" id="d-engine">${ENGINE.map(e => `<button data-v="${e}">${ENGINE_L[e]}</button>`).join("")}</div>
         <button class="primary" id="d-pit" style="margin-top:10px;background:var(--bad)">⛽ В боксы → ${tyreIcon("hard", 20)} Hard</button>
       </div>
       </div>
@@ -97,9 +97,8 @@ function buildHud(root, ctx) {
     </div>`;
   const myIdx = () => ctx._myIdx;
   root.querySelector("#d-wear").style.background = "linear-gradient(90deg,#3ddc84,#e7c84b 70%,#e7553b)";
-  root.querySelector("#d-soc").style.background = "linear-gradient(90deg,#4aa3ff,#9b6bff)";
   root.querySelector("#d-pace").onclick = e => { const v = e.target.dataset && e.target.dataset.v; if (v) ctx.send({ cmd: "set_pace", car: myIdx(), mode: v }); };
-  root.querySelector("#d-ers").onclick = e => { const v = e.target.dataset && e.target.dataset.v; if (v) ctx.send({ cmd: "set_ers", car: myIdx(), mode: v }); };
+  root.querySelector("#d-engine").onclick = e => { const v = e.target.dataset && e.target.dataset.v; if (v) ctx.send({ cmd: "set_engine", car: myIdx(), mode: v }); };
   root.querySelector("#d-pit").onclick = () => { sfx.pit(); ctx.send({ cmd: "request_pit", car: myIdx(), compound: "hard" }); };
   root.querySelector("#d-pause").onclick = () => ctx.send({ cmd: "toggle_pause" });
   root.querySelector("#d-speed").onclick = () => {
@@ -136,9 +135,13 @@ function updateHud(root, ctx, snap) {
   $("#d-gaps").innerHTML = `${ahead ? "↑ " + gap(ahead, me) : "— лидер"}${behind ? " &nbsp; ↓ " + gap(me, behind) : ""}`;
   $("#d-tyrelabel").innerHTML = `Резина ${tyreIcon(me.tyre, 22)} <span style="text-transform:capitalize">${me.tyre}</span> · ${me.tyreAge} кр · износ`;
   $("#d-wear").style.width = Math.max(0, Math.min(100, 100 - me.wear)) + "%";
-  $("#d-soc").style.width = Math.max(0, Math.min(100, me.soc)) + "%";
+  const lapsLeft = TRACK.laps - me.lap;
+  const ratio = lapsLeft > 0 ? Math.min(1.4, (me.fuelLaps || 0) / lapsLeft) : 1;   // >=1 means enough
+  $("#d-fuel").style.width = Math.max(0, Math.min(100, ratio / 1.4 * 100)) + "%";
+  $("#d-fuel").style.background = ratio >= 1 ? "var(--good)" : "var(--bad)";        // red = short
+  $("#d-fuel-txt").textContent = `${(me.fuelLaps || 0).toFixed(1)} кр запас`;
   for (const b of $("#d-pace").children) b.classList.toggle("on", b.dataset.v === me.pace);
-  for (const b of $("#d-ers").children) b.classList.toggle("on", b.dataset.v === me.ers);
+  for (const b of $("#d-engine").children) b.classList.toggle("on", b.dataset.v === me.engine);
   // leaderboard (throttled — positions change slowly)
   if ((ctx._boardTick++ % 3) === 0 || snap.finished) $("#d-board").innerHTML = board(cars, ctx);
 }
