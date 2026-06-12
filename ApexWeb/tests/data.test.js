@@ -39,3 +39,12 @@ test("engine modes + fuel constants present and ordered", () => {
   assert.ok(ENGINE_MODES.push.burn > ENGINE_MODES.save.burn);
   assert.ok(FUEL.margin > 0 && FUEL.weightK > 0);
 });
+
+import { TYRE } from "../src/data.js";
+
+test("compounds have a warm-up rate; TYRE constants present", () => {
+  for (const c of ["soft", "medium", "hard"]) assert.ok(COMPOUNDS[c].warm > 0, c);
+  assert.ok(COMPOUNDS.soft.warm > COMPOUNDS.hard.warm);
+  assert.ok(TYRE.warmPen > 0 && TYRE.ease > 0);
+  assert.ok(TYRE.pitTemp < TYRE.gridTemp && TYRE.gridTemp < 1);
+});

@@ -58,9 +58,17 @@ export const TRACK_PATH = [
 ];
 
 export const COMPOUNDS = {
-  soft:   { pace:-0.55, wear:2.6, cliff:65 },
-  medium: { pace: 0.00, wear:1.7, cliff:78 },
-  hard:   { pace: 0.55, wear:1.1, cliff:90 },
+  soft:   { pace:-0.55, wear:2.6, cliff:65, warm:1.4 },
+  medium: { pace: 0.00, wear:1.7, cliff:78, warm:1.0 },
+  hard:   { pace: 0.55, wear:1.1, cliff:90, warm:0.7 },
+};
+
+// tyre temperature model. temp 0..1 (1 = in the window). Fresh tyres are cold.
+export const TYRE = {
+  warmPen:  1.2,   // s/lap when fully cold (temp 0) -> rewards warming up
+  ease:     0.5,   // how fast temp eases toward 1 each lap (× compound.warm)
+  gridTemp: 0.55,  // tyre temp at the race start (formation lap warmed them)
+  pitTemp:  0.20,  // tyre temp leaving the pits (cold out-lap)
 };
 
 // pace modes: pace offset (s/lap), wear multiplier, mechanical-risk multiplier
