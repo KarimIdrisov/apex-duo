@@ -29,3 +29,14 @@ test("track + compound/mode tables present", () => {
   for (const m of ["conserve", "balanced", "push"]) assert.ok(PACE_MODES[m]);
   for (const m of ["harvest", "balanced", "attack"]) assert.ok(ERS_MODES[m]);
 });
+
+import { ENGINE_MODES, FUEL } from "../src/data.js";
+
+test("engine modes + fuel constants present and ordered", () => {
+  for (const m of ["save", "standard", "push"]) assert.ok(ENGINE_MODES[m], m);
+  // push is faster (more negative pace) but burns more; save is the opposite
+  assert.ok(ENGINE_MODES.push.pace < ENGINE_MODES.standard.pace);
+  assert.ok(ENGINE_MODES.save.pace > ENGINE_MODES.standard.pace);
+  assert.ok(ENGINE_MODES.push.burn > ENGINE_MODES.save.burn);
+  assert.ok(FUEL.margin > 0 && FUEL.weightK > 0);
+});

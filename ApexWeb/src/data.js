@@ -87,6 +87,18 @@ export const COMBAT_GAP = 0.8;   // seconds: within this, two cars fight
 export const PASS_K    = 1.6;    // pass-credit accrual per unit track.ot
 export const GRID_GAP  = 0.20;   // starting time spread per grid slot (seconds)
 
+// engine modes: pace offset (s/lap), fuel burn multiplier. Replaces ERS_MODES.
+export const ENGINE_MODES = {
+  save:     { pace:  0.35, burn: 0.85 },
+  standard: { pace:  0.00, burn: 1.00 },
+  push:     { pace: -0.30, burn: 1.20 },
+};
+// fuel as a hard resource. fuel is measured in lap-equivalents of standard burn.
+export const FUEL = {
+  margin:  0.06,   // start with +6% over the exact race need
+  weightK: 0.020,  // s/lap added per lap-equivalent of fuel still aboard (heavy early)
+};
+
 // team name -> logo file in assets/teams/ (Godot art; Sauber=audi, RB=racing_bulls)
 export const TEAM_LOGO = {
   "McLaren": "mclaren", "Mercedes": "mercedes", "Red Bull": "red_bull", "Ferrari": "ferrari",
