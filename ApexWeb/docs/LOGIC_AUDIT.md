@@ -9,7 +9,9 @@
 > - **finding** — what's wrong or weak, with the reasoning;
 > - **proposed change** — concrete, with the **expected effect on the balance corridors** in §17.
 >
-> Prefer specific, testable proposals over general advice. If you think a mechanic is fine, say so explicitly. **Before flagging something, check §16 (invariants) and §18 (already-considered trade-offs)** so you don't propose something that breaks a load-bearing rule or that's already been weighed and rejected.
+> Prefer specific, testable proposals over general advice. If you think a mechanic is fine, say so explicitly. **Before flagging something, check §16 (invariants), §18 (already-considered trade-offs), and §19 (strengths to preserve)** so you don't propose something that breaks a load-bearing rule or that's already been weighed and rejected.
+>
+> **Severity calibration (apply strictly):** `critical` is reserved for things that **break correctness, determinism, or a §16 invariant**. A balance/realism imperfection — even an important one like winner concentration or dirty-air-pace — is **`major`**, not critical (the sim still runs correctly and reproducibly). Prior reviewers have inflated balance issues to "critical"; don't.
 
 **Purpose.** A single self-contained description of the current race-simulation logic of *Apex Web* (a browser co-op F1 manager). It covers every mechanic with the actual formulas, constants, invariants, and current balance numbers, and ends with **open questions worth scrutiny**. File/function names are given so an agent with the repo can dig in; the formulas are reproduced so an agent without it can still critique. All formulas below were verified 1:1 against the live code (2026-06-12).
 
@@ -213,11 +215,15 @@ Each item carries our current **stance** (as of 2026-06-13, after a first review
 
 1. **Winner concentration.** The best car+driver+strategist+crew compound → McLaren wins ~80% at default. Realistic but flat for a game. Is the spread (`SKILL_K`, `CAR_K`, attribute generation) right?
    - → **PLANNED:** add a small **per-race "form" offset (±0.1–0.15 s/lap) to *every* car each race** (today `_aiForm` only varies at low difficulty) — a realistic "off-weekend for anyone" that breaks the monopoly.
-   - → **REJECTED:** making top teams *less reliable* (faster car = more overheating/pit errors) — anti-realistic (real top teams are *more* reliable) and it undercuts the "best car" fantasy. Use form variance instead.
+   - → **CONSIDERED (good, needs recalibration):** **diminishing-returns nonlinearity**, especially on the *car* term — e.g. `CAR_K·log(1+Δ)` instead of linear `CAR_K·Δ` — compresses the top end so the best *car* isn't proportionally always ahead. More on-target than driver-term tweaks, since the monopoly is car-driven. Would need `CAR_K`/`SKILL_K` re-tuned to keep the §17 pace-spread corridor. Two reviewers raised nonlinearity; this is the sound form of it.
+   - → **REJECTED:** an `interaction = MIX_K·pace·car_quality` term — a *positive* pace×car interaction *amplifies* the best package (more domination), the opposite of the goal.
+   - → **REJECTED:** making top teams *less reliable* (faster car = more overheating/pit errors) — anti-realistic (real top teams are *more* reliable) and it undercuts the "best car" fantasy.
    - → **OPEN:** whether to also make `setupBonus` a bigger player lever (helps the human, not AI-vs-AI spread).
 2. **`track.ot` is now dead.** With overtake zones the non-zone branch returns `resist=∞`, so `track.ot` is computed but unused. (See §8 — this is *not* a permanent block; passes complete in a zone every ~28% of the lap.)
    - → **PLANNED:** a rare **aggressive out-of-zone pass** — if `edge > ~1.0 s` and `attrs.aggression` is high, allow a finite-resist attempt outside a zone with a contact/DNF risk. Gives texture, *uses* `aggression`, and repurposes `track.ot` as its base — without dismantling zones.
-   - → **REJECTED:** a *general* finite out-of-zone `resist` (e.g. 2.5–3.5) or a time-decaying one. **Trap:** pass-credit *accumulates* while in `COMBAT_GAP` (it's only reset when the follower drops out of range), so any finite out-of-zone resist is beaten within a lap or two → passes happen everywhere → zones become meaningless. A finite out-of-zone path only works if credit is NOT accumulated outside zones — i.e. an *instantaneous* big-edge attempt, which is exactly the gated aggressive-pass above. Reviewers keep proposing the finite/decay version; it has this flaw.
+   - **We agree the hard `∞` reads as too "gamey"** (multiple reviewers flag it) — hence the gated aggressive pass above. But the *flat* fixes proposed don't work:
+   - → **REJECTED:** a *general* finite out-of-zone `resist` (e.g. 2.5–3.5) or a time-decaying one. **Trap:** pass-credit *accumulates* while in `COMBAT_GAP` (it's only reset when the follower drops out of range), so any finite out-of-zone resist is beaten within a lap or two → passes happen everywhere → zones become meaningless.
+   - → **REJECTED:** a flat per-tick `random_pass_chance` (~0.01–0.03) outside zones — over the dozens of ticks a follower spends in range, the cumulative probability is high → frequent out-of-zone passes, eroding zones the same way. (A *low per-attempt* chance gated on a real pace edge is fine — that's the aggressive pass.) The fix that works keeps credit un-accumulated outside zones and requires an *instantaneous* big edge.
 3. **Start vs lap-1 chaos.** Launch is a lap-0 time delta. 2.58 places/car reshuffle; grid gaps are only 0.20 s/slot so any time delta = big swings.
    - → **PLANNED:** a "cautious opening lap" — **reduce `passAccrual` while `lap===0`** (field holds the launch/grid order through T1; racing opens from lap 1) **+ bump `GRID_GAP` 0.20 → 0.25**. (A *softer* version than a hard pin — avoids the negative-grid-`lapFrac` clamp problem in §16.3.)
 4. **Pit realism.** Pit-loss is a full stationary freeze, and the **out-lap is already slow** (cold tyres, `tyreTemp = pitTemp 0.20` → `tyreTerm` cold penalty). So the model is freeze + cold-out-lap; there's no *in-lap* slow-down.
@@ -235,7 +241,15 @@ Each item carries our current **stance** (as of 2026-06-13, after a first review
 
 ---
 
-## 19. Constants quick-reference (`src/data.js`)
+## 19. Strengths — keep, don't "fix"
+
+Independent reviews repeatedly flagged these as the model's load-bearing strengths. **Do not "improve" them away** — proposals that weaken any of these are regressions, not fixes:
+- **Determinism** (§16.1) — full seed-reproducibility; rare to get right. Untouchable.
+- **Split RNG streams** (`rng` per-tick vs `erng` for events) — keeps consecutive race seeds from giving near-identical events; a deliberate, correct choice.
+- **Tyre cliff** (§5) — the accelerating curve + hard cliff is what makes stint length and the undercut matter. Good model.
+- **Credit-based overtaking** (§8) — pace-edge → accruing pass-credit → release is a strong, emergent model (vs random or instantaneous passes). The *zone gating* on top is the debated part (§18.2), not the credit core.
+
+## 20. Constants quick-reference (`src/data.js`)
 
 | Const | Value | Meaning |
 |---|---|---|
