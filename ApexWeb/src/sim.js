@@ -65,10 +65,10 @@ export class Race {
         c._lapSum += c.lastLap; c._lapN++; c.avgLap = c._lapSum / c._lapN;
         c.totalTime += c.lastLap;
         c.lapTimeAccum = 0;
-        // per-lap wear + SoC
+        // per-lap wear + fuel burn
         const comp = COMPOUNDS[c.tyre], pm = PACE_MODES[c.pace];
         c.wear += comp.wear * pm.wear;
-        c.fuel -= burnFor(c.engine, c.car.fuel);
+        c.fuel -= burnFor(c.engine, c.car.fuel);   // c.car.fuel: economy rating (1=standard), wired in Phase 7
         c.tyreAge += 1;
         this._serveLapEnd(c); // phase 3: pit + DNF (finishers handled in order())
       }
