@@ -29,6 +29,76 @@ function pointAt(frac) {
   return RAW[0];
 }
 
+// ---- track furniture: sector-coloured arcs, start/finish + sector ticks, pit spur ----
+const SECTOR_COL = ["#5aa0ff", "#ffce47", "#46d08a"];                 // S1 / S2 / S3 tints
+const CENTROID = RAW.reduce((a, p) => [a[0] + p[0], a[1] + p[1]], [0, 0]).map(v => v / RAW.length);
+function sectorPath(s) {                                              // one third of the lap as a poly-line
+  const lo = s / 3, hi = (s + 1) / 3, STEPS = 64, pts = [];
+  for (let k = 0; k <= STEPS; k++) pts.push(pointAt(lo + (hi - lo) * (k / STEPS)));
+  return "M" + pts.map(p => `${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(" L");
+}
+function normalAt(frac) {                                            // inward unit normal + the point at frac
+  const e = 0.005, a = pointAt(frac - e), b = pointAt(frac + e);
+  const dx = b[0] - a[0], dy = b[1] - a[1], m = Math.hypot(dx, dy) || 1;
+  let nx = -dy / m, ny = dx / m; const p = pointAt(frac);
+  if ((CENTROID[0] - p[0]) * nx + (CENTROID[1] - p[1]) * ny < 0) { nx = -nx; ny = -ny; }
+  return { nx, ny, px: p[0], py: p[1] };
+}
+function tickLine(frac, len, stroke, w, dash = "") {                 // perpendicular mark across the track
+  const { nx, ny, px, py } = normalAt(frac);
+  return `<line x1="${(px - nx * len).toFixed(2)}" y1="${(py - ny * len).toFixed(2)}" x2="${(px + nx * len).toFixed(2)}" y2="${(py + ny * len).toFixed(2)}" stroke="${stroke}" stroke-width="${w}"${dash ? ` stroke-dasharray="${dash}"` : ""}/>`;
+}
+function pitPos(frac, depth) { const { nx, ny, px, py } = normalAt(frac); return [px + nx * depth, py + ny * depth]; }
+const PIT_A = pitPos(0.95, 6.5), PIT_B = pitPos(0.06, 6.5), PIT_STOP = pitPos(0.0, 6.5);
+
+// cars within this on-track gap (seconds, same lap) are "in a battle" -> a connecting line
+const BATTLE_GAP = 1.0;
+function computeBattles(cars) {
+  const out = [];
+  for (let i = 1; i < cars.length; i++) {
+    const a = cars[i - 1], b = cars[i];
+    if (a.retired || b.retired || a.lap !== b.lap) continue;
+    const gap = ((a.lap + a.lapFrac) - (b.lap + b.lapFrac)) * TRACK.lt;
+    if (gap >= 0 && gap < BATTLE_GAP) out.push([a.idx, b.idx]);
+  }
+  return out;
+}
+const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+
+// the rAF map loop: smoothly extrapolates each car's progress between ~12 Hz snapshots,
+// positions dots + labels, draws battle lines, parks pitting cars on the pit spur.
+function startMapLoop(root, ctx) {
+  if (ctx._mapRAF) return;
+  const step = () => {
+    ctx._mapRAF = requestAnimationFrame(step);
+    const phase = ctx.weekend && ctx.weekend.phase;
+    if (!ctx._anim || (phase !== "race" && phase !== "result")) return;
+    const now = nowMs(), xy = {};
+    for (const idx in ctx._anim) {
+      const a = ctx._anim[idx];
+      const dot = root.querySelector(`#car-${idx}`), lbl = root.querySelector(`#lbl-${idx}`);
+      if (!dot) continue;
+      if (a.retired) { dot.style.display = "none"; if (lbl) lbl.style.display = "none"; continue; }
+      dot.style.display = ""; if (lbl) lbl.style.display = "";
+      let x, y;
+      if (ctx._pit[idx] && now < ctx._pit[idx]) { [x, y] = PIT_STOP; }                 // parked in the pits
+      else { const dprog = a.prog + a.speed * Math.min(now - a.t, 220); [x, y] = pointAt(dprog); }
+      xy[idx] = [x, y];
+      const baseR = a.isPlayer ? 2.5 : 1.8;
+      const flashing = ctx._flash[idx] && now < ctx._flash[idx];
+      dot.setAttribute("cx", x.toFixed(2)); dot.setAttribute("cy", y.toFixed(2));
+      dot.setAttribute("r", (flashing ? baseR + 1.0 : baseR).toFixed(2));
+      dot.setAttribute("stroke", a.isLeader ? "#ffd000" : (flashing ? "#ff7a18" : (a.player ? "#fff" : "rgba(0,0,0,.45)")));
+      dot.setAttribute("stroke-width", (a.isLeader || flashing) ? "0.9" : (a.player ? "0.8" : "0.3"));
+      if (lbl) { lbl.setAttribute("x", x.toFixed(2)); lbl.setAttribute("y", (y - baseR - 1.1).toFixed(2)); }
+    }
+    const bg = root.querySelector("#battles");
+    if (bg) bg.innerHTML = (ctx._battlePairs || []).filter(([a, b]) => xy[a] && xy[b])
+      .map(([a, b]) => `<line x1="${xy[a][0].toFixed(2)}" y1="${xy[a][1].toFixed(2)}" x2="${xy[b][0].toFixed(2)}" y2="${xy[b][1].toFixed(2)}"/>`).join("");
+  };
+  ctx._mapRAF = requestAnimationFrame(step);
+}
+
 function fmtLap(t) { if (!t) return "—"; const m = Math.floor(t / 60); return `${m}:${(t - m * 60).toFixed(3).padStart(6, "0")}`; }
 function fmtGap(dp) { if (dp <= 0.0001) return "—"; const laps = Math.floor(dp); return laps >= 1 ? `+${laps} LAP` : "+" + (dp * TRACK.lt).toFixed(1); }
 const me_of = (cars, ctx) => cars.find(c => c.player && c.player === ctx.myPlayer) || cars.find(c => c.isPlayer) || cars[0];
@@ -42,8 +112,11 @@ export function render(root, ctx) {
 
 function buildHud(root, ctx) {
   const dots = ctx.snapshot.cars.map(c =>
-    `<circle id="car-${c.idx}" r="${c.isPlayer ? 2.4 : 1.7}" fill="${c.color || "#888"}"
-       stroke="${c.player ? "#fff" : "rgba(0,0,0,.4)"}" stroke-width="${c.player ? 0.8 : 0.3}"></circle>`).join("");
+    `<circle id="car-${c.idx}" r="${c.isPlayer ? 2.5 : 1.8}" fill="${c.color || "#888"}"
+       stroke="${c.player ? "#fff" : "rgba(0,0,0,.45)"}" stroke-width="${c.player ? 0.8 : 0.3}"></circle>`).join("");
+  const labels = ctx.snapshot.cars.map(c =>
+    `<text id="lbl-${c.idx}" font-size="${c.isPlayer ? 3.0 : 2.4}" text-anchor="middle" fill="${c.player ? "#fff" : "#cfd3da"}"
+       style="paint-order:stroke;stroke:#0a0a0c;stroke-width:0.5px;font-weight:${c.isPlayer ? 700 : 500};pointer-events:none">${c.abbrev}</text>`).join("");
   root.innerHTML = `
     <div id="dash">
       <div class="panel dash-head" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
@@ -57,10 +130,18 @@ function buildHud(root, ctx) {
       </div>
       <div class="dash-side">
       <div class="panel" style="padding:10px">
-        <svg viewBox="0 0 100 100" style="width:100%;max-height:340px;display:block">
-          <path d="${PATH_D}" fill="none" stroke="#2a2a31" stroke-width="3.2" stroke-linejoin="round"/>
-          <path d="${PATH_D}" fill="none" stroke="#3f3f46" stroke-width="1.4" stroke-linejoin="round"/>
+        <svg viewBox="-8 -8 116 116" style="width:100%;max-height:360px;display:block">
+          ${[0,1,2].map(s=>`<path d="${sectorPath(s)}" fill="none" stroke="#26262c" stroke-width="3.6" stroke-linejoin="round" stroke-linecap="round"/>`).join("")}
+          ${[0,1,2].map(s=>`<path d="${sectorPath(s)}" fill="none" stroke="${SECTOR_COL[s]}" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round" opacity="0.5"/>`).join("")}
+          <path id="trk-sc" d="${PATH_D}" fill="none" stroke="#ffd000" stroke-width="1.9" stroke-linejoin="round" opacity="0"/>
+          ${tickLine(0, 3.2, "#ffffff", 0.8, "0.7 0.5")}
+          ${tickLine(1/3, 2.4, SECTOR_COL[1], 0.7)}
+          ${tickLine(2/3, 2.4, SECTOR_COL[2], 0.7)}
+          <line x1="${PIT_A[0].toFixed(2)}" y1="${PIT_A[1].toFixed(2)}" x2="${PIT_B[0].toFixed(2)}" y2="${PIT_B[1].toFixed(2)}" stroke="#4a4a52" stroke-width="0.9" stroke-dasharray="1.2 1"/>
+          <text x="${PIT_STOP[0].toFixed(2)}" y="${(PIT_STOP[1]-1.6).toFixed(2)}" fill="#6a6a72" font-size="2.4" text-anchor="middle">PIT</text>
+          <g id="battles" stroke="#ff7a18" stroke-width="0.55" opacity="0.85" stroke-linecap="round"></g>
           ${dots}
+          ${labels}
         </svg>
       </div>
       <div class="panel">
@@ -111,6 +192,8 @@ function buildHud(root, ctx) {
   };
   ctx._hudReady = true;
   ctx._boardTick = 0;
+  ctx._anim = {}; ctx._pit = {}; ctx._flash = {}; ctx._prevPos = {};
+  startMapLoop(root, ctx);
   sfx.lightsOut();
 }
 
@@ -124,15 +207,23 @@ function updateHud(root, ctx, snap) {
   $("#d-chip").textContent = snap.finished ? "ФИНИШ" : (snap.scActive ? "🟡 SAFETY CAR" : (snap.paused ? "ПАУЗА" : "ГОНКА"));
   $("#d-pause").textContent = snap.paused ? "▶" : "⏸";
   $("#d-speed").textContent = (snap.speed || 1) + "x";
-  // car dots on the circuit
+  // map: feed the smooth-animation state (the rAF loop does the actual positioning)
+  const now = nowMs();
+  ctx._anim = ctx._anim || {}; ctx._pit = ctx._pit || {}; ctx._flash = ctx._flash || {};
+  const prevPos = ctx._prevPos || {};
+  const leadIdx = cars[0] && cars[0].idx;
   for (const c of cars) {
-    const el = root.querySelector(`#car-${c.idx}`);
-    if (!el) continue;
-    if (c.retired) { el.style.display = "none"; continue; }
-    el.style.display = "";
-    const [x, y] = pointAt(c.lapFrac);
-    el.setAttribute("cx", x.toFixed(2)); el.setAttribute("cy", y.toFixed(2));
+    const prog = c.lap + c.lapFrac, p = ctx._anim[c.idx];
+    let speed = 0;
+    if (p && now > p.t) { const raw = (prog - p.prog) / (now - p.t); speed = (raw >= 0 && raw < 0.01) ? raw : 0; }
+    if (p && c.pitStops > (p.pitStops || 0)) ctx._pit[c.idx] = now + 1500;             // just pitted -> park briefly
+    if (prevPos[c.idx] != null && c.pos < prevPos[c.idx]) ctx._flash[c.idx] = now + 650; // gained a place -> flash
+    ctx._anim[c.idx] = { prog, speed, t: now, retired: c.retired, pitStops: c.pitStops,
+      isLeader: c.idx === leadIdx, player: c.player, isPlayer: c.isPlayer };
   }
+  ctx._prevPos = Object.fromEntries(cars.map(c => [c.idx, c.pos]));
+  ctx._battlePairs = computeBattles(cars);
+  const scOv = $("#trk-sc"); if (scOv) scOv.setAttribute("opacity", snap.scActive ? "0.95" : "0");
   // control strip
   const pos = cars.indexOf(me), ahead = cars[pos - 1], behind = cars[pos + 1];
   $("#d-me").textContent = `P${me.pos} ${me.abbrev}`;
