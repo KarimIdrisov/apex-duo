@@ -1,10 +1,23 @@
 # Apex Web — Sim Logic Audit Brief
 
-**Purpose.** A single self-contained description of the current race-simulation logic of *Apex Web* (a browser co-op F1 manager). Hand this to a reviewing agent to audit correctness, realism, balance, and design. It covers every mechanic with the actual formulas, constants, invariants, and current balance numbers, and ends with **open questions worth scrutiny**. File/function names are given so an agent with the repo can dig in; the formulas are reproduced so an agent without it can still critique.
+> ## ▶ For the reviewing agent (read first)
+> **You are a senior motorsport-simulation engineer reviewing this race engine.** Audit it for: physical/sporting **realism**, **balance** (does every lever matter; is anything dominant or dead), internal **consistency**, **determinism** safety, and **edge cases** — and judge "is this the right *model*", not just "is the code correct".
+>
+> **Return your findings as a list**, each item with:
+> - **severity** — `critical` (breaks correctness/determinism/an invariant) · `major` (clear realism/balance flaw) · `minor` (polish);
+> - **location** — the file/function/§ it concerns (e.g. `sim.js _resolveCombat` / §8);
+> - **finding** — what's wrong or weak, with the reasoning;
+> - **proposed change** — concrete, with the **expected effect on the balance corridors** in §17.
+>
+> Prefer specific, testable proposals over general advice. If you think a mechanic is fine, say so explicitly. **Before flagging something, check §16 (invariants) and §18 (already-considered trade-offs)** so you don't propose something that breaks a load-bearing rule or that's already been weighed and rejected.
 
-**What to audit for:** physical/sporting realism, internal consistency, balance (does each lever matter, is anything dominant/dead), determinism safety, edge cases, and "is this the right model". Flag anything dubious; propose concrete changes with expected effects.
+**Purpose.** A single self-contained description of the current race-simulation logic of *Apex Web* (a browser co-op F1 manager). It covers every mechanic with the actual formulas, constants, invariants, and current balance numbers, and ends with **open questions worth scrutiny**. File/function names are given so an agent with the repo can dig in; the formulas are reproduced so an agent without it can still critique. All formulas below were verified 1:1 against the live code (2026-06-12).
 
-**Scope note.** One track (Barcelona-Catalunya), real 2026-style grid (11 teams / 22 drivers), 66 laps. Deterministic — same seed reproduces the race exactly (this underpins host-authoritative netcode and a Python/Node balance harness). The whole game is ~1700 lines of vanilla JS (ES modules), no build step.
+**Scope note.** One track (Barcelona-Catalunya), real 2026-style grid (11 teams / 22 drivers), 66 laps. Deterministic — same seed reproduces the race exactly. The whole game is ~1700 lines of vanilla JS (ES modules), no build step.
+
+> **⚠ Two things reviewers consistently misread — don't:**
+> 1. **There is no host/client desync risk.** The netcode is **host-authoritative: only the host runs the sim**; clients render the host's broadcast snapshots and never simulate. So determinism is needed only for *harness reproducibility*, and float-point drift cannot cause a multiplayer desync (there is only one authority). The drift is itself deterministic (same seed → same drift → same result).
+> 2. **Overtake zones are not "traffic jams".** Outside a zone a follower is held only ~0.4 s back (a pin, not a glue), and a pass completes inside a zone — which recurs every **~28% of the lap**. So a faster car passes within roughly a lap; it just has to wait for the braking/slip zone, exactly like a real "you can't pass here, wait for Turn 1" situation.
 
 ---
 
@@ -104,6 +117,8 @@ Per adjacent pair (leaders-first order), skipping retired or in-pit cars:
   - **Overtake zones (TODO #2b):** `zone = zoneFor(track.overtake_zones, mini)`. `resist = zone ? (1−zone.ease)·2.0·(0.7+ATTRW.defending(0.6)·ahead.attrs.defending) : Infinity`. Barcelona zones: minis [0,1,2] brake ease 0.55, minis [11,12] slip ease 0.45. **Outside a zone resist = ∞ → the follower stays pinned and credit keeps building ("the tow"); a pass completes only inside a zone.**
   - If `credit < resist`: pin behind (write only `lapFrac`, clamped ≥0). Else: pass completes (reset credit; emit a `pass` event with the zone type — suppressed while `lap===0` to avoid grid-settle spam).
 
+**Not a traffic jam.** The pin only holds the follower `COMBAT_GAP·0.5 ≈ 0.4 s` behind — it keeps building credit ("getting the tow"), and a zone recurs every ~28% of the lap, so a genuinely faster car clears the car ahead within roughly a lap. `resist = ∞` outside a zone is the mechanism for "you can't pass *here*; wait for the braking zone", not "you can never pass". (A reviewer who reads `∞` as a permanent block has missed the zone cadence.)
+
 **Invariant (load-bearing):** combat writes **only** `lapFrac` (and scratch fields), never `lap`/`wear`. Lap bookkeeping is phase-3's alone.
 
 Current corridor: ~3.0 grid→finish places/car, ~27–37 passes/race, 100% in-zone.
@@ -167,7 +182,7 @@ Two players co-direct one team and each engineer one car (pace/engine/pit). Week
 
 ## 16. Load-bearing invariants (do not break)
 
-1. **Determinism:** same seed (+difficulty) ⇒ identical race. No `Math.random`/`Date`/unordered-dict-iteration in the numeric path. Two seeded streams (`rng`, `erng`); attribute/form generation is seeded via `mix32`.
+1. **Determinism:** same seed (+difficulty) ⇒ identical race. No `Math.random`/`Date`/unordered-dict-iteration in the numeric path. Two seeded streams (`rng`, `erng`); attribute/form generation is seeded via `mix32`. **Why it matters:** *only* the harness/replay reproducibility — **not** multiplayer sync (the host is the sole simulator, see §15). Float-point accumulation is fine: `lapFrac` is reset (`-= 1`) every lap (it never accumulates across the race), and any drift is itself deterministic, so it can't desync anything.
 2. **Combat writes only `lapFrac`** (+ scratch), never `lap`/`wear`. Phase-3 lap-end owns all bookkeeping.
 3. **`lapFrac ∈ [0,1)`** every tick — *except* the negative grid-start spread. Position/time costs (start launch, pit-loss) are modelled as lap-time or a freeze, **never** a raw negative `lapFrac` (that double-counts laps).
 
@@ -194,17 +209,58 @@ difficulty          easy 4-5 winners / DNF ~1.5 ; hard 2-4 winners / DNF ~1.8
 
 ## 18. Open questions / things to audit hardest
 
-1. **Winner concentration.** The best car+driver+strategist+crew compound → McLaren wins ~80% at default. Realistic but flat for a game. Is the spread (`SKILL_K`, `CAR_K`, attribute generation) right? Should there be more car-vs-driver tension?
-2. **`track.ot` is now dead.** With overtake zones, the non-zone branch returns `resist=∞`, so `track.ot` is computed but unused in combat. Vestigial — remove or repurpose? Are 2 manual zones (≈28% of the lap) the right coverage; does pace-edge → credit → zone-release feel right, or do passes still clump unrealistically?
-3. **Start vs lap-1 chaos.** Launch is applied as a lap-0 time delta (spreads over the whole opening lap, not a T1 burst). Is 2.58 places/car too much / too little? Grid gaps are only 0.20 s/slot, so any time delta = big position swings — is the model sound, or should the opening lap "hold station" (bunched) with passing from lap 1?
-4. **Pit realism.** Pit-loss is a full stationary freeze (~23.5 s on the out-lap). No in-lap slow-down, no pit-lane travel; the whole loss lands on the out-lap. Acceptable abstraction?
-5. **Quali ≠ race pace.** `attrs.quali` vs `attrs.pace` differ by ≤~0.18 → up to ~1.3 s/lap; combined with tiny grid gaps this drives early movement. Intended texture or a balance hazard?
-6. **Tyre model.** Deg curve coefficients (0.040 / 0.32) and cliffs (65/78/90) are hand-tuned, not data-derived (FastF1 can't isolate tyre pace). Are the 1-vs-2-stop economics right given the corrected 23.5 s pit-loss? Does the cold-out-lap undercut actually bite?
-7. **Centered attribute wiring.** Every attribute effect is centered on its midpoint so the average is balance-neutral — does that under-power individual attributes (do drivers feel distinct enough)? `composure`/`aggression`/`discipline` are generated but unused by the sim (AI-only). Dead weight?
-8. **Difficulty model.** Handicap + per-race form + per-lap noise + decision gates. Does Easy feel beatable-and-varied vs Hard dominant, or are the knobs muddled? Is the AI's 1.47-stop strategy actually good, or just adequate?
-9. **Determinism surface.** Audit for any hidden non-determinism (iteration order feeding numbers, float accumulation drift over 66 laps × 22 cars × ~320 ticks).
-10. **Single-track calibration.** `lt/pw/df` validated vs FastF1; `pit` corrected to 23.5 s; compounds kept manual. Multi-track would need real per-track constants (already extracted to `tools/track_constants_*.json`) + outlines.
+Each item carries our current **stance** (as of 2026-06-13, after a first review pass) so you don't re-propose something already weighed. `→ PLANNED` = we intend to do it; `→ REJECTED` = considered and declined, with the reason; `→ OPEN` = genuinely undecided, dig in.
+
+1. **Winner concentration.** The best car+driver+strategist+crew compound → McLaren wins ~80% at default. Realistic but flat for a game. Is the spread (`SKILL_K`, `CAR_K`, attribute generation) right?
+   - → **PLANNED:** add a small **per-race "form" offset (±0.1–0.15 s/lap) to *every* car each race** (today `_aiForm` only varies at low difficulty) — a realistic "off-weekend for anyone" that breaks the monopoly.
+   - → **REJECTED:** making top teams *less reliable* (faster car = more overheating/pit errors) — anti-realistic (real top teams are *more* reliable) and it undercuts the "best car" fantasy. Use form variance instead.
+   - → **OPEN:** whether to also make `setupBonus` a bigger player lever (helps the human, not AI-vs-AI spread).
+2. **`track.ot` is now dead.** With overtake zones the non-zone branch returns `resist=∞`, so `track.ot` is computed but unused. (See §8 — this is *not* a permanent block; passes complete in a zone every ~28% of the lap.)
+   - → **PLANNED:** a rare **aggressive out-of-zone pass** — if `edge > ~1.0 s` and `attrs.aggression` is high, allow a finite-resist attempt outside a zone with a contact/DNF risk. Gives texture, *uses* `aggression`, and repurposes `track.ot` as its base — without dismantling zones.
+   - → **REJECTED:** a general time-decaying out-of-zone `resist` — it would let passes complete anywhere, undoing the whole point of zones (passes at real overtaking spots).
+3. **Start vs lap-1 chaos.** Launch is a lap-0 time delta. 2.58 places/car reshuffle; grid gaps are only 0.20 s/slot so any time delta = big swings.
+   - → **PLANNED:** a "cautious opening lap" — **reduce `passAccrual` while `lap===0`** (field holds the launch/grid order through T1; racing opens from lap 1) **+ bump `GRID_GAP` 0.20 → 0.25**. (A *softer* version than a hard pin — avoids the negative-grid-`lapFrac` clamp problem in §16.3.)
+4. **Pit realism.** Pit-loss is a full stationary freeze (~23.5 s on the out-lap); no in-lap slow-down or pit-lane travel.
+   - → **REJECTED (low value):** a dedicated `inLapPush` undercut multiplier — the existing engine/pace push modes already let a player push the in-lap, so it's near-duplicate. The freeze abstraction itself is considered sound.
+5. **Quali ≠ race pace.** `attrs.quali` vs `attrs.pace` differ by ≤~0.18 → up to ~1.3 s/lap; with tiny grid gaps this drives early movement. → **OPEN:** intended "qualifiers vs racers" texture or a balance hazard? (Partly mitigated by the §18.3 cautious-lap-1 plan.)
+6. **Tyre model.** Deg coefficients (0.040 / 0.32) and cliffs (65/78/90) are hand-tuned, not data-derived (FastF1 can't isolate tyre pace). → **OPEN:** are the 1-vs-2-stop economics right at the corrected 23.5 s pit-loss? Does the cold-out-lap undercut actually bite? (High-value to verify.)
+7. **Distinct drivers / unused attributes.** Attribute effects are *centered* (average = neutral) — do drivers feel distinct enough? `composure`/`aggression`/`discipline` are generated but unused by the sim (AI-only).
+   - → **PLANNED:** wire all three for the player too — `composure` lowers bog-down/quali-mistake chance, `aggression` raises `passAccrual` (and powers §18.2's out-of-zone move), `discipline` reduces dirty-air wear. Cheap, centered, makes drivers distinct.
+8. **Difficulty model.** Handicap + per-race form + per-lap noise + decision gates. → **OPEN:** does Easy feel beatable-and-varied vs Hard dominant? Is the AI's 1.47-stop strategy genuinely good or just adequate?
+9. **Determinism surface.** → **PLANNED:** add a stronger lock — run a fixed seed N times and assert an identical **hash of the final state**. → **REJECTED:** normalizing `lapFrac % 1` "to avoid drift" — unnecessary (`lapFrac` is reset every lap, never accumulates) and drift can't desync anything (host-authoritative; see §16.1 / the top warning).
+10. **Single-track calibration.** `lt/pw/df` validated vs FastF1; `pit` corrected to 23.5 s; compounds kept manual. → **OPEN/FUTURE:** multi-track needs real per-track constants (already extracted to `tools/track_constants_*.json`) + per-track outlines.
 
 ---
 
-*Generated 2026-06-12 from the live code. Constants live in `ApexWeb/src/data.js`; the core loop in `ApexWeb/src/sim.js`. Run `node --test` (103 tests) and `node tools/balance.mjs` (corridors) from `ApexWeb/`.*
+## 19. Constants quick-reference (`src/data.js`)
+
+| Const | Value | Meaning |
+|---|---|---|
+| `STEP` | 0.25 s | sim tick |
+| `SKILL_K` | 7.0 | s/lap per (driver pace − 0.5) — the dominant differentiator |
+| `CAR_K` | 1.2 | s/lap per (power−aero)·(track.pw−df) car/track-character bias |
+| `GRID_GAP` | 0.20 s | grid spread per slot |
+| `COMBAT_GAP` | 0.8 s | within this two cars fight |
+| `DIRTY_GAP` | 1.5 s | within this you're in dirty air |
+| `SLIP_K` | 0.25 | slipstream tow / tick (× straightness × power) |
+| `DIRTY_WEAR` | 0.006 | extra wear/tick in dirty air (× 1−straightness) |
+| `DNF_BASE` | 0.0075 | per-lap mechanical-failure scale × (1−rel) × pace.risk |
+| `FIT_K` | 0.6 | sector-specialism strength |
+| `FUEL.margin / weightK` | 0.06 / 0.020 | start fuel margin / s-lap per fuel-unit aboard |
+| `TYRE.warmPen/ease/gridTemp/pitTemp` | 1.2 / 0.5 / 0.55 / 0.20 | cold penalty s/lap, warm rate, start temp, pit-exit temp |
+| `COMPOUNDS pace/wear/cliff` | S −0.55/2.6/65 · M 0/1.7/78 · H +0.55/1.1/90 · I +0.30/1.9/70 · W +0.50/1.6/75 | per-compound pace, wear/lap, cliff |
+| `PACE_MODES pace/wear/risk` | conserve +0.45/0.80/0.4 · balanced 0/1/1 · push −0.45/1.30/1.8 | |
+| `ENGINE_MODES pace/burn` | save +0.35/0.85 · standard 0/1 · push −0.30/1.20 | |
+| `EVENT.startReact/Launch/Cap` | 0.30 / 2.0 / 0.9 | launch reaction spread / skill weight / ± cap (s) |
+| `EVENT.startP/Loss/Dnf` | 0.02 / 1.8 / 0.12 | bog-down chance / s lost / DNF chance |
+| `EVENT.scPaceMult/MinLaps/TrainGap/PitMult` | 1.40 / 3 / 0.6 / 0.55 | SC pace, min laps, train gap, cheap-pit mult |
+| `WET.mismatch/slick` | 3.0 / 8.0 | s/lap per wetness-mismatch / aquaplaning a slick |
+| `ATTRW` (wear/overtaking/defending/wet/noise/starts/fuel/carWear) | 0.30/0.60/0.60/0.60/0.60/1.0/0.20/0.20 | centered attribute-effect weights |
+| `DIFFICULTY ai` | easy 0.55 · normal 0.80 · hard 1.0 | AI sharpness scalar |
+| `AI_HANDICAP/NOISE/FORM` | 0.80 / 0.25 / 1.0 | difficulty handicap, per-lap noise, per-race form (all × 1−diff) |
+| `TRACK` | lt 80, pit 23.5, pw 0.55, df 0.82, sc 0.25, wet 0.30, laps 66 | Barcelona; `ot 0.30` now vestigial |
+| `TRACK.overtake_zones` | minis [0,1,2] brake ease 0.55 · [11,12] slip ease 0.45 | where passes complete |
+
+---
+
+*Generated 2026-06-12, stances added 2026-06-13, from the live code. Constants live in `ApexWeb/src/data.js`; the core loop in `ApexWeb/src/sim.js`. Run `node --test` (103 tests) and `node tools/balance.mjs` (corridors) from `ApexWeb/`.*
