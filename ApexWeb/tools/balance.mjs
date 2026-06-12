@@ -4,7 +4,7 @@
 // SKILL_K 3.0->7.0 (widen field to land spread in corridor),
 // DNF_BASE 0.005->0.0075 (lift retirements into ~1-2 band). All 24 node:test pass.
 import { Race } from "../src/sim.js";
-import { TEAMS, TRACK } from "../src/data.js";
+import { TEAMS, TRACK, COMPOUNDS } from "../src/data.js";
 
 function field() {
   let idx = 0;
@@ -49,13 +49,13 @@ function fuelRunouts(engine) {
 }
 console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0), standard=${fuelRunouts("standard")} (expect 0)`);
 
-// undercut corridor: fresh+warm vs worn lap-time delta should pay back the pit loss over a few laps.
+// tyre degradation corridor: a fresh tyre claws back time vs a worn one — this (with the
+// cold out-lap) is what makes the undercut work. Uses real lap-based wear (wear = laps × compound.wear).
 {
   const { tyreTerm } = await import("../src/tyres.js");
-  const fresh = tyreTerm("medium", 0, 1);        // fresh, warm
-  const worn  = tyreTerm("medium", 28, 1);       // ~28-lap-old tyre, warm
-  const perLapGain = worn - fresh;               // s/lap a fresh tyre claws back
-  const pitLoss = TRACK.pit;                      // s lost in the pit
-  console.log(`undercut: fresh tyre gains ${perLapGain.toFixed(2)} s/lap vs a 28-lap tyre; ` +
-    `pays back the ${pitLoss}s stop in ~${(pitLoss / perLapGain).toFixed(0)} laps (expect a single-digit number)`);
+  const w = laps => laps * COMPOUNDS.medium.wear;     // medium wear after N laps at standard pace
+  const deg20 = tyreTerm("medium", w(20), 1);          // 20-lap medium, warm
+  const deg30 = tyreTerm("medium", w(30), 1);          // 30-lap medium, warm
+  console.log(`tyre deg (medium, warm): 20 laps = ${deg20.toFixed(2)} s/lap off fresh, ` +
+    `30 laps = ${deg30.toFixed(2)} s/lap (expect ~1.5-3 at 20; the undercut also rides the cold out-lap)`);
 }
