@@ -118,7 +118,7 @@ function updateHud(root, ctx, snap) {
   const $ = id => root.querySelector(id);
   // header
   $("#d-lap").textContent = me.lap;
-  $("#d-chip").textContent = snap.finished ? "ФИНИШ" : (snap.paused ? "ПАУЗА" : "ГОНКА");
+  $("#d-chip").textContent = snap.finished ? "ФИНИШ" : (snap.scActive ? "🟡 SAFETY CAR" : (snap.paused ? "ПАУЗА" : "ГОНКА"));
   $("#d-pause").textContent = snap.paused ? "▶" : "⏸";
   $("#d-speed").textContent = (snap.speed || 1) + "x";
   // car dots on the circuit
