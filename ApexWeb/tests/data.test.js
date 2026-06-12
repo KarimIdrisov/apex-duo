@@ -48,3 +48,8 @@ test("compounds have a warm-up rate; TYRE constants present", () => {
   assert.ok(TYRE.warmPen > 0 && TYRE.ease > 0);
   assert.ok(TYRE.pitTemp < TYRE.gridTemp && TYRE.gridTemp < 1);
 });
+
+import { FIT_K } from "../src/data.js";
+test("FIT_K present (per-sector car-fit strength)", () => {
+  assert.ok(FIT_K > 0 && FIT_K < 2);
+});

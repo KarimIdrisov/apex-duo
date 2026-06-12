@@ -71,6 +71,10 @@ export const TYRE = {
   pitTemp:  0.20,  // tyre temp leaving the pits (cold out-lap)
 };
 
+// per-sector car fit: how strongly power (straights) / aero (corners) reshapes the
+// mini-sector split distribution. 0 = flat splits; bigger = more sector specialism.
+export const FIT_K = 0.6;
+
 // pace modes: pace offset (s/lap), wear multiplier, mechanical-risk multiplier
 export const PACE_MODES = {
   conserve: { pace: 0.45, wear:0.80, risk:0.4 },
