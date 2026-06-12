@@ -5,7 +5,7 @@ import { startFuel, burnFor, weightTerm, engineTerm, fuelLaps } from "./fuel.js"
 import { tyreTerm, warmStep } from "./tyres.js";
 import { miniSplits, MINI, N_MINI, sampleAt } from "./track.js";
 import { slipstream, dirtyWear, passAccrual, zoneFor } from "./overtake.js";
-import { scheduleSC, startIncidentHit } from "./events.js";
+import { scheduleSC } from "./events.js";
 import { scheduleWeather, wetnessAt, weatherTerm } from "./weather.js";
 import { planRace, pitDecision, engineMode, paceMode } from "./ai_strategy.js";
 import { ATTR_KEYS } from "./team.js";
@@ -39,7 +39,7 @@ export class Race {
       retired: false, pitPending: null, pos: i + 1, startPos: i + 1,
       pitStops: 0, pitTimer: 0,
       lastMini: [], bestMini: new Array(N_MINI).fill(Infinity), miniColors: [], sectorTimes: [0, 0, 0],
-      _dirtyWear: 0, _startPenalty: 0,
+      _dirtyWear: 0, _launch: 0,
     }));
     this.difficulty = difficulty;   // AI sharpness scalar (lobby-selected; default ~Обычная)
     for (const c of this.cars) {
@@ -80,7 +80,7 @@ export class Race {
       s += (c._aiForm || 0);                                                 // per-race form: off/on weekend (creates upsets)
       s += this.rng.noise((1 - this.difficulty) * AI_NOISE);                 // ...and less consistent lap-to-lap
     }
-    if (c.lap === 0 && c._startPenalty) s += c._startPenalty;   // lost time from a start incident (lap 1 only)
+    if (c.lap === 0) s += c._launch || 0;       // standing-start launch (graded: good launch = faster opening lap)
     if (this.scActive) s *= EVENT.scPaceMult;   // everyone crawls behind the safety car
     return s;
   }
@@ -88,7 +88,7 @@ export class Race {
   step(dt = STEP) {
     if (this.finished) return;
     if (!this._started) {
-      this._started = true; this._startIncidents();
+      this._started = true; this._standingStart();
       const pole = this.order()[0];
       this._emit({ type: "start", lap: 0, a: pole.idx, abbr: pole.abbrev });
     }
@@ -162,12 +162,19 @@ export class Race {
     sorted.forEach((c, slot) => { c.lap = 0; c.lapFrac = -slot * (GRID_GAP / this.track.lt); });
   }
 
-  _startIncidents() {
+  // standing start: launch off the line — a bounded shuffle from each driver's start skill
+  // + reaction, measured against the field mean so only the SPREAD moves positions. The grid
+  // (quali order) is otherwise respected; a rare bog-down gives the occasional big drop.
+  _standingStart() {
+    let mean = 0; for (const c of this.cars) mean += A(c).starts; mean /= this.cars.length;
     for (const c of this.cars) {
-      if (startIncidentHit(this.erng, EVENT.startP * (1.5 - ATTRW.starts * A(c).starts))) {
-        c._startPenalty = EVENT.startLoss;                       // a slow lap 1 (applied in _lapTime), drops the car back
-        if (this.erng.unit() < EVENT.startDnf) c.retired = true; // rare: out on the spot
+      let launch = (mean - A(c).starts) * EVENT.startLaunch + this.erng.noise(EVENT.startReact);  // s lost (good starter < 0)
+      launch = Math.max(-EVENT.startCap, Math.min(EVENT.startCap, launch));
+      if (this.erng.unit() < EVENT.startP) {                   // rare bog-down / anti-stall
+        launch += EVENT.startLoss;
+        if (this.erng.unit() < EVENT.startDnf) c.retired = true;
       }
+      c._launch = launch;   // graded launch delta, applied to the opening-lap time (good launch < 0 = faster lap 1 = gains)
     }
   }
 

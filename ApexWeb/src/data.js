@@ -92,9 +92,12 @@ export const DIRTY_WEAR = 0.006; // extra tyre wear/tick in dirty air, × (1 - s
 
 // events (Phase 5): start incident + safety car.
 export const EVENT = {
-  startP:     0.03,  // per-car chance of a lap-1 start incident
-  startLoss:  4.0,   // seconds lost in a start incident
-  startDnf:   0.15,  // chance a start incident becomes a DNF
+  startReact: 0.30,  // s: random reaction spread off the line at lights-out
+  startLaunch: 2.0,  // s per unit of start-skill deviation from the field mean (the launch shuffle)
+  startCap:   0.9,   // s: max a launch can gain/lose (bounds the opening-lap shuffle)
+  startP:     0.02,  // per-car chance of a bog-down / anti-stall off the line
+  startLoss:  1.8,   // seconds lost in a bog-down
+  startDnf:   0.12,  // chance a bog-down becomes a DNF
   scPaceMult: 1.40,  // everyone laps at 140% under the safety car
   scMinLaps:  3,     // the SC stays out this many leader-laps
   scTrainGap: 0.6,   // seconds between cars in the bunched SC train

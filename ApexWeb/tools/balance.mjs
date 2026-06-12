@@ -99,6 +99,21 @@ console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0
     `passes/race ${(passEvents / 20).toFixed(1)}, in-zone ${passEvents ? (100 * zonedPasses / passEvents).toFixed(0) : 0}%`);
 }
 
+// start corridor: how much the field reshuffles on the opening lap (lower = quali grid respected;
+// the standing start should be a modest launch shuffle, not a lap-1 lottery).
+{
+  let move = 0, races = 25;
+  for (let s = 0; s < races; s++) {
+    const r = new Race(field(), TRACK, 1000 + s);
+    r.gridStart();
+    const grid = Object.fromEntries(r.order().map(c => [c.idx, c.pos]));
+    let g = 0; while (r.order()[0].lap < 2 && g++ < 50000) r.step();   // run to ~end of lap 1
+    const l1 = Object.fromEntries(r.order().map(c => [c.idx, c.pos]));
+    move += r.cars.reduce((a, c) => a + Math.abs((l1[c.idx] || 0) - (grid[c.idx] || 0)), 0) / r.cars.length;
+  }
+  console.log(`start: avg |grid→lap1| position change = ${(move / races).toFixed(2)} places/car (lower = quali order held; expect ~1-3)`);
+}
+
 // safety-car corridor: SC occurrence over many races should land near track.sc.
 {
   let sc = 0;

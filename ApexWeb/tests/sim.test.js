@@ -159,6 +159,8 @@ test("first flier colours are all session-best (purple) and determinism holds", 
   // handicap noise at the default difficulty) can't mis-pick the genuine pace leader.
   const score = c => { let s = 0; for (let k = 0; k < 9; k++) s += r._lapTime(c); return s; };
   const lead = r.cars.reduce((a, b) => (score(a) <= score(b) ? a : b));
+  r.step();                                   // trigger the standing start, then neutralise the launch
+  for (const c of r.cars) c._launch = 0;      // (this test checks pure pace→colour, not the opening shuffle)
   let guard = 0;
   while (lead.lap < 1 && guard++ < 80000) r.step();
   assert.ok(lead.miniColors.every(x => x === "p"), "leader's first lap should be all session bests");
@@ -220,12 +222,15 @@ test("determinism holds with events", () => {
   assert.deepEqual(run(7042), run(7042));
 });
 
-test("a start-incident penalty slows the car's first lap (drops it back, not forward)", () => {
-  const r = new Race(field(), TRACK, 1);
-  const c = r.cars[0]; c.lap = 0;
-  const base = r._lapTime(c);
-  c._startPenalty = 5;
-  assert.ok(r._lapTime(c) > base + 4, "lap-1 start penalty applies");
+test("the standing start only shuffles modestly over lap 1 (launch, not chaos)", () => {
+  const r = new Race(field(), TRACK, 5);
+  r.gridStart();
+  const before = Object.fromEntries(r.order().map(c => [c.idx, c.pos]));
+  let g = 0; while (r.order()[0].lap < 2 && g++ < 50000) r.step();   // run to ~end of lap 1
+  const after = Object.fromEntries(r.order().map(c => [c.idx, c.pos]));
+  const moves = r.cars.map(c => Math.abs(after[c.idx] - before[c.idx]));
+  const avg = moves.reduce((a, b) => a + b, 0) / moves.length;
+  assert.ok(avg < 4, `opening-lap shuffle stays modest (${avg.toFixed(2)} places/car, no 4s-incident wild swings)`);
 });
 
 test("rain occurs at roughly track.wet across seeds, and wets the track", () => {
