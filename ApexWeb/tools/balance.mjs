@@ -5,12 +5,15 @@
 // DNF_BASE 0.005->0.0075 (lift retirements into ~1-2 band). All 24 node:test pass.
 import { Race } from "../src/sim.js";
 import { TEAMS, TRACK, COMPOUNDS } from "../src/data.js";
+import { driverAttrs, composeCar, genPersonnel } from "../src/team.js";
 
 function field() {
   let idx = 0;
-  return TEAMS.flatMap(t => t.drivers.map(d => ({
+  return TEAMS.flatMap((t, ti) => t.drivers.map(d => ({
     idx: idx++, name:d.name, abbrev:d.abbrev, skill:d.skill,
-    car:t.car, color:t.color, team:t.name, setup:[0.5,0.5,0.5], startTyre:"medium",
+    car: composeCar(t.car), color:t.color, team:t.name,
+    attrs: driverAttrs(d.abbrev, d.skill), personnel: genPersonnel(t.facility, ti),
+    setup:[0.5,0.5,0.5], startTyre:"medium",
   })));
 }
 
@@ -116,4 +119,12 @@ console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0
   const wetGap = weatherTerm("hard", 0.85) - weatherTerm("wet", 0.85); // >0: wet faster in the rain
   console.log(`weather: rained in ${rained}/60 races = ${(rained / 60).toFixed(2)} (expect ~${TRACK.wet}); ` +
     `dry slick advantage ${dryGap.toFixed(1)}s, wet-tyre advantage in rain ${wetGap.toFixed(1)}s (both expect > 0)`);
+}
+
+// attribute corridor: the FM signature traits actually move the needle (the spread didn't collapse).
+{
+  const ver = driverAttrs("VER", 0.85), str = driverAttrs("STR", 0.80);
+  console.log(`attrs: VER overtaking ${ver.overtaking.toFixed(2)} vs defending ${ver.defending.toFixed(2)}; ` +
+    `HAM wet ${driverAttrs("HAM", 0.85).wet.toFixed(2)} > STR wet ${str.wet.toFixed(2)} (signature traits live); ` +
+    `McLaren pit ${genPersonnel(0.95, 0).pitMult.toFixed(2)}× vs Cadillac ${genPersonnel(0.68, 10).pitMult.toFixed(2)}× (crew matters)`);
 }
