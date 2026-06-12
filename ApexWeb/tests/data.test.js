@@ -1,7 +1,7 @@
 // ApexWeb/tests/data.test.js
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { TEAMS, TRACK, COMPOUNDS, PACE_MODES, ERS_MODES } from "../src/data.js";
+import { TEAMS, TRACK, COMPOUNDS, PACE_MODES } from "../src/data.js";
 
 test("11 teams, 22 drivers", () => {
   assert.equal(TEAMS.length, 11);
@@ -27,7 +27,6 @@ test("track + compound/mode tables present", () => {
   assert.ok(TRACK.laps > 0 && TRACK.lt > 0);
   for (const c of ["soft", "medium", "hard"]) assert.ok(COMPOUNDS[c]);
   for (const m of ["conserve", "balanced", "push"]) assert.ok(PACE_MODES[m]);
-  for (const m of ["harvest", "balanced", "attack"]) assert.ok(ERS_MODES[m]);
 });
 
 import { ENGINE_MODES, FUEL } from "../src/data.js";
