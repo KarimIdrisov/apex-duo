@@ -4,8 +4,20 @@ import assert from "node:assert/strict";
 import { qualiLap, buildGrid } from "../src/quali.js";
 import { TEAMS, TRACK } from "../src/data.js";
 import { RNG } from "../src/rng.js";
+import { driverAttrs } from "../src/team.js";
 
 const drv = TEAMS[0].drivers[0], car = TEAMS[0].car;
+
+test("a strong qualifier out-qualifies a same-overall racer", () => {
+  const quali = { abbrev: "LEC", skill: 0.85, attrs: driverAttrs("LEC", 0.85) };  // LEC: +0.12 quali signature
+  const racer = { abbrev: "PER", skill: 0.85, attrs: driverAttrs("PER", 0.85) };  // PER: no quali bump
+  let qWins = 0;
+  for (let s = 0; s < 100; s++) {
+    if (qualiLap(quali, car, TRACK, [0.5,0.5,0.5], 0.3, new RNG(s)) <
+        qualiLap(racer, car, TRACK, [0.5,0.5,0.5], 0.3, new RNG(s))) qWins++;
+  }
+  assert.ok(qWins > 60, `the qualifier should usually be faster (${qWins}/100)`);
+});
 
 test("higher risk lowers the mean lap time but raises variance", () => {
   const safe = [], risky = [];

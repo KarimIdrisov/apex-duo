@@ -8,7 +8,7 @@ export function qualiLap(drv, car, track, setup, risk, rng) {
   const ideal = trackIdeal(track.laps * 1000 + Math.round(track.lt));
   const close = closeness(setup, ideal);
   let s = track.lt + COMPOUNDS.soft.pace;
-  s -= SKILL_K * (drv.skill - 0.5);
+  s -= SKILL_K * ((drv.attrs ? drv.attrs.quali : drv.skill) - 0.5);   // one-lap pace
   s -= CAR_K * ((car.power - car.aero) * (track.pw - track.df));
   s += paceBonus(close);
   s -= 0.35 * risk;                                  // pushing harder = faster
