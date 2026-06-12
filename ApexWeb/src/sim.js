@@ -5,7 +5,8 @@ import { startFuel, burnFor, weightTerm, engineTerm, fuelLaps } from "./fuel.js"
 import { tyreTerm, warmStep } from "./tyres.js";
 import { miniSplits, MINI, N_MINI, sampleAt } from "./track.js";
 import { slipstream, dirtyWear, passAccrual, zoneFor } from "./overtake.js";
-import { PASS_CREDIT_CAP, PASS_CREDIT_DECAY, DIRTY_PACE_K, LAP1_CAUTION } from "./data.js";
+import { PASS_CREDIT_CAP, PASS_CREDIT_DECAY, DIRTY_PACE_K, LAP1_CAUTION,
+  AGGR_PASS_EDGE, AGGR_PASS_ATTR, AGGR_PASS_REF, AGGR_PASS_K, AGGR_PASS_DNF } from "./data.js";
 import { scheduleSC } from "./events.js";
 import { scheduleWeather, wetnessAt, weatherTerm } from "./weather.js";
 import { planRace, pitDecision, engineMode, paceMode } from "./ai_strategy.js";
@@ -232,6 +233,26 @@ export class Race {
                  + passAccrual(edge, tow, me.engine, s) * (0.7 + ATTRW.overtaking * A(me).overtaking) * cautious * aggr;
         me._passCredit = Math.min(cr, PASS_CREDIT_CAP);
         const zone = zoneFor(this.track.overtake_zones, sampleAt(me.lapFrac).mini);   // follower's local zone (or null)
+        // bold out-of-zone lunge (§18.2): a much-faster, aggressive driver tries a move where you "can't pass".
+        // Instantaneous (no credit banking), cooldown-gated (anti-spam), with a contact risk. Repurposes track.ot.
+        if (!zone && me.lap >= 1 && edge > AGGR_PASS_EDGE && A(me).aggression >= AGGR_PASS_ATTR
+            && me._aggrTried !== ahead.idx) {
+          me._aggrTried = ahead.idx;   // one bold attempt per rival-ahead (anti-spam: not a recurring time cooldown)
+          const p = this.track.ot * AGGR_PASS_K * (0.5 + A(me).aggression) * Math.min(1, (edge - AGGR_PASS_EDGE) / AGGR_PASS_REF);
+          if (this.erng.unit() < p) {
+            const slot = ahead.lapFrac + (COMBAT_GAP * 0.1) / this.track.lt;   // nip just ahead of the car
+            if (slot < 1) {   // guard the lap boundary — combat never writes lap (§16 invariant)
+              me.lapFrac = slot; me._passCredit = 0;
+              if (me._passedIdx !== ahead.idx && (me._passCd ?? -1) <= this.time) {
+                this._emit({ type: "pass", lap: me.lap, a: me.idx, abbr: me.abbrev, b: ahead.idx, abbrB: ahead.abbrev, zone: "bold" });
+                me._passedIdx = ahead.idx; me._passCd = this.time + 4;
+              }
+              continue;   // move done this tick — skip the pin
+            }
+          } else if (this.erng.unit() < AGGR_PASS_DNF) {
+            me.retired = true; continue;   // the lunge went wrong — into the gravel
+          }
+        }
         const ease = zone ? zone.ease : this.track.ot;
         // outside any zone a pass cannot complete (resist = Infinity): stay pinned, credit keeps building
         const resist = zone ? (1 - ease) * 2.0 * (0.7 + ATTRW.defending * A(ahead).defending) : Infinity;

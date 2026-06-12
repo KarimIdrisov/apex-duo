@@ -421,12 +421,23 @@ test("pass events carry both drivers and are bounded", () => {
   assert.ok(passes.length < 400, `passes bounded (${passes.length})`);
 });
 
-test("overtakes complete only inside overtake zones", () => {
+test("overtakes complete in a zone, or as a rare bold out-of-zone lunge", () => {
   const r = new Race(field(), TRACK, 6601); r.gridStart();
   let g = 0; while (!r.finished && g++ < 500000) r.step();
   const passes = r.events.filter(e => e.type === "pass");
   assert.ok(passes.length > 0, "some passes happened");
-  for (const p of passes) assert.ok(p.zone === "brake" || p.zone === "slip", `pass carries a zone (${p.zone})`);
+  for (const p of passes) assert.ok(p.zone === "brake" || p.zone === "slip" || p.zone === "bold", `pass carries a zone (${p.zone})`);
+});
+
+test("bold out-of-zone passes occur but stay rare (§18.2)", () => {
+  let bold = 0, races = 20;
+  for (let s = 0; s < races; s++) {
+    const r = new Race(field(), TRACK, 6700 + s); r.gridStart();
+    let g = 0; while (!r.finished && g++ < 500000) r.step();
+    bold += r.events.filter(e => e.type === "pass" && e.zone === "bold").length;
+  }
+  assert.ok(bold > 0, "bold lunges should happen at least sometimes");
+  assert.ok(bold / races <= 4, `bold passes stay rare (${(bold / races).toFixed(2)}/race, expect <= ~2)`);
 });
 
 test("determinism holds with overtake zones", () => {

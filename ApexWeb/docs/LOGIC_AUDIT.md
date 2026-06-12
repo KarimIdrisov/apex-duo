@@ -120,6 +120,7 @@ Per adjacent pair (leaders-first order), skipping retired or in-pit cars:
   - `me._passCredit = min(_passCredit·PASS_CREDIT_DECAY(0.97) + passAccrual(edge, towEff, engine, straightness)·(0.7 + ATTRW.overtaking(0.6)·attrs.overtaking), PASS_CREDIT_CAP(2.5))`, where `passAccrual = (max(0,edge)+towEff)·(push?1.3:1)·(0.5+straightness)` and **`towEff = tow·clamp(edge/EDGE_REF(0.35), 0, 1)`** — the tow now AMPLIFIES a real pace edge (it can't build a pass from nothing) and credit is **capped + decayed** so a whole straight of draft can't be banked and cashed in one tick (the verified over-power, fixed 2026-06-13; §18.13).
   - **Overtake zones (TODO #2b):** `zone = zoneFor(track.overtake_zones, mini)`. `resist = zone ? (1−zone.ease)·2.0·(0.7+ATTRW.defending(0.6)·ahead.attrs.defending) : Infinity`. Barcelona zones: minis [0,1,2] brake ease 0.55, minis [11,12] slip ease 0.45. **Outside a zone resist = ∞ → the follower stays pinned and credit keeps building ("the tow"); a pass completes only inside a zone.**
   - If `credit < resist`: pin behind (write only `lapFrac`, clamped ≥0). Else: pass completes (reset credit; emit a `pass` event with the zone type — suppressed while `lap===0` to avoid grid-settle spam).
+  - **Bold out-of-zone lunge (§18.2):** outside a zone, if the follower is `>AGGR_PASS_EDGE(1.0)` s/lap faster, has `aggression ≥ AGGR_PASS_ATTR(0.70)`, and **hasn't already tried this rival** (`_aggrTried`, one shot per car-ahead — anti-spam), it rolls a bold move with `p = track.ot·AGGR_PASS_K(1.6)·(0.5+aggression)·clamp((edge−1)/AGGR_PASS_REF(1.0))`. On success it nips just ahead (`lapFrac = ahead.lapFrac + small`, guarded `<1` so combat never writes `lap`), emitting a `zone:"bold"` pass. On failure, an `AGGR_PASS_DNF(0.02)` chance of contact → DNF. Measured: **~0.95 bold passes/race, DNF stays ~1.7** (the one-shot-per-rival key is essential — a time cooldown allowed hundreds of risky attempts and pushed DNF to ~8).
 
 **Not a traffic jam.** The pin only holds the follower `COMBAT_GAP·0.5 ≈ 0.4 s` behind — it keeps building credit ("getting the tow"), and a zone recurs every ~28% of the lap, so a genuinely faster car clears the car ahead within roughly a lap. `resist = ∞` outside a zone is the mechanism for "you can't pass *here*; wait for the braking zone", not "you can never pass". (A reviewer who reads `∞` as a permanent block has missed the zone cadence.)
 
@@ -201,14 +202,14 @@ winners             3 distinct drivers; top TEAM McLaren ~95-100%  ← grid-data
 fuel run-outs       push-all-race 175 dry / standard 0
 tyre deg            1.66 s/lap @20 laps medium
 sectors             power car −0.88 s in the straight sector, +0.65 s in the twisty one
-overtaking          ~2.7 grid→finish places/car; ~23 passes/race; 100% in-zone   ← passes down from ~34 (§18.13 tow-gate removed artificial draft swaps)
+overtaking          ~2.8 grid→finish places/car; ~25 passes/race (incl. ~1 bold out-of-zone, §18.2); rest in-zone
 safety car          ~0.23 of races (track.sc 0.25)
 weather             ~0.37 of races rain; dry slick adv 2.7 s; wet adv in rain 6.0 s
 start               2.16 |grid→lap1| places/car   ← calmer since the tow-gate also throttles lap-1 draft swaps (§18.13)
 strategy            AI 1.47 stops/race, mean stop lap ~35/66, 0 fuel run-outs
 difficulty          easy 5 winners / DNF ~1.4 ; hard 2 winners / DNF ~1.5 (easy ≥ hard variety holds)
 ```
-*(Updated 2026-06-13 after §18.1 (car-pace `CAR_PACE_K 9.0`, `SKILL_K 4.5`, `RACE_FORM 0.15`), §18.13 (tow-gate + credit cap/decay), §18.11 (dirty-air pace `DIRTY_PACE_K 0.8`). 105 node tests green.)*
+*(Updated 2026-06-13 after the §18 priority pass: §18.1 (car-pace `CAR_PACE_K 9.0`, `SKILL_K 4.5`, `RACE_FORM 0.15`), §18.13 (tow-gate + credit cap/decay), §18.11 (dirty-air pace `DIRTY_PACE_K 0.8`), §18.3 (lap-1 caution + `GRID_GAP 0.25`), §18.7 (composure/aggression/discipline wired), §18.2 (bold out-of-zone lunge). 110 node tests green; DNF ~1.7, bold ~0.95/race.)*
 
 ---
 
@@ -228,9 +229,7 @@ Each item carries our current **stance** (as of 2026-06-13, after a first review
    - → **REJECTED:** an `interaction = MIX_K·pace·car_quality` term — a *positive* pace×car interaction *amplifies* the best package (more domination), the opposite of the goal.
    - → **REJECTED:** making top teams *less reliable* — anti-realistic (real top teams are *more* reliable) and it undercuts the "best car" fantasy.
    - → **OPEN:** whether to also make `setupBonus` a bigger player lever (helps the human, not AI-vs-AI spread).
-2. **`track.ot` is now dead.** With overtake zones the non-zone branch returns `resist=∞`, so `track.ot` is computed but unused. (See §8 — this is *not* a permanent block; passes complete in a zone every ~28% of the lap.)
-   - → **PLANNED:** a rare **aggressive out-of-zone pass** — if `edge > ~1.0 s` and `attrs.aggression` is high, allow a finite-resist attempt outside a zone with a contact/DNF risk. Gives texture, *uses* `aggression`, and repurposes `track.ot` as its base — without dismantling zones.
-     **Anti-spam constraint (required):** the attempt must be **instantaneous** (do NOT accumulate `passCredit` on a failure) with a per-car **cooldown** (or it's one-shot per battle), else AI/players spam risky moves every lap and inflate DNF. **Validation:** over 1000 sims, out-of-zone passes ≤ ~1–2/race and DNF stays in the §17 corridor (~1.77).
+2. **✅ DONE (2026-06-13) — `track.ot` repurposed as the bold-lunge base.** Implemented the aggressive out-of-zone pass (see §8): gated on `edge>1.0` + `aggression≥0.70` + **one shot per rival-ahead** (`_aggrTried`), with `track.ot·AGGR_PASS_K` success and an `AGGR_PASS_DNF(0.02)` contact risk on failure. Instantaneous (a guarded `lapFrac` nip just ahead — never writes `lap`), no credit banking. Validated: **~0.95 out-of-zone passes/race, DNF ~1.7** (in the §17 corridor). **Key lesson (the anti-spam was load-bearing):** an early *time* cooldown allowed hundreds of attempts over a multi-thousand-second race → DNF ~8; switching to **one-shot-per-rival** fixed it. *Original:* with overtake zones the non-zone branch returned `resist=∞`, so `track.ot` was computed but unused.
    - **We agree the hard `∞` reads as too "gamey"** (multiple reviewers flag it) — hence the gated aggressive pass above. But the *flat* fixes proposed don't work:
    - → **REJECTED:** a *general* finite out-of-zone `resist` (e.g. 2.5–3.5) or a time-decaying one. **Trap:** pass-credit *accumulates* while in `COMBAT_GAP` (it's only reset when the follower drops out of range), so any finite out-of-zone resist is beaten within a lap or two → passes happen everywhere → zones become meaningless.
    - → **REJECTED:** a flat per-tick `random_pass_chance` (~0.01–0.03) outside zones — over the dozens of ticks a follower spends in range, the cumulative probability is high → frequent out-of-zone passes, eroding zones the same way. (A *low per-attempt* chance gated on a real pace edge is fine — that's the aggressive pass.) The fix that works keeps credit un-accumulated outside zones and requires an *instantaneous* big edge.
@@ -276,6 +275,7 @@ Independent reviews repeatedly flagged these as the model's load-bearing strengt
 | `CAR_K` | 1.2 | s/lap per (power−aero)·(track.pw−df) car/track-character bias |
 | `GRID_GAP` | 0.25 s | grid spread per slot (widened from 0.20, §18.3) |
 | `LAP1_CAUTION` | 0.4 | pass-credit × on lap 0 — opening-lap caution (§18.3) |
+| `AGGR_PASS_EDGE/ATTR/K/REF/DNF` | 1.0 / 0.70 / 1.6 / 1.0 / 0.02 | bold out-of-zone lunge: min edge / min aggression / success scalar / edge ref / failed-lunge DNF (§18.2) |
 | `COMBAT_GAP` | 0.8 s | within this two cars fight |
 | `DIRTY_GAP` | 1.5 s | within this you're in dirty air |
 | `DIRTY_PACE_K` | 0.8 | s/lap pace lost in dirty air (× 1−straightness, §18.11) |

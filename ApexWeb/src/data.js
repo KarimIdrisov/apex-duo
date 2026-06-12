@@ -162,6 +162,15 @@ export const DNF_BASE  = 0.0075; // per-lap mechanical-failure scale * (1-rel)
 export const STEP      = 0.25;   // sim time-step (seconds)
 export const COMBAT_GAP = 0.8;   // seconds: within this, two cars fight
 export const PASS_K    = 1.6;    // pass-credit accrual per unit track.ot
+// bold out-of-zone lunge (§18.2): a much-faster, aggressive driver risks a move where you "can't pass".
+// Instantaneous + cooldown-gated + contact risk (no credit banking) so it can't be spammed.
+export const AGGR_PASS_EDGE = 1.0;  // min pace edge (s/lap) to even attempt a bold move
+export const AGGR_PASS_ATTR = 0.70; // min driver aggression to attempt
+export const AGGR_PASS_REF  = 1.0;  // edge (above the threshold) at which the success factor saturates
+export const AGGR_PASS_K    = 1.6;  // overall success scalar (tuned so out-of-zone passes stay ~1-2/race)
+export const AGGR_PASS_DNF  = 0.02; // chance a FAILED lunge ends in contact → the attacker retires
+// anti-spam: ONE bold attempt per rival-ahead (keyed on ahead.idx), not a recurring time cooldown — over a
+// multi-thousand-second race a time cooldown would allow hundreds of risky attempts and inflate DNF.
 export const GRID_GAP  = 0.25;   // starting time spread per grid slot (seconds) — widened from 0.20 so a launch delta causes fewer swaps (§18.3)
 export const LAP1_CAUTION = 0.4; // pass-credit multiplier on the opening lap (lap 0): the field settles the launch/grid order through T1, racing opens from lap 1 (§18.3)
 
