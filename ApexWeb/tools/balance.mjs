@@ -91,3 +91,15 @@ console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0
     `(expect ~1-5: racing, not a procession or chaos); dirty-air wear corner/straight = ` +
     `${dirtyWear(0).toFixed(4)}/${dirtyWear(1).toFixed(4)}`);
 }
+
+// safety-car corridor: SC occurrence over many races should land near track.sc.
+{
+  let sc = 0;
+  for (let s = 0; s < 60; s++) {
+    const r = new Race(field(), TRACK, 9500 + s);
+    r.gridStart();
+    let g = 0; while (!r.finished && g++ < 500000) r.step();
+    if (r.scEverActive) sc++;
+  }
+  console.log(`safety car: occurred in ${sc}/60 races = ${(sc / 60).toFixed(2)} (expect ~${TRACK.sc})`);
+}
