@@ -6,6 +6,7 @@ import { tyreTerm, warmStep } from "./tyres.js";
 import { miniSplits, MINI, N_MINI, sampleAt } from "./track.js";
 import { slipstream, dirtyWear, passAccrual } from "./overtake.js";
 import { scheduleSC, startIncidentHit } from "./events.js";
+import { scheduleWeather, wetnessAt, weatherTerm } from "./weather.js";
 
 const ENGINE_KEYS = new Set(["save", "standard", "push"]);
 
@@ -19,6 +20,8 @@ export class Race {
     this.sessionBestMini = new Array(N_MINI).fill(Infinity);
     this.scLap = scheduleSC(this.erng, track.sc, track.laps);  // leader-lap it deploys on, or null
     this.scActive = false; this.scEverActive = false; this.scStartLap = 0; this._started = false;
+    this.weather = scheduleWeather(this.erng, track.wet, track.laps);
+    this.wetness = 0;
     this.cars = field.map((f, i) => ({
       idx: i, name: f.name, abbrev: f.abbrev, skill: f.skill, car: f.car,
       color: f.color, team: f.team, isPlayer: !!f.isPlayer, player: f.player ?? null,
@@ -45,6 +48,7 @@ export class Race {
     s -= SKILL_K * (c.skill - 0.5);
     s -= CAR_K * ((c.car.power - c.car.aero) * (t.pw - t.df));   // track-character bias
     s += comp.pace + tyreTerm(c.tyre, c.wear, c.tyreTemp);
+    s += weatherTerm(c.tyre, this.wetness);   // off-condition compound penalty (rain)
     s += pm.pace;
     s += engineTerm(c.engine);          // fuel push/save lever
     s += weightTerm(c.fuel);            // heavy tank = slower (eases as fuel burns)
@@ -59,6 +63,8 @@ export class Race {
     if (this.finished) return;
     if (!this._started) { this._started = true; this._startIncidents(); }
     this.time += dt;
+    const leadProg = this.cars.reduce((m, c) => Math.max(m, c.lap + c.lapFrac), 0);
+    this.wetness = wetnessAt(this.weather, leadProg);
     for (const c of this.cars) {
       if (c.retired) continue;
       const lt = this._lapTime(c);
@@ -173,6 +179,12 @@ export class Race {
   _serveLapEnd(c) {
     // called at lap completion in step(); handles pit + DNF
     // AI cars (no human engineer) auto-pit once near the tyre cliff if enough race remains
+    // AI weather reaction: get onto the right tyre for the conditions (not blocked by stop count)
+    if (c.player == null && !c.pitPending && c.tyreAge > 2) {
+      const slick = COMPOUNDS[c.tyre].wet_opt < 0.1;
+      if (this.wetness > 0.55 && slick) c.pitPending = this.wetness > 0.8 ? "wet" : "inter";
+      else if (this.wetness < 0.35 && !slick) c.pitPending = "medium";
+    }
     if (c.player == null && c.pitStops === 0 && !c.pitPending) {
       const comp = COMPOUNDS[c.tyre];
       if (c.wear >= comp.cliff * 0.8 && (this.track.laps - c.lap) > 6) {

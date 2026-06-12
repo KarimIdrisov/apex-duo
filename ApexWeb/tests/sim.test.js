@@ -216,3 +216,39 @@ test("a start-incident penalty slows the car's first lap (drops it back, not for
   c._startPenalty = 5;
   assert.ok(r._lapTime(c) > base + 4, "lap-1 start penalty applies");
 });
+
+test("rain occurs at roughly track.wet across seeds, and wets the track", () => {
+  let rained = 0, sawWet = 0;
+  for (let s = 0; s < 200; s++) {
+    const r = new Race(field(), TRACK, 8000 + s);
+    r.gridStart();
+    if (r.weather.rains) rained++;
+    let g = 0, peak = 0;
+    while (!r.finished && g++ < 500000) { r.step(); if (r.wetness > peak) peak = r.wetness; }
+    if (peak > 0.3) sawWet++;
+  }
+  const f = rained / 200;
+  assert.ok(f > TRACK.wet - 0.14 && f < TRACK.wet + 0.14, `rain freq ${f} ~ ${TRACK.wet}`);
+  assert.ok(sawWet > 0, "at least one race got wet");
+});
+
+test("an AI car on slicks boxes for wets once the track is soaked", () => {
+  let switched = false;
+  for (let s = 0; s < 80 && !switched; s++) {
+    const r = new Race(field(), TRACK, 8000 + s);
+    r.gridStart();
+    if (!r.weather.rains) continue;
+    let g = 0;
+    while (!r.finished && g++ < 500000) {
+      r.step();
+      if (r.wetness > 0.6 && r.cars.some(c => c.player == null && (c.tyre === "inter" || c.tyre === "wet"))) { switched = true; break; }
+    }
+  }
+  assert.ok(switched, "AI should fit wet-weather tyres when it pours");
+});
+
+test("determinism holds with weather", () => {
+  const run = s => { const r = new Race(field(), TRACK, s); r.gridStart(); let g = 0;
+    while (!r.finished && g++ < 500000) r.step(); return r.order().map(c => c.abbrev); };
+  assert.deepEqual(run(8042), run(8042));
+});
