@@ -81,6 +81,7 @@ function startRaceHost() {
   ctx.paused = false;
   ctx._frame = 0;
   ctx._acc = 0; ctx._lastTs = 0;        // reset the real-time sim accumulator
+  ctx._evtIdx = 0;                      // reset the commentary event cursor
   ctx.speed = ctx.speed || 1;
 }
 // build the full 22-car field: player team's two drivers flagged, rest AI.
@@ -113,9 +114,12 @@ function broadcastQualiGrid() {
 
 // serialise the authoritative race state for the client + the host's own UI.
 function raceSnapshot() {
+  const evIdx = ctx._evtIdx || 0;
+  const newEvents = ctx.race.events.slice(evIdx);   // only events not yet shipped
+  ctx._evtIdx = ctx.race.events.length;
   return {
     type: "snapshot", phase: "race", paused: ctx.paused, finished: ctx.race.finished,
-    speed: ctx.speed || 1, scActive: ctx.race.scActive, wetness: ctx.race.wetness,
+    speed: ctx.speed || 1, scActive: ctx.race.scActive, wetness: ctx.race.wetness, events: newEvents,
     cars: ctx.race.order().map(c => ({
       idx: c.idx, pos: c.pos, abbrev: c.abbrev, color: c.color, player: c.player,
       lap: c.lap, lapFrac: c.lapFrac, tyre: c.tyre, wear: c.wear,
