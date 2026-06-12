@@ -18,3 +18,10 @@ export function passAccrual(edge, tow, engine, straightness) {
   const push = engine === "push" ? 1.3 : 1;
   return (Math.max(0, edge) + tow) * push * (0.5 + straightness);
 }
+
+// resolve a follower's mini-sector index to the overtake zone it's in, or null (TODO #2b).
+export function zoneFor(zones, mini) {
+  if (!zones) return null;
+  for (const z of zones) if (z.sectors.includes(mini)) return z;
+  return null;
+}

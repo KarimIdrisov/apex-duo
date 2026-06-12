@@ -30,6 +30,11 @@ export const TEAMS = [
 export const TRACK = {
   name:"Барселона", gp:"Гран-при Испании", laps:66, lt:80.0, pit:21.5,
   df:0.82, pw:0.55, ot:0.30, abr:1.25, harv:0.58, dep:0.55, sc:0.25, wet:0.30, el:0.82,
+  // overtake zones (mini-sector indices 0..17): a pass completes only here (TODO #2b)
+  overtake_zones: [
+    { sectors: [0, 1, 2], ease: 0.55, type: "brake" },   // Turn 1 — heavy braking after the main straight
+    { sectors: [11, 12],   ease: 0.45, type: "slip" },    // slipstream into the final-sector entry
+  ],
 };
 
 // real circuit outline (Barcelona-Catalunya), normalized 0..1, ported from the
