@@ -279,6 +279,22 @@ test("a higher-pace driver laps faster than a low-pace one (same car)", () => {
   assert.ok(a.avgLap < b.avgLap, `more pace = faster (${a.avgLap.toFixed(2)} < ${b.avgLap.toFixed(2)})`);
 });
 
+test("a better car (higher power+aero) laps faster than a worse one, same driver", () => {
+  const r = new Race(field(), TRACK, 53);
+  const a = r.cars[0], b = r.cars[1];
+  // identical drivers + state; differ only in ABSOLUTE car performance, with the
+  // SAME power-aero balance (so the CAR_K track-character term is zero for both and
+  // only the absolute car-pace term can separate them — §18.1). Measured on the clean
+  // lap-time model directly (averaging out the per-tick noise) so combat/grid order
+  // can't pollute the comparison.
+  a.attrs = b.attrs; a.skill = b.skill;
+  a.car = { ...a.car, power: 0.95, aero: 0.95, rel: 1 };
+  b.car = { ...b.car, power: 0.80, aero: 0.80, rel: 1 };
+  const mean = c => { let s = 0; for (let k = 0; k < 200; k++) s += r._lapTime(c); return s / 200; };
+  const la = mean(a), lb = mean(b);
+  assert.ok(lb - la > 0.3, `better car clearly faster on clean pace (${la.toFixed(3)} vs ${lb.toFixed(3)}, gap ${(lb - la).toFixed(3)}s)`);
+});
+
 test("a strong-tyre driver wears tyres slower than a weak one (same car, same compound)", () => {
   const r = new Race(field(), TRACK, 52);
   const a = r.cars[0], b = r.cars[1];

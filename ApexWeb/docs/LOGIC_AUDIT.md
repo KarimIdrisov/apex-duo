@@ -57,7 +57,8 @@ Base `lt = 80.0`. Summed terms (negative = faster):
 
 ```
 s  = 80.0
-   − SKILL_K(7.0) · (attrs.pace − 0.5)                         // driver pace
+   − SKILL_K(4.5) · (attrs.pace − 0.5)                         // driver pace
+   − CAR_PACE_K(9.0) · ((car.power + car.aero)/2 − fieldMean)  // ABSOLUTE car performance (§18.1 — implemented 2026-06-13)
    − CAR_K(1.2)  · (car.power − car.aero) · (track.pw − track.df)   // track-character bias; (pw−df)=0.55−0.82=−0.27 (AERO track)
    + COMPOUNDS[tyre].pace + tyreTerm(tyre, wear, tyreTemp)     // §5
    + weatherTerm(tyre, wetness) · (1.3 − ATTRW.wet(0.6)·attrs.wet)  // §12
@@ -66,12 +67,13 @@ s  = 80.0
    + weightTerm(fuel) = FUEL.weightK(0.020) · fuel             // heavy early, ~0 at the end
    + setupBonus (≤0)                                           // from the setup puzzle (closeness to a hidden ideal)
    + rng.noise(0.06) · (1.3 − ATTRW.noise(0.6)·attrs.consistency)   // per-tick noise, steadier for consistent drivers
+   + car._form   (= seeded[−1,1]·RACE_FORM(0.15))             // per-RACE form, EVERY car: off/on weekend (§18.1)
    + [AI only, difficulty<1]:  (1−diff)·AI_HANDICAP(0.8) + car._aiForm + rng.noise((1−diff)·AI_NOISE(0.25))   // §13
    + [lap 0 only]:  car._launch                               // standing-start launch delta (§9)
 s *= (scActive ? scPaceMult(1.40) : 1)                         // everyone slow under the safety car
 ```
 
-`SKILL_K(7.0)` over the driver-pace spread is the dominant differentiator; `CAR_K(1.2)` adds car/track character. Note `rng.noise(amp)` returns a symmetric value in `[−amp,+amp]`; the per-tick noise is integrated over ~320 ticks/lap, so lap-to-lap variation is far smaller than ±0.06.
+`fieldMean` = the field's mean `(power+aero)/2`, fixed for the race (`Race.carMean`). The driver term (`SKILL_K 4.5`, compressed from 7.0) and the **absolute car term** (`CAR_PACE_K 9.0`) now contribute **comparable** spreads (~1.0 s/lap each across the real grid) — the car is **co-primary** with the driver (was ~24:1 driver-dominant; see §18.1). `CAR_K(1.2)` adds the power-vs-aero track character on top. `car._form` is a fixed per-race offset on *every* car (seeded, decorrelated from `_aiForm`) — realistic race-to-race variance. Note `rng.noise(amp)` returns a symmetric value in `[−amp,+amp]`; the per-tick noise is integrated over ~320 ticks/lap, so lap-to-lap variation is far smaller than ±0.06.
 
 ---
 
@@ -193,19 +195,20 @@ Two players co-direct one team and each engineer one car (pace/engine/pit). Week
 ## 17. Current balance corridors (`tools/balance.mjs`, 40-race samples, default difficulty)
 
 ```
-DNF/race            1.77   (target ~1-2)
-pace spread         1.85 s/lap best→worst finisher (target ~1.5-2.5)
-winners             ~4 distinct (top team McLaren dominant ~80%)
-fuel run-outs       push-all-race 173 dry / standard 0
+DNF/race            1.75   (target ~1-2)
+pace spread         2.24 s/lap best→worst finisher (target ~1.5-2.5)   ← wider since the car-pace term (§18.1) added a real car axis
+winners             3 distinct drivers; top TEAM McLaren ~95-100%  ← grid-data dominance (best car + both top drivers); see §18.1 note
+fuel run-outs       push-all-race 175 dry / standard 0
 tyre deg            1.66 s/lap @20 laps medium
 sectors             power car −0.88 s in the straight sector, +0.65 s in the twisty one
-overtaking          ~3.0 grid→finish places/car; ~27-37 passes/race; 100% in-zone
+overtaking          ~3.2 grid→finish places/car; ~34 passes/race; 100% in-zone
 safety car          ~0.23 of races (track.sc 0.25)
 weather             ~0.37 of races rain; dry slick adv 2.7 s; wet adv in rain 6.0 s
-start               2.58 |grid→lap1| places/car
+start               2.88 |grid→lap1| places/car
 strategy            AI 1.47 stops/race, mean stop lap ~35/66, 0 fuel run-outs
-difficulty          easy 4-5 winners / DNF ~1.5 ; hard 2-4 winners / DNF ~1.8
+difficulty          easy 3 winners / DNF ~1.6 ; hard 2 winners / DNF ~1.7 (easy ≥ hard variety holds)
 ```
+*(Updated 2026-06-13 after §18.1 — car-pace term `CAR_PACE_K 9.0`, `SKILL_K 7.0→4.5`, `RACE_FORM 0.15`. All 104 node tests green.)*
 
 ---
 
@@ -213,12 +216,15 @@ difficulty          easy 4-5 winners / DNF ~1.5 ; hard 2-4 winners / DNF ~1.8
 
 Each item carries our current **stance** (as of 2026-06-13, after a first review pass) so you don't re-propose something already weighed. `→ PLANNED` = we intend to do it; `→ REJECTED` = considered and declined, with the reason; `→ OPEN` = genuinely undecided, dig in.
 
-1. **Winner concentration — and its VERIFIED root: driver ≫ car (~24×).** McLaren wins ~80% at default. **Measured** (over the real grid, `node` sensitivity check): the **car contributes only a ±0.065 s/lap spread** to lap time while the **driver-skill spread is ~1.57 s/lap → a 24:1 ratio.**
+1. **✅ DONE (2026-06-13) — car is now co-primary; driver≫car inversion FIXED. Residual: winner concentration is grid-data, not the model.**
+   - **Implemented:** absolute car-pace term `−CAR_PACE_K(9.0)·((power+aero)/2 − Race.carMean)` in `_lapTime`; `SKILL_K 7.0→4.5` (compress driver); `RACE_FORM(0.15)` per-race form on *every* car. Verified: car spread ≈ driver spread (~1.0 s/lap each) — the 24:1 driver-dominance is gone; a better car is now genuinely faster on any track (new test `better car … laps faster`). Corridors held (§17): DNF 1.75, spread 2.24, 104 tests green.
+   - **Residual (known, NOT a model bug):** McLaren still wins ~95-100%. This is **grid-data dominance** — McLaren has the best car *and* both top-2 drivers (Norris/Piastri), so it leads on every axis; it already won ~95% at baseline (before the car term). `RACE_FORM` adds race-to-race texture but a ±0.15 form can't overturn a ~0.3 s/lap package edge on *both* their cars. **Genuine championship variety needs a separate lever** (not this task): rebalance the `TEAMS` grid so the top team isn't uniformly best, a bigger difficulty-scaled "car day" handicap, or accepting realistic single-team dominance (cf. 2023 Red Bull). → **OPEN (follow-up):** grid-data variety pass.
+   - **Historical context (the original finding, now resolved):** McLaren won ~80-95% at default. **Measured** (over the real grid, `node` sensitivity check): the **car contributed only a ±0.065 s/lap spread** to lap time while the **driver-skill spread was ~1.57 s/lap → a 24:1 ratio.**
    - **Why (structural, not just "linear"):** the only car term in `_lapTime` is `−CAR_K·(power−aero)·(pw−df)` — a *track-character bias* on the power-vs-aero **difference**, **not** an absolute car-performance term. So a car with power=aero=0.99 and one with power=aero=0.50 lap *identically*. The 5 Phase-7 car indicators are therefore nearly **pace-inert** (power/aero also feed the sector-split distribution, but those sum back to the same lap time; and tyre/fuel/reliability). **The "monopoly" is driver-skill concentration (McLaren = the top-2 drivers), not the car.** "Best car wins" is effectively false in the current model.
    - **Calibration target (industry):** real F1 is **car-dominant** (~60–80% car / 20–40% driver); our model is **inverted** (~90% driver). For a *manager* game the car is the player's R&D project, so car-significance is doubly desirable. Aim to flip the ratio so the **car is at least co-primary** (car ≈ driver, or car-primary), not a rounding error. (Independently confirmed: 3 separate numerical reviews land on driver:car ≈ 17–25×.)
-   - → **PROPOSED (high value, the real fix):** add an **absolute car-pace term** — concretely `−CAR_PACE_K·((car.power + car.aero)/2 − fieldMean)` — so a better car is genuinely faster on *any* track (independent reviewers converge on this exact form). Pick `CAR_PACE_K` so the car spread rivals/exceeds the driver spread, **compress the driver-skill spread** (1.57 s/lap is large) — optionally with a `sqrt`-style diminishing return on the *driver* term to squeeze the elite gap — and re-tune to the §17 corridor. *Diminishing-returns `log` on the existing `CAR_K` bias is moot — you can't compress a ~0.065 s effect; that's why a fresh absolute term is needed.*
-   - → **CONSIDERED (variance lever):** our per-lap variance (~0.05–0.15 s) is low vs the genre (managers ~0.3–1.0 s/lap) — part of why races feel deterministic and strategy rarely overturns a result. Raising race-to-race variance (the planned per-race **form** offset, and/or larger noise) increases upset rate. Tune against the §17 spread/winners corridors so it doesn't become "blind luck".
-   - → **PLANNED:** a small **per-race "form" offset (±0.1–0.15 s/lap) to *every* car each race** (today `_aiForm` only varies at low difficulty) — realistic "off-weekend for anyone" variance on top.
+   - → **✅ DONE:** the **absolute car-pace term** `−CAR_PACE_K(9.0)·((car.power + car.aero)/2 − fieldMean)` is in `_lapTime`, with `SKILL_K 7.0→4.5`. Car spread ≈ driver spread (~1.0 s/lap each) — co-primary. (A `sqrt` diminishing-return on the driver term was considered but unneeded — the linear compression landed the corridor.)
+   - → **CONSIDERED (variance lever):** our per-lap *tick* variance (~0.05–0.15 s) is still low vs the genre, but the per-race **form** offset (below) now supplies race-to-race variance. Further raising tick noise is available if races still feel too deterministic; tune against the §17 spread/winners corridors so it doesn't become "blind luck".
+   - → **✅ DONE:** a **per-race "form" offset `RACE_FORM(0.15)` to *every* car each race** (`car._form`, seeded, decorrelated from `_aiForm`) — realistic "off-weekend for anyone". It adds field-wide race-to-race variance (midfield order shifts) but, as measured, a ±0.15 swing does **not** overturn McLaren's structural package edge — that's the grid-data residual noted above, not a form-tuning miss.
    - → **REJECTED:** an `interaction = MIX_K·pace·car_quality` term — a *positive* pace×car interaction *amplifies* the best package (more domination), the opposite of the goal.
    - → **REJECTED:** making top teams *less reliable* — anti-realistic (real top teams are *more* reliable) and it undercuts the "best car" fantasy.
    - → **OPEN:** whether to also make `setupBonus` a bigger player lever (helps the human, not AI-vs-AI spread).
@@ -265,7 +271,9 @@ Independent reviews repeatedly flagged these as the model's load-bearing strengt
 | Const | Value | Meaning |
 |---|---|---|
 | `STEP` | 0.25 s | sim tick |
-| `SKILL_K` | 7.0 | s/lap per (driver pace − 0.5) — the dominant differentiator |
+| `SKILL_K` | 4.5 | s/lap per (driver pace − 0.5) — co-primary with the car (was 7.0) |
+| `CAR_PACE_K` | 9.0 | s/lap per ((power+aero)/2 − fieldMean) — the absolute car-performance term (§18.1) |
+| `RACE_FORM` | 0.15 | ±s/lap per-race form swing on every car (off/on weekend) |
 | `CAR_K` | 1.2 | s/lap per (power−aero)·(track.pw−df) car/track-character bias |
 | `GRID_GAP` | 0.20 s | grid spread per slot |
 | `COMBAT_GAP` | 0.8 s | within this two cars fight |

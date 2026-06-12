@@ -1,6 +1,6 @@
 // ApexWeb/src/sim.js
 import { RNG, mix32 } from "./rng.js";
-import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP, TYRE, DIRTY_GAP, EVENT, ATTRW, AI_HANDICAP, AI_NOISE, AI_FORM } from "./data.js";
+import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, CAR_PACE_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP, TYRE, DIRTY_GAP, EVENT, ATTRW, AI_HANDICAP, AI_NOISE, AI_FORM, RACE_FORM } from "./data.js";
 import { startFuel, burnFor, weightTerm, engineTerm, fuelLaps } from "./fuel.js";
 import { tyreTerm, warmStep } from "./tyres.js";
 import { miniSplits, MINI, N_MINI, sampleAt } from "./track.js";
@@ -41,12 +41,20 @@ export class Race {
       lastMini: [], bestMini: new Array(N_MINI).fill(Infinity), miniColors: [], sectorTimes: [0, 0, 0],
       _dirtyWear: 0, _launch: 0,
     }));
+    // field-mean car performance ((power+aero)/2), fixed for the race — the anchor the
+    // absolute car-pace term is measured against, so a better-than-average car is faster (§18.1).
+    this.carMean = this.cars.reduce((s, c) => s + (c.car.power + c.car.aero) / 2, 0) / this.cars.length;
     this.difficulty = difficulty;   // AI sharpness scalar (lobby-selected; default ~Обычная)
     for (const c of this.cars) {
+      // per-race "form": a fixed whole-race pace offset, seeded (no rng draw → other streams untouched),
+      // applied to EVERY car — an off/on weekend for anyone. Breaks the deterministic best-package lock
+      // the absolute car-pace term would otherwise create (§18.1).
+      const ff = ((mix32(((seed >>> 0) + (c.idx >>> 0) * 0x85ebca6b) >>> 0) % 2000) / 1000) - 1;  // [-1,1]
+      c._form = ff * RACE_FORM;
       if (c.player == null) {
         c.aiPlan = planRace(c, track, seed, this.difficulty); c.aiStopsDone = 0;
-        // per-race form: a fixed whole-race pace offset per car, seeded (no rng draw → other streams untouched),
-        // scaled by 1-difficulty → easy AI has off/on weekends (upsets); hard AI is razor-flat.
+        // extra form swing for AI at low difficulty (a separate, decorrelated stream),
+        // scaled by 1-difficulty → easy AI has bigger off/on weekends (upsets); hard AI razor-flat.
         const f = ((mix32(((seed >>> 0) + (c.idx >>> 0) * 0x9e3779b1) >>> 0) % 2000) / 1000) - 1;  // [-1,1]
         c._aiForm = f * (1 - this.difficulty) * AI_FORM;
       }
@@ -67,7 +75,8 @@ export class Race {
     const t = this.track, comp = COMPOUNDS[c.tyre], pm = PACE_MODES[c.pace];
     let s = t.lt;
     s -= SKILL_K * (A(c).pace - 0.5);                    // driver pace attribute
-    s -= CAR_K * ((c.car.power - c.car.aero) * (t.pw - t.df));   // track-character bias
+    s -= CAR_PACE_K * ((c.car.power + c.car.aero) / 2 - this.carMean);   // absolute car performance (§18.1): a better car is faster on any track
+    s -= CAR_K * ((c.car.power - c.car.aero) * (t.pw - t.df));   // track-character bias (power on straights vs aero in corners)
     s += comp.pace + tyreTerm(c.tyre, c.wear, c.tyreTemp);
     s += weatherTerm(c.tyre, this.wetness) * (1.3 - ATTRW.wet * A(c).wet);   // wet skill cuts the penalty
     s += pm.pace;
@@ -75,6 +84,7 @@ export class Race {
     s += weightTerm(c.fuel);            // heavy tank = slower (eases as fuel burns)
     s += c.setupBonus;                                           // <=0, faster when set well
     s += this.rng.noise(0.06) * (1.3 - ATTRW.noise * A(c).consistency);      // consistency steadies the lap
+    s += c._form || 0;                                                        // per-race form (off/on weekend), every car
     if (c.player == null && this.difficulty < 1) {                            // difficulty handicap (AI only)
       s += (1 - this.difficulty) * AI_HANDICAP;                              // easier AI = a touch slower
       s += (c._aiForm || 0);                                                 // per-race form: off/on weekend (creates upsets)

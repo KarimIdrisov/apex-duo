@@ -134,6 +134,9 @@ export const AI_HANDICAP = 0.80;  // s/lap an AI loses at difficulty 0 (scaled b
 export const AI_NOISE    = 0.25;  // extra per-lap noise amplitude for AI at difficulty 0 (scaled by 1-difficulty)
 export const AI_FORM     = 1.0;   // per-RACE form swing amplitude for AI at difficulty 0 (scaled by 1-difficulty);
                                   // a fixed whole-race offset per car → genuine upsets at low difficulty (doesn't average out)
+export const RACE_FORM   = 0.15;  // ±s/lap per-RACE "form" swing applied to EVERY car (incl. at hard difficulty);
+                                  // a fixed whole-race offset, seeded → "off/on weekend for anyone", breaks the
+                                  // deterministic best-package lock the car-pace term would otherwise create (§18.1)
 
 // pace modes: pace offset (s/lap), wear multiplier, mechanical-risk multiplier
 export const PACE_MODES = {
@@ -143,8 +146,9 @@ export const PACE_MODES = {
 };
 
 // tuning constants (start points from race_sim.gd; calibrated in tools/balance.mjs)
-export const SKILL_K   = 7.0;    // s/lap per unit skill above 0.5
-export const CAR_K     = 1.2;    // s/lap per (power-aero)*(pw-df) track-character bias
+export const SKILL_K   = 4.5;    // s/lap per unit driver-pace above 0.5 (compressed from 7.0 so the CAR is co-primary — §18.1)
+export const CAR_PACE_K = 9.0;   // s/lap per unit ((power+aero)/2 − fieldMean): the ABSOLUTE car-performance term (§18.1)
+export const CAR_K     = 1.2;    // s/lap per (power-aero)*(pw-df) track-character bias (on top of the absolute term)
 export const DNF_BASE  = 0.0075; // per-lap mechanical-failure scale * (1-rel)
 export const STEP      = 0.25;   // sim time-step (seconds)
 export const COMBAT_GAP = 0.8;   // seconds: within this, two cars fight
