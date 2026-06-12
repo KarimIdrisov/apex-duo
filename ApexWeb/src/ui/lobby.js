@@ -1,12 +1,15 @@
 // ApexWeb/src/ui/lobby.js
-import { TEAMS, TEAM_LOGO } from "../data.js";
+import { TEAMS, TEAM_LOGO, DIFFICULTY } from "../data.js";
 import { hostGame, joinGame, startSolo } from "../main.js";
 
 const logoSrc = i => `assets/teams/${TEAM_LOGO[TEAMS[i].name]}.png`;
 
 export function render(root, ctx) {
   ctx.teamIdx = ctx.teamIdx || 0;
+  ctx.diffKey = ctx.diffKey || "normal";
+  ctx.difficulty = DIFFICULTY[ctx.diffKey].ai;
   const teamOpts = TEAMS.map((t,i)=>`<option value="${i}" ${i===ctx.teamIdx?"selected":""}>${t.name}</option>`).join("");
+  const diffOpts = Object.entries(DIFFICULTY).map(([k,d])=>`<option value="${k}" ${k===ctx.diffKey?"selected":""}>${d.label}</option>`).join("");
   root.innerHTML = `
     <div class="panel">
       <h2>Apex Web — кооп-уикенд</h2>
@@ -15,6 +18,9 @@ export function render(root, ctx) {
         <img id="teamlogo" src="${logoSrc(ctx.teamIdx)}" alt="" style="height:52px;width:52px;object-fit:contain">
         <select id="team" style="flex:1;padding:8px">${teamOpts}</select>
       </div>
+      <div style="height:10px"></div>
+      <p class="label">Сложность ИИ</p>
+      <select id="diff" style="width:100%;padding:8px">${diffOpts}</select>
       <div style="height:10px"></div>
       <button class="primary" id="host">Создать комнату</button>
       <div style="height:8px"></div>
@@ -29,6 +35,10 @@ export function render(root, ctx) {
   root.querySelector("#team").onchange = e => {
     ctx.teamIdx = +e.target.value;
     root.querySelector("#teamlogo").src = logoSrc(ctx.teamIdx);
+  };
+  root.querySelector("#diff").onchange = e => {
+    ctx.diffKey = e.target.value;
+    ctx.difficulty = DIFFICULTY[ctx.diffKey].ai;
   };
   root.querySelector("#host").onclick = async (e) => {
     e.target.disabled = true; e.target.textContent = "Создаём комнату…";

@@ -2,7 +2,7 @@
 import { Weekend } from "./weekend.js";
 import { LocalNet, P2PNet } from "./net.js";
 import { Race } from "./sim.js";
-import { TEAMS, TRACK, STEP, GRID_GAP } from "./data.js";
+import { TEAMS, TRACK, STEP, GRID_GAP, DIFFICULTY } from "./data.js";
 import * as lobby from "./ui/lobby.js";
 import * as practice from "./ui/practice.js";
 import * as quali from "./ui/quali.js";
@@ -70,7 +70,7 @@ function startRaceHost() {
   const field = buildField();
   // host picks the race seed once; the sim run stays fully deterministic from it
   if (ctx.seed == null) ctx.seed = 1000 + Math.floor(Math.random() * 100000);
-  ctx.race = new Race(field, TRACK, ctx.seed);
+  ctx.race = new Race(field, TRACK, ctx.seed, ctx.difficulty ?? DIFFICULTY.normal.ai);
   // apply the quali grid as the start order (fastest quali -> P1), spread by slot
   const withRisk = field.map(f => ({ ...f, risk: f.player ? (ctx.qrisk?.[f.player] ?? 0.5) : 0.5 }));
   const grid = buildGrid(withRisk, TRACK, 1234);
