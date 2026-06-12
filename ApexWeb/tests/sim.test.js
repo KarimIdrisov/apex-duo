@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Race } from "../src/sim.js";
 import { TEAMS, TRACK } from "../src/data.js";
+import { driverAttrs } from "../src/team.js";
 
 function field() {
   // flat field: every team's two drivers, no players yet
@@ -11,6 +12,7 @@ function field() {
     idx: idx++, name:d.name, abbrev:d.abbrev, skill:d.skill,
     car:t.car, color:t.color, team:t.name,
     setup:[0.5,0.5,0.5], startTyre:"medium",
+    attrs: driverAttrs(d.abbrev, d.skill),
   })));
 }
 
@@ -34,8 +36,12 @@ test("push is faster than conserve, all else equal", () => {
   const f = field();
   const r = new Race(f, TRACK, 1);
   r.setPace(0, "push"); r.setPace(1, "conserve");
-  // give them identical drivers/cars for the comparison
-  r.cars[1].skill = r.cars[0].skill; r.cars[1].car = r.cars[0].car;
+  // give them identical drivers/cars for the comparison (incl. the pace attribute
+  // anchor, now that lap time keys off attrs.pace); rel=1 removes the random-DNF
+  // confound so the comparison isolates the pace-mode lever.
+  const idCar = { ...r.cars[0].car, rel: 1 };
+  r.cars[0].car = idCar; r.cars[1].car = idCar;
+  r.cars[1].skill = r.cars[0].skill; r.cars[1].attrs = r.cars[0].attrs;
   let t0 = 0, t1 = 0, n = 0;
   for (let i = 0; i < 4000; i++) {
     r.step();
@@ -147,7 +153,9 @@ test("a completed lap records 18 mini-sector times that sum to the lap time + 3 
 
 test("first flier colours are all session-best (purple) and determinism holds", () => {
   const r = new Race(field(), TRACK, 32);
-  const lead = r.cars.reduce((a, b) => (a.skill >= b.skill ? a : b));
+  // the session-best setter is the genuinely fastest car; pace now lives in
+  // attrs.pace, so pick by clean lap time rather than by the skill anchor.
+  const lead = r.cars.reduce((a, b) => (r._lapTime(a) <= r._lapTime(b) ? a : b));
   let guard = 0;
   while (lead.lap < 1 && guard++ < 80000) r.step();
   assert.ok(lead.miniColors.every(x => x === "p"), "leader's first lap should be all session bests");
@@ -251,4 +259,29 @@ test("determinism holds with weather", () => {
   const run = s => { const r = new Race(field(), TRACK, s); r.gridStart(); let g = 0;
     while (!r.finished && g++ < 500000) r.step(); return r.order().map(c => c.abbrev); };
   assert.deepEqual(run(8042), run(8042));
+});
+
+test("a higher-pace driver laps faster than a low-pace one (same car)", () => {
+  const r = new Race(field(), TRACK, 51);
+  const a = r.cars[0], b = r.cars[1];
+  a.car = b.car;
+  a.attrs = { ...a.attrs, pace: 0.95 }; b.attrs = { ...b.attrs, pace: 0.55 };
+  for (let i = 0; i < 5000; i++) r.step();
+  assert.ok(a.avgLap > 0 && b.avgLap > 0, "both completed laps");
+  assert.ok(a.avgLap < b.avgLap, `more pace = faster (${a.avgLap.toFixed(2)} < ${b.avgLap.toFixed(2)})`);
+});
+
+test("a strong-tyre driver wears tyres slower than a weak one (same car, same compound)", () => {
+  const r = new Race(field(), TRACK, 52);
+  const a = r.cars[0], b = r.cars[1];
+  a.car = b.car;
+  a.attrs = { ...a.attrs, tyre: 0.9 }; b.attrs = { ...b.attrs, tyre: 0.2 };
+  for (let i = 0; i < 6000; i++) r.step();
+  if (a.lap === b.lap && !a.retired && !b.retired) assert.ok(a.wear < b.wear, `better tyre attr = less wear (${a.wear.toFixed(2)} < ${b.wear.toFixed(2)})`);
+});
+
+test("determinism holds with attributes", () => {
+  const run = s => { const r = new Race(field(), TRACK, s); r.gridStart(); let g = 0;
+    while (!r.finished && g++ < 500000) r.step(); return r.order().map(c => c.abbrev); };
+  assert.deepEqual(run(5042), run(5042));
 });

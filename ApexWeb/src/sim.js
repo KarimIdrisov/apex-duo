@@ -1,14 +1,17 @@
 // ApexWeb/src/sim.js
 import { RNG, mix32 } from "./rng.js";
-import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP, TYRE, DIRTY_GAP, EVENT } from "./data.js";
+import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP, TYRE, DIRTY_GAP, EVENT, ATTRW } from "./data.js";
 import { startFuel, burnFor, weightTerm, engineTerm } from "./fuel.js";
 import { tyreTerm, warmStep } from "./tyres.js";
 import { miniSplits, MINI, N_MINI, sampleAt } from "./track.js";
 import { slipstream, dirtyWear, passAccrual } from "./overtake.js";
 import { scheduleSC, startIncidentHit } from "./events.js";
 import { scheduleWeather, wetnessAt, weatherTerm } from "./weather.js";
+import { ATTR_KEYS } from "./team.js";
 
 const ENGINE_KEYS = new Set(["save", "standard", "push"]);
+const NEUTRAL_ATTRS = Object.fromEntries(ATTR_KEYS.map(k => [k, 0.5]));
+const A = c => c.attrs || NEUTRAL_ATTRS;   // attribute accessor with a neutral fallback
 
 export class Race {
   constructor(field, track, seed) {
@@ -24,6 +27,7 @@ export class Race {
     this.wetness = 0;
     this.cars = field.map((f, i) => ({
       idx: i, name: f.name, abbrev: f.abbrev, skill: f.skill, car: f.car,
+      attrs: f.attrs ?? null, personnel: f.personnel ?? null,
       color: f.color, team: f.team, isPlayer: !!f.isPlayer, player: f.player ?? null,
       setup: f.setup ?? [0.5, 0.5, 0.5], setupBonus: f.setupBonus ?? 0,
       lap: 0, lapFrac: 0, lapTimeAccum: 0, lastLap: 0, totalTime: 0,
@@ -45,15 +49,15 @@ export class Race {
   _lapTime(c) {
     const t = this.track, comp = COMPOUNDS[c.tyre], pm = PACE_MODES[c.pace];
     let s = t.lt;
-    s -= SKILL_K * (c.skill - 0.5);
+    s -= SKILL_K * (A(c).pace - 0.5);                    // driver pace attribute
     s -= CAR_K * ((c.car.power - c.car.aero) * (t.pw - t.df));   // track-character bias
     s += comp.pace + tyreTerm(c.tyre, c.wear, c.tyreTemp);
-    s += weatherTerm(c.tyre, this.wetness);   // off-condition compound penalty (rain)
+    s += weatherTerm(c.tyre, this.wetness) * (1.3 - ATTRW.wet * A(c).wet);   // wet skill cuts the penalty
     s += pm.pace;
     s += engineTerm(c.engine);          // fuel push/save lever
     s += weightTerm(c.fuel);            // heavy tank = slower (eases as fuel burns)
     s += c.setupBonus;                                           // <=0, faster when set well
-    s += this.rng.noise(0.06);
+    s += this.rng.noise(0.06) * (1.3 - ATTRW.noise * A(c).consistency);      // consistency steadies the lap
     if (c.lap === 0 && c._startPenalty) s += c._startPenalty;   // lost time from a start incident (lap 1 only)
     if (this.scActive) s *= EVENT.scPaceMult;   // everyone crawls behind the safety car
     return s;
@@ -80,10 +84,13 @@ export class Race {
         c.lapTimeAccum = 0;
         // per-lap wear + fuel burn
         const comp = COMPOUNDS[c.tyre], pm = PACE_MODES[c.pace];
-        c.wear += comp.wear * pm.wear + c._dirtyWear;   // dirty-air wear accrued while following
+        const drvTyre = 1 - ATTRW.wear * (A(c).tyre - 0.5) * 2;          // <1 = kinder driver
+        const carTyre = 1.2 - ATTRW.carWear * (c.car.tyre ?? 1);         // car.tyre 1.0 = neutral (1.0)
+        c.wear += (comp.wear * pm.wear * drvTyre * carTyre) + c._dirtyWear;
         c._dirtyWear = 0;
         c.tyreTemp = warmStep(c.tyreTemp, c.tyre);
-        c.fuel -= burnFor(c.engine, c.car.fuel);   // c.car.fuel: economy rating (1=standard), wired in Phase 7
+        const smooth = 1.1 - ATTRW.fuel * A(c).smoothness;              // smoother driver burns a touch less
+        c.fuel -= burnFor(c.engine, c.car.fuel) * smooth;
         c.tyreAge += 1;
         this._serveLapEnd(c); // phase 3: pit + DNF (finishers handled in order())
       }
@@ -109,7 +116,7 @@ export class Race {
 
   _startIncidents() {
     for (const c of this.cars) {
-      if (startIncidentHit(this.erng, EVENT.startP)) {
+      if (startIncidentHit(this.erng, EVENT.startP * (1.5 - ATTRW.starts * A(c).starts))) {
         c._startPenalty = EVENT.startLoss;                       // a slow lap 1 (applied in _lapTime), drops the car back
         if (this.erng.unit() < EVENT.startDnf) c.retired = true; // rare: out on the spot
       }
@@ -144,8 +151,8 @@ export class Race {
       if (gapSec > 0 && gapSec < COMBAT_GAP && me.lap === ahead.lap) {
         const edge = this._lapTime(ahead) - this._lapTime(me);   // >0 => me faster
         const tow = slipstream(s, me.car.power);
-        me._passCredit = (me._passCredit ?? 0) + passAccrual(edge, tow, me.engine, s);
-        const resist = (1 - this.track.ot) * 2.0;                 // high where ot low
+        me._passCredit = (me._passCredit ?? 0) + passAccrual(edge, tow, me.engine, s) * (0.7 + ATTRW.overtaking * A(me).overtaking);
+        const resist = (1 - this.track.ot) * 2.0 * (0.7 + ATTRW.defending * A(ahead).defending);
         if (me._passCredit < resist) {
           // pinned behind the car ahead (writes ONLY lapFrac — invariant)
           const target = (ahead.lap + ahead.lapFrac) - (COMBAT_GAP * 0.5) / this.track.lt;
@@ -193,7 +200,7 @@ export class Race {
     }
     if (c.pitPending) {
       c.tyre = c.pitPending; c.pitPending = null; c.wear = 0; c.tyreAge = 0; c.tyreTemp = TYRE.pitTemp;
-      const pitLoss = this.track.pit * (this.scActive ? EVENT.scPitMult : 1);
+      const pitLoss = this.track.pit * (this.scActive ? EVENT.scPitMult : 1) * (c.personnel ? c.personnel.pitMult : 1);
       c.pitStops += 1; c.totalTime += pitLoss;
       c.lapFrac -= pitLoss / this.track.lt;                   // lose pit time on track (cheaper under SC)
       if (c.lapFrac < 0) c.lapFrac = 0;
