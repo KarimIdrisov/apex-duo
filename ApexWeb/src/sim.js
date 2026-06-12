@@ -3,6 +3,7 @@ import { RNG, mix32 } from "./rng.js";
 import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP, TYRE } from "./data.js";
 import { startFuel, burnFor, weightTerm, engineTerm } from "./fuel.js";
 import { tyreTerm, warmStep } from "./tyres.js";
+import { miniSplits, MINI, N_MINI } from "./track.js";
 
 const ENGINE_KEYS = new Set(["save", "standard", "push"]);
 
@@ -13,6 +14,7 @@ export class Race {
     this.erng = new RNG(mix32(seed));
     this.time = 0;
     this.finished = false;
+    this.sessionBestMini = new Array(N_MINI).fill(Infinity);
     this.cars = field.map((f, i) => ({
       idx: i, name: f.name, abbrev: f.abbrev, skill: f.skill, car: f.car,
       color: f.color, team: f.team, isPlayer: !!f.isPlayer, player: f.player ?? null,
@@ -24,6 +26,7 @@ export class Race {
       pace: "balanced",
       retired: false, pitPending: null, pos: i + 1, startPos: i + 1,
       pitStops: 0, pitTimer: 0,
+      lastMini: [], bestMini: new Array(N_MINI).fill(Infinity), miniColors: [], sectorTimes: [0, 0, 0],
     }));
   }
 
@@ -57,6 +60,7 @@ export class Race {
         c.lapFrac -= 1;
         c.lap += 1;
         c.lastLap = c.lapTimeAccum;
+        this._recordMinis(c);
         c._lapSum += c.lastLap; c._lapN++; c.avgLap = c._lapSum / c._lapN;
         c.totalTime += c.lastLap;
         c.lapTimeAccum = 0;
@@ -107,6 +111,22 @@ export class Race {
         me._passCredit = 0;
       }
     }
+  }
+
+  // finalise a completed lap's mini-sector splits, colours, and sector totals
+  _recordMinis(c) {
+    const sp = miniSplits(c.lastLap, c.car);
+    c.lastMini = sp;
+    const colors = new Array(N_MINI), sectors = [0, 0, 0];
+    for (let i = 0; i < N_MINI; i++) {
+      const t = sp[i];
+      colors[i] = t < this.sessionBestMini[i] ? "p" : (t <= c.bestMini[i] ? "g" : "y");
+      if (t < this.sessionBestMini[i]) this.sessionBestMini[i] = t;
+      if (t < c.bestMini[i]) c.bestMini[i] = t;
+      sectors[MINI[i].sector] += t;
+    }
+    c.miniColors = colors;
+    c.sectorTimes = sectors;
   }
 
   _serveLapEnd(c) {

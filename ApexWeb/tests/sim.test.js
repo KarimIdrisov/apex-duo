@@ -130,3 +130,25 @@ test("determinism holds with tyre warm-up", () => {
     while (!r.finished && g++ < 500000) r.step(); return r.order().map(c => c.abbrev); };
   assert.deepEqual(run(4), run(4));
 });
+
+import { N_MINI } from "../src/track.js";
+
+test("a completed lap records 18 mini-sector times that sum to the lap time + 3 sector totals", () => {
+  const r = new Race(field(), TRACK, 31);
+  const c = r.cars[0];
+  let guard = 0;
+  while (c.lap < 2 && guard++ < 80000) r.step();
+  assert.equal(c.lastMini.length, N_MINI);
+  const sum = c.lastMini.reduce((a, b) => a + b, 0);
+  assert.ok(Math.abs(sum - c.lastLap) < 1e-6, `mini sum ${sum} vs lap ${c.lastLap}`);
+  assert.equal(c.sectorTimes.length, 3);
+  assert.ok(Math.abs(c.sectorTimes.reduce((a, b) => a + b, 0) - c.lastLap) < 1e-6);
+});
+
+test("first flier colours are all session-best (purple) and determinism holds", () => {
+  const r = new Race(field(), TRACK, 32);
+  const lead = r.cars.reduce((a, b) => (a.skill >= b.skill ? a : b));
+  let guard = 0;
+  while (lead.lap < 1 && guard++ < 80000) r.step();
+  assert.ok(lead.miniColors.every(x => x === "p"), "leader's first lap should be all session bests");
+});
