@@ -80,6 +80,7 @@ function startRaceHost() {
   });
   ctx.paused = false;
   ctx._frame = 0;
+  ctx._acc = 0; ctx._lastTs = 0;        // reset the real-time sim accumulator
   ctx.speed = ctx.speed || 1;
 }
 // build the full 22-car field: player team's two drivers flagged, rest AI.
@@ -131,16 +132,22 @@ function pushRaceState() {
   if (ctx.net) ctx.net.send(snap);
   rerender();
 }
-function hostLoop() {
+const SIM_RATE = 4;   // sim-seconds per real-second at 1x — watchable (a ~78s lap takes ~20s on screen); 2x/4x fast-forward
+function hostLoop(ts) {
   if (ctx.role === "host" && ctx.weekend.phase === "race" && ctx.race && !ctx.paused) {
-    const steps = ctx.speed || 1;                           // 1x ≈ 15x realtime (~6 min); 2x/4x fast-forward
-    for (let i = 0; i < steps && !ctx.race.finished; i++) ctx.race.step(STEP);
+    // advance by REAL elapsed time (not frame count) so the pace is the same on any monitor;
+    // dt capped so a tab stall / unpause doesn't fast-forward the race.
+    const dt = Math.min(0.1, ctx._lastTs ? (ts - ctx._lastTs) / 1000 : 0);
+    ctx._acc = (ctx._acc || 0) + dt * (ctx.speed || 1) * SIM_RATE;   // sim-seconds owed
+    let guard = 0;
+    while (ctx._acc >= STEP && !ctx.race.finished && guard++ < 400) { ctx.race.step(STEP); ctx._acc -= STEP; }
     if ((++ctx._frame % 5) === 0) pushRaceState();          // throttle broadcast/render to ~12 Hz
     if (ctx.race.finished) {
       pushRaceState();
       ctx.weekend.setReady("p1"); ctx.weekend.setReady("p2");  // race -> result (onPhase broadcasts)
     }
   }
+  ctx._lastTs = ts;
   requestAnimationFrame(hostLoop);
 }
 
