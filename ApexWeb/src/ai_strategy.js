@@ -15,12 +15,12 @@ export function stintLife(compound, c) {
 }
 
 // choose a stop plan: target laps + compound to fit at each. 1 or 2 stops, seeded jitter by strategist.
-export function planRace(c, track, seed) {
+export function planRace(c, track, seed, difficulty = 0.85) {
   const T = track.laps;
   const Lh = stintLife("hard", c), Lm = stintLife("medium", c);
   const strat = (c.personnel && c.personnel.strategy != null) ? c.personnel.strategy : 0.6;
   const j = ((mix32(((seed >>> 0) + (c.idx >>> 0) * 2654435761) >>> 0) % 1000) / 1000) - 0.5; // [-0.5,0.5]
-  const drift = (1 - strat) * 6 * j;   // up to ~±3 laps for a weak strategist, ~0 for a sharp one
+  const drift = (1 - strat) * 6 * j + (1 - difficulty) * 8 * j;   // weak strategist OR low difficulty = sloppier timing
   let stops;
   if (Lm + Lh >= T * 0.98) {
     const lap = clamp(Math.round(Math.min(Lm * 0.9, T * 0.55) + drift), 8, T - 6);
@@ -62,6 +62,8 @@ export function engineMode(c, ctx) {
 // pace-mode for an AI car (tyre management vs attack). Conservative defaults.
 export function paceMode(c, ctx) {
   if (ctx.dirtyAir && !ctx.canPass) return "conserve";    // stuck behind: pushing only kills tyres
-  if (ctx.gapAhead != null && ctx.gapAhead < 1.0 && c.wear < COMPOUNDS[c.tyre].cliff * 0.7) return "push";
+  const iq = (c.attrs && c.attrs.race_iq != null) ? c.attrs.race_iq : 0.5;
+  const diff = ctx.difficulty != null ? ctx.difficulty : 0.85;
+  if (ctx.gapAhead != null && ctx.gapAhead < 1.0 && c.wear < COMPOUNDS[c.tyre].cliff * 0.7 && iq * diff > 0.5) return "push";
   return "balanced";
 }

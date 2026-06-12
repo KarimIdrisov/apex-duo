@@ -155,7 +155,10 @@ test("first flier colours are all session-best (purple) and determinism holds", 
   const r = new Race(field(), TRACK, 32);
   // the session-best setter is the genuinely fastest car; pace now lives in
   // attrs.pace, so pick by clean lap time rather than by the skill anchor.
-  const lead = r.cars.reduce((a, b) => (r._lapTime(a) <= r._lapTime(b) ? a : b));
+  // average a handful of samples so the per-lap noise (incl. the AI difficulty
+  // handicap noise at the default difficulty) can't mis-pick the genuine pace leader.
+  const score = c => { let s = 0; for (let k = 0; k < 9; k++) s += r._lapTime(c); return s; };
+  const lead = r.cars.reduce((a, b) => (score(a) <= score(b) ? a : b));
   let guard = 0;
   while (lead.lap < 1 && guard++ < 80000) r.step();
   assert.ok(lead.miniColors.every(x => x === "p"), "leader's first lap should be all session bests");
@@ -309,4 +312,20 @@ test("determinism holds with the AI brain", () => {
   const run = s => { const r = new Race(field(), TRACK, s); r.gridStart(); let g = 0;
     while (!r.finished && g++ < 500000) r.step(); return r.order().map(c => `${c.abbrev}:${c.pitStops}`); };
   assert.deepEqual(run(7003), run(7003));
+});
+
+test("easy AI laps slower than hard AI (same field, difficulty handicap)", () => {
+  const easy = new Race(field(), TRACK, 8001, 0.55);
+  const hard = new Race(field(), TRACK, 8001, 1.0);
+  easy.gridStart(); hard.gridStart();
+  for (let i = 0; i < 4000; i++) { easy.step(); hard.step(); }
+  const avg = r => { const f = r.cars.filter(c => !c.retired && c.avgLap > 0); return f.reduce((a, c) => a + c.avgLap, 0) / f.length; };
+  assert.ok(avg(easy) > avg(hard), `easy field slower (${avg(easy).toFixed(2)} > ${avg(hard).toFixed(2)})`);
+});
+
+test("determinism holds across difficulty", () => {
+  const run = d => { const r = new Race(field(), TRACK, 8002, d); r.gridStart(); let g = 0;
+    while (!r.finished && g++ < 500000) r.step(); return r.order().map(c => c.abbrev); };
+  assert.deepEqual(run(0.8), run(0.8));
+  assert.notDeepEqual(run(0.55), run(1.0));
 });

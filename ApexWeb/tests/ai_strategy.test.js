@@ -58,3 +58,10 @@ test("paceMode: conserves stuck in dirty air, pushes when attacking on good tyre
   assert.equal(paceMode(c, { dirtyAir: false, canPass: false, gapAhead: 0.7 }), "push");
   assert.equal(paceMode(c, { dirtyAir: false, canPass: false, gapAhead: 6 }), "balanced");
 });
+
+test("paceMode push is gated by race_iq × difficulty (sharp AI attacks, easy AI doesn't)", () => {
+  const c = aiCar();   // race_iq 0.7
+  const attack = { dirtyAir: false, canPass: false, gapAhead: 0.7 };
+  assert.equal(paceMode(c, { ...attack, difficulty: 1.0 }), "push", "hard AI attacks");
+  assert.equal(paceMode(c, { ...attack, difficulty: 0.55 }), "balanced", "easy AI holds station");
+});
