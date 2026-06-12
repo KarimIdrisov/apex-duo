@@ -9,6 +9,7 @@ import * as quali from "./ui/quali.js";
 import * as race from "./ui/race.js";
 import { buildGrid } from "./quali.js";
 import { paceBonus, closeness, trackIdeal } from "./setup.js";
+import { fuelLaps } from "./fuel.js";
 import { sfx } from "./audio.js";
 
 const SCREENS = { lobby, practice, quali, race, result: race };
@@ -43,7 +44,7 @@ function onCommand(cmd) {
   switch (cmd.cmd) {
     case "ready":     ctx.weekend.setReady(cmd.player); break;
     case "set_pace":  ctx.race?.setPace(cmd.car, cmd.mode); break;
-    case "set_ers":   ctx.race?.setErs(cmd.car, cmd.mode); break;
+    case "set_engine": ctx.race?.setEngine(cmd.car, cmd.mode); break;
     case "request_pit": ctx.race?.requestPit(cmd.car, cmd.compound); break;
     case "toggle_pause":
       ctx.paused = !ctx.paused;
@@ -115,7 +116,8 @@ function raceSnapshot() {
     cars: ctx.race.order().map(c => ({
       idx: c.idx, pos: c.pos, abbrev: c.abbrev, color: c.color, player: c.player,
       lap: c.lap, lapFrac: c.lapFrac, tyre: c.tyre, wear: c.wear, soc: c.soc,
-      pace: c.pace, ers: c.ers, retired: c.retired, isPlayer: c.isPlayer,
+      pace: c.pace, engine: c.engine, retired: c.retired, isPlayer: c.isPlayer,
+      fuel: c.fuel, fuelLaps: fuelLaps(c.fuel, c.engine, c.car.fuel),
       pitStops: c.pitStops, tyreAge: c.tyreAge, lastLap: c.lastLap, startPos: c.startPos,
     })),
   };
