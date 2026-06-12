@@ -80,6 +80,17 @@ export const SLIP_K     = 0.25;  // pass-credit/tick from tow, × straightness �
 export const DIRTY_GAP  = 1.5;   // seconds: within this behind a car you are in dirty air
 export const DIRTY_WEAR = 0.006; // extra tyre wear/tick in dirty air, × (1 - straightness)
 
+// events (Phase 5): start incident + safety car.
+export const EVENT = {
+  startP:     0.03,  // per-car chance of a lap-1 start incident
+  startLoss:  4.0,   // seconds lost in a start incident
+  startDnf:   0.15,  // chance a start incident becomes a DNF
+  scPaceMult: 1.40,  // everyone laps at 140% under the safety car
+  scMinLaps:  3,     // the SC stays out this many leader-laps
+  scTrainGap: 0.6,   // seconds between cars in the bunched SC train
+  scPitMult:  0.55,  // pit time-loss multiplier under SC (a cheap stop)
+};
+
 // pace modes: pace offset (s/lap), wear multiplier, mechanical-risk multiplier
 export const PACE_MODES = {
   conserve: { pace: 0.45, wear:0.80, risk:0.4 },

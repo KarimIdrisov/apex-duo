@@ -60,3 +60,13 @@ test("overtaking constants present and sane", () => {
   assert.ok(DIRTY_GAP > 0.8);
   assert.ok(DIRTY_WEAR > 0);
 });
+
+import { EVENT } from "../src/data.js";
+test("event constants present and sane", () => {
+  assert.ok(EVENT.startP > 0 && EVENT.startP < 0.2);
+  assert.ok(EVENT.startLoss > 0);
+  assert.ok(EVENT.scPaceMult > 1);
+  assert.ok(EVENT.scMinLaps >= 1);
+  assert.ok(EVENT.scTrainGap > 0);
+  assert.ok(EVENT.scPitMult > 0 && EVENT.scPitMult < 1);
+});
