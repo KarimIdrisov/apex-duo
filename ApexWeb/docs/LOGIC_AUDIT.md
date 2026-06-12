@@ -117,7 +117,7 @@ Per adjacent pair (leaders-first order), skipping retired or in-pit cars:
 - **Dirty air:** a follower within `DIRTY_GAP(1.5 s)` accrues `dirtyWear(straightness) = DIRTY_WEAR(0.006)·(1−straightness)` into `_dirtyWear` (applied at lap-end). Worse in corners. **Note: this is wear-only today — there is no pace penalty for following (a known gap, see §18.11).**
 - **Close combat:** within `COMBAT_GAP(0.8 s)` on the same lap:
   - pace edge `edge = lapTime(ahead) − lapTime(me)` (>0 = me faster); tow `slipstream(straightness, me.car.power) = SLIP_K(0.25)·straightness·power` (straights only).
-  - `me._passCredit += passAccrual(edge, tow, engine, straightness) · (0.7 + ATTRW.overtaking(0.6)·attrs.overtaking)`, where `passAccrual = (max(0,edge)+tow)·(push?1.3:1)·(0.5+straightness)`. **Note: the tow is added *uncoupled from edge*, so it can build a pass even at `edge ≤ 0` (~0.9 s in a zone) — a verified over-power, see §18.13.**
+  - `me._passCredit = min(_passCredit·PASS_CREDIT_DECAY(0.97) + passAccrual(edge, towEff, engine, straightness)·(0.7 + ATTRW.overtaking(0.6)·attrs.overtaking), PASS_CREDIT_CAP(2.5))`, where `passAccrual = (max(0,edge)+towEff)·(push?1.3:1)·(0.5+straightness)` and **`towEff = tow·clamp(edge/EDGE_REF(0.35), 0, 1)`** — the tow now AMPLIFIES a real pace edge (it can't build a pass from nothing) and credit is **capped + decayed** so a whole straight of draft can't be banked and cashed in one tick (the verified over-power, fixed 2026-06-13; §18.13).
   - **Overtake zones (TODO #2b):** `zone = zoneFor(track.overtake_zones, mini)`. `resist = zone ? (1−zone.ease)·2.0·(0.7+ATTRW.defending(0.6)·ahead.attrs.defending) : Infinity`. Barcelona zones: minis [0,1,2] brake ease 0.55, minis [11,12] slip ease 0.45. **Outside a zone resist = ∞ → the follower stays pinned and credit keeps building ("the tow"); a pass completes only inside a zone.**
   - If `credit < resist`: pin behind (write only `lapFrac`, clamped ≥0). Else: pass completes (reset credit; emit a `pass` event with the zone type — suppressed while `lap===0` to avoid grid-settle spam).
 
@@ -125,7 +125,7 @@ Per adjacent pair (leaders-first order), skipping retired or in-pit cars:
 
 **Invariant (load-bearing):** combat writes **only** `lapFrac` (and scratch fields), never `lap`/`wear`. Lap bookkeeping is phase-3's alone.
 
-Current corridor: ~3.0 grid→finish places/car, ~27–37 passes/race, 100% in-zone.
+Current corridor: ~2.7 grid→finish places/car, **~23 passes/race**, 100% in-zone. (Passes dropped from ~34 after the §18.13 tow-gate removed the artificial equal-car draft swaps; the remainder are genuine pace-edge passes.)
 
 ---
 
@@ -201,10 +201,10 @@ winners             3 distinct drivers; top TEAM McLaren ~95-100%  ← grid-data
 fuel run-outs       push-all-race 175 dry / standard 0
 tyre deg            1.66 s/lap @20 laps medium
 sectors             power car −0.88 s in the straight sector, +0.65 s in the twisty one
-overtaking          ~3.2 grid→finish places/car; ~34 passes/race; 100% in-zone
+overtaking          ~2.7 grid→finish places/car; ~23 passes/race; 100% in-zone   ← passes down from ~34 (§18.13 tow-gate removed artificial draft swaps)
 safety car          ~0.23 of races (track.sc 0.25)
 weather             ~0.37 of races rain; dry slick adv 2.7 s; wet adv in rain 6.0 s
-start               2.88 |grid→lap1| places/car
+start               2.16 |grid→lap1| places/car   ← calmer since the tow-gate also throttles lap-1 draft swaps (§18.13)
 strategy            AI 1.47 stops/race, mean stop lap ~35/66, 0 fuel run-outs
 difficulty          easy 3 winners / DNF ~1.6 ; hard 2 winners / DNF ~1.7 (easy ≥ hard variety holds)
 ```
@@ -251,7 +251,8 @@ Each item carries our current **stance** (as of 2026-06-13, after a first review
 10. **Single-track calibration.** `lt/pw/df` validated vs FastF1; `pit` corrected to 23.5 s; compounds kept manual. → **OPEN/FUTURE:** multi-track needs real per-track constants (already extracted to `tools/track_constants_*.json`) + per-track outlines.
 11. **Dirty air is wear-only — it should also cut pace.** Today following within `DIRTY_GAP` adds only tyre *wear* (`_dirtyWear`); in reality lost downforce also costs *pace* (worse in corners). → **PLANNED (high value):** add `lapTime += DIRTY_PACE_K·(1−straightness)` while in dirty air. This makes following genuinely hard (the follower's pace edge shrinks), the undercut more valuable (clean air after a stop), and — paired with the straight-line slipstream tow — gives realistic "hard to follow, but you get the tow on the straight" dynamics. It also indirectly **eases the §18.1 monopoly** (midfield cars stuck in traffic lose pace, adding variance). Needs careful tuning so passing doesn't become *too* hard (the slipstream must still let a faster car attack). **Suggested start `DIRTY_PACE_K ≈ 0.8`** (~0.4 s/lap lost in the twisty sector while following — in line with the real 0.5–1.5 s/lap dirty-air loss — with the straight-line tow still compensating). Pairs naturally with §18.13 (tow gated on edge): hard to follow in the corners, but the tow lets a genuinely faster car attack on the straight.
 12. **Smaller observations.** → **OPEN/minor:** `GRID_GAP 0.20 s` is small (amplifies the start shuffle; see §18.3 — raising to ~0.25 is planned). Fuel has no explicit lift-and-coast / safety-margin behaviour (the engine `save` mode is a coarse stand-in). Weather wetness is **uniform across the track** (no sector-local rain) — a realistic but larger future addition.
-13. **Slipstream tow over-powers the pass (VERIFIED).** `passAccrual = (max(0,edge) + tow)·push·(0.5+straightness)` lets the **tow alone** build credit — even at `edge ≤ 0` (equal or slower pace). **Measured** in a brake zone: tow ≈ `SLIP_K(0.25)·straightness(0.8)·power(0.95)` ≈ 0.19/tick → credit ≈ `(0+0.19)·(0.5+0.8)·(0.7+0.6·overtaking)` ≈ 0.29/tick; against `resist ≈ 1.06` that's **~3.7 ticks ≈ 0.9 s → a pass with no pace advantage.** Risk: equal-pace cars swap positions every zone (artificial). **Mitigating context:** the overall pass corridor (27–37/race, ~3 places/car) shows it isn't currently catastrophic — a slower car can't *stay* pinned (the pin only pushes back, never pulls forward), and per-tick noise keeps `edge` off exactly 0 — so it self-limits. Hence **major (realism), not critical.**
+13. **✅ DONE (2026-06-13) — slipstream tow over-power FIXED.** Implemented both parts: (a) **tow gated on a real edge** — `towEff = tow·clamp(edge/EDGE_REF(0.35),0,1)` in `passAccrual`, so the draft amplifies a pace edge and a slower/equal car can't pass on the tow alone (new unit test); (b) **credit capped + decayed** — `_passCredit = min(_passCredit·0.97 + accrual, 2.5)` in `_resolveCombat`, so a whole straight of draft can't be banked and cashed in one tick. Effect (measured): passes/race **34 → 23** (the removed ~11 were the artificial equal-car swaps), grid→finish **3.2 → 2.7 places/car**, lap-1 shuffle **2.88 → 2.16** (the tow-gate also calms the opening lap), in-zone still 100%, DNF 1.55 / spread 2.25 / easy 4 winners > hard 2. 105 tests green. *Original finding (now resolved) below:*
+   - `passAccrual = (max(0,edge) + tow)·push·(0.5+straightness)` let the **tow alone** build credit — even at `edge ≤ 0` (equal or slower pace). **Measured** in a brake zone: tow ≈ `SLIP_K(0.25)·straightness(0.8)·power(0.95)` ≈ 0.19/tick → credit ≈ `(0+0.19)·(0.5+0.8)·(0.7+0.6·overtaking)` ≈ 0.29/tick; against `resist ≈ 1.06` that's **~3.7 ticks ≈ 0.9 s → a pass with no pace advantage.** Risk: equal-pace cars swap positions every zone (artificial). **Mitigating context:** the overall pass corridor (27–37/race, ~3 places/car) shows it isn't currently catastrophic — a slower car can't *stay* pinned (the pin only pushes back, never pulls forward), and per-tick noise keeps `edge` off exactly 0 — so it self-limits. Hence **major (realism), not critical.**
    - **Sharper root — credit *banking* (verified):** `_passCredit` has **no cap and no decay**; it's reset only when the follower leaves `COMBAT_GAP` or completes a pass. So a car drafting the full main straight (~48 ticks) **banks ~13.6 credit** before reaching the T1 brake zone, where `resist ≈ 0.9` — the pass then completes in **~1 tick on zone entry**, even for a car that's *slower in the corners* (it just needs straight-line draft). The issue isn't only the per-tick tow magnitude; it's unbounded accumulation.
    - → **PROPOSED (two parts):** (a) make the tow *amplify a real edge* rather than create a pass from nothing — `tow_eff = tow · clamp(edge/EDGE_REF, 0..1)` (require some positive `edge` to convert). **Do NOT** hard-zero the tow at `edge ≤ 0` — that kills the realistic draft pass of an equal car, which *should* be possible, just not instantly. (b) **cap and/or decay `_passCredit`** (e.g. clamp to ~2×max-resist, bleed a fraction each corner) so it can't be banked over a whole straight and cashed in one tick. Tune so a tow pass of a near-equal car takes a few zones (laps), not one; re-check the §17 overtaking corridor.
 
@@ -278,7 +279,9 @@ Independent reviews repeatedly flagged these as the model's load-bearing strengt
 | `GRID_GAP` | 0.20 s | grid spread per slot |
 | `COMBAT_GAP` | 0.8 s | within this two cars fight |
 | `DIRTY_GAP` | 1.5 s | within this you're in dirty air |
-| `SLIP_K` | 0.25 | slipstream tow / tick (× straightness × power) |
+| `SLIP_K` | 0.25 | slipstream tow / tick (× straightness × power, then × clamp(edge/EDGE_REF)) |
+| `EDGE_REF` | 0.35 | s/lap pace edge at which the tow converts in full (gate, §18.13) |
+| `PASS_CREDIT_CAP / DECAY` | 2.5 / 0.97 | max bankable pass-credit / per-tick recency bleed (§18.13) |
 | `DIRTY_WEAR` | 0.006 | extra wear/tick in dirty air (× 1−straightness) |
 | `DNF_BASE` | 0.0075 | per-lap mechanical-failure scale × (1−rel) × pace.risk |
 | `FIT_K` | 0.6 | sector-specialism strength |

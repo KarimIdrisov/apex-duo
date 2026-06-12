@@ -21,6 +21,15 @@ test("pass-credit accrues faster on straights, with tow, and on push", () => {
   assert.equal(passAccrual(-1, 0, "standard", 1), passAccrual(0, 0, "standard", 1));
 });
 
+test("tow amplifies a real pace edge, it cannot build a pass from nothing (§18.13)", () => {
+  // a car with NO pace edge (or slower) gets ~no benefit from the tow — the draft
+  // alone must not complete a pass (the verified over-power: equal cars swapping every zone).
+  assert.ok(passAccrual(0, 0.5, "standard", 1) < 0.05, "tow alone (edge 0) builds ~no credit");
+  assert.equal(passAccrual(-0.3, 0.5, "standard", 1), 0, "a slower car gets nothing from the tow");
+  // but a genuinely faster car DOES convert the tow into extra credit (draft still helps).
+  assert.ok(passAccrual(0.5, 0.5, "standard", 1) > passAccrual(0.5, 0, "standard", 1), "tow still helps a faster car");
+});
+
 import { zoneFor } from "../src/overtake.js";
 import { TRACK } from "../src/data.js";
 

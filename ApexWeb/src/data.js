@@ -87,6 +87,10 @@ export const FIT_K = 0.6;
 
 // overtaking model (Phase 4). slipstream tow on straights; dirty air in corners.
 export const SLIP_K     = 0.25;  // pass-credit/tick from tow, × straightness × car.power
+export const EDGE_REF   = 0.35;  // s/lap pace edge at which the tow converts in full; below this the tow is
+                                 // scaled down so the draft AMPLIFIES a real edge, never builds a pass from nothing (§18.13)
+export const PASS_CREDIT_CAP   = 2.5;   // max bankable pass-credit — a whole straight of tow can't be cashed in one tick (§18.13)
+export const PASS_CREDIT_DECAY = 0.97;  // per-tick credit bleed (recency) — stale draft from laps ago doesn't carry (§18.13)
 export const DIRTY_GAP  = 1.5;   // seconds: within this behind a car you are in dirty air
 export const DIRTY_WEAR = 0.006; // extra tyre wear/tick in dirty air, × (1 - straightness)
 
