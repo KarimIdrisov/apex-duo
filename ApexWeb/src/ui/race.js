@@ -46,7 +46,7 @@ function buildHud(root, ctx) {
        stroke="${c.player ? "#fff" : "rgba(0,0,0,.4)"}" stroke-width="${c.player ? 0.8 : 0.3}"></circle>`).join("");
   root.innerHTML = `
     <div id="dash">
-      <div class="panel" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <div class="panel dash-head" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
         <div><div style="font-weight:700;font-size:16px">${TRACK.gp}</div>
           <div class="label" style="margin:0">${TRACK.name} · <span id="d-chip">ГОНКА</span></div></div>
         <div style="display:flex;align-items:center;gap:8px">
@@ -55,8 +55,9 @@ function buildHud(root, ctx) {
           <button class="btn" id="d-speed">1x</button><button class="btn" id="d-pause">⏸</button>
         </div>
       </div>
+      <div class="dash-side">
       <div class="panel" style="padding:10px">
-        <svg viewBox="0 0 100 100" style="width:100%;max-height:230px;display:block">
+        <svg viewBox="0 0 100 100" style="width:100%;max-height:340px;display:block">
           <path d="${PATH_D}" fill="none" stroke="#2a2a31" stroke-width="3.2" stroke-linejoin="round"/>
           <path d="${PATH_D}" fill="none" stroke="#3f3f46" stroke-width="1.4" stroke-linejoin="round"/>
           ${dots}
@@ -77,7 +78,8 @@ function buildHud(root, ctx) {
         <div class="seg" id="d-ers">${ERS.map(e => `<button data-v="${e}">${ERS_L[e]}</button>`).join("")}</div>
         <button class="primary" id="d-pit" style="margin-top:10px;background:var(--bad)">⛽ В боксы → ${tyreIcon("hard", 20)} Hard</button>
       </div>
-      <div class="panel" style="padding:8px">
+      </div>
+      <div class="panel dash-board" style="padding:8px">
         <div class="label" style="padding:0 6px 6px">Leaderboard</div>
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap">

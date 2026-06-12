@@ -23,7 +23,18 @@ body{margin:0;color:var(--ink);
   font-family:Inter,system-ui,"Segoe UI",Roboto,sans-serif;
   background:radial-gradient(1100px 560px at 50% -12%, #16161d 0%, var(--bg) 62%);
   background-attachment:fixed;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
-#app{max-width:760px;margin:0 auto;padding:18px}
+#app{max-width:720px;margin:0 auto;padding:18px;transition:max-width .2s var(--ease)}
+#app.wide{max-width:1160px}
+
+/* race dashboard: leaderboard left, minimap + controls right, header on top */
+#dash{display:grid;grid-template-columns:minmax(0,1fr) 372px;
+  grid-template-areas:"head head" "board side";gap:14px;align-items:start}
+.dash-head{grid-area:head} .dash-board{grid-area:board} .dash-side{grid-area:side}
+.dash-side{position:sticky;top:14px}
+@media(max-width:880px){
+  #dash{grid-template-columns:1fr;grid-template-areas:"head" "side" "board"}
+  .dash-side{position:static}
+}
 
 h2{font-size:20px;font-weight:600;letter-spacing:-.01em;margin:0 0 12px}
 p{margin:6px 0}
