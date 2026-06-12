@@ -208,3 +208,11 @@ test("determinism holds with events", () => {
     while (!r.finished && g++ < 500000) r.step(); return r.order().map(c => c.abbrev); };
   assert.deepEqual(run(7042), run(7042));
 });
+
+test("a start-incident penalty slows the car's first lap (drops it back, not forward)", () => {
+  const r = new Race(field(), TRACK, 1);
+  const c = r.cars[0]; c.lap = 0;
+  const base = r._lapTime(c);
+  c._startPenalty = 5;
+  assert.ok(r._lapTime(c) > base + 4, "lap-1 start penalty applies");
+});

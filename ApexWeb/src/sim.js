@@ -31,7 +31,7 @@ export class Race {
       retired: false, pitPending: null, pos: i + 1, startPos: i + 1,
       pitStops: 0, pitTimer: 0,
       lastMini: [], bestMini: new Array(N_MINI).fill(Infinity), miniColors: [], sectorTimes: [0, 0, 0],
-      _dirtyWear: 0,
+      _dirtyWear: 0, _startPenalty: 0,
     }));
   }
 
@@ -50,6 +50,7 @@ export class Race {
     s += weightTerm(c.fuel);            // heavy tank = slower (eases as fuel burns)
     s += c.setupBonus;                                           // <=0, faster when set well
     s += this.rng.noise(0.06);
+    if (c.lap === 0 && c._startPenalty) s += c._startPenalty;   // lost time from a start incident (lap 1 only)
     if (this.scActive) s *= EVENT.scPaceMult;   // everyone crawls behind the safety car
     return s;
   }
@@ -103,7 +104,7 @@ export class Race {
   _startIncidents() {
     for (const c of this.cars) {
       if (startIncidentHit(this.erng, EVENT.startP)) {
-        c.lapFrac = Math.max(0, c.lapFrac - EVENT.startLoss / this.track.lt); // dropped back at the start
+        c._startPenalty = EVENT.startLoss;                       // a slow lap 1 (applied in _lapTime), drops the car back
         if (this.erng.unit() < EVENT.startDnf) c.retired = true; // rare: out on the spot
       }
     }
