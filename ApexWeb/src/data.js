@@ -159,7 +159,8 @@ export const DNF_BASE  = 0.0075; // per-lap mechanical-failure scale * (1-rel)
 export const STEP      = 0.25;   // sim time-step (seconds)
 export const COMBAT_GAP = 0.8;   // seconds: within this, two cars fight
 export const PASS_K    = 1.6;    // pass-credit accrual per unit track.ot
-export const GRID_GAP  = 0.20;   // starting time spread per grid slot (seconds)
+export const GRID_GAP  = 0.25;   // starting time spread per grid slot (seconds) — widened from 0.20 so a launch delta causes fewer swaps (§18.3)
+export const LAP1_CAUTION = 0.4; // pass-credit multiplier on the opening lap (lap 0): the field settles the launch/grid order through T1, racing opens from lap 1 (§18.3)
 
 // engine modes: pace offset (s/lap), fuel burn multiplier. Replaces ERS_MODES.
 export const ENGINE_MODES = {

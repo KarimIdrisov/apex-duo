@@ -80,7 +80,7 @@ s *= (scActive ? scPaceMult(1.40) : 1)                         // everyone slow 
 ## 4. The grid, qualifying & the field
 
 - **Quali** (`quali.js`): each car runs one flying lap on softs — `lt + COMPOUNDS.soft.pace − SKILL_K·(attrs.quali−0.5) − CAR_K·… + setupBonus − 0.35·risk + noise(0.08+0.45·risk)`, plus a `0.12·risk` chance of a `range(0.8,2.5)` mistake. Sorted fastest-first → the grid. **Quali uses `attrs.quali`, the race uses `attrs.pace`** — so "qualifiers vs racers" differ.
-- **Grid placement** (`main.js startRaceHost`): car `slot` starts at `lapFrac = −slot · GRID_GAP(0.20)/lt`, i.e. spread by 0.20 s/slot (≈4.4 s P1→P22). `startPos` recorded for the +/- column. (Negative `lapFrac` is the one allowed exception to the §16 invariant.)
+- **Grid placement** (`main.js startRaceHost`): car `slot` starts at `lapFrac = −slot · GRID_GAP(0.25)/lt`, i.e. spread by 0.25 s/slot (≈5.5 s P1→P22; widened from 0.20 in §18.3 so a launch delta causes fewer swaps). `startPos` recorded for the +/- column. (Negative `lapFrac` is the one allowed exception to the §16 invariant.)
 
 ---
 
@@ -235,8 +235,7 @@ Each item carries our current **stance** (as of 2026-06-13, after a first review
    - → **REJECTED:** a *general* finite out-of-zone `resist` (e.g. 2.5–3.5) or a time-decaying one. **Trap:** pass-credit *accumulates* while in `COMBAT_GAP` (it's only reset when the follower drops out of range), so any finite out-of-zone resist is beaten within a lap or two → passes happen everywhere → zones become meaningless.
    - → **REJECTED:** a flat per-tick `random_pass_chance` (~0.01–0.03) outside zones — over the dozens of ticks a follower spends in range, the cumulative probability is high → frequent out-of-zone passes, eroding zones the same way. (A *low per-attempt* chance gated on a real pace edge is fine — that's the aggressive pass.) The fix that works keeps credit un-accumulated outside zones and requires an *instantaneous* big edge.
    - → **OPEN (deterministic-pass guarantee):** because credit *accumulates* and a zone always recurs, a faster car is *guaranteed* to pass eventually — there's no probabilistic defence (a defender can never "hold" a faster car over a stint). Real racing has `P(pass) < 1`. Consider a **defence roll** at the release moment — e.g. `P(complete) = sigmoid(credit − resist + defenderSkillTerm)` — so a strong defender (`attrs.defending`/`composure`) sometimes repels even a faster car, and the pass isn't a certainty. Adds drama; must stay bounded so it doesn't create permanent road-blocks. (Keep the credit *core* — §19 — this only changes the release from a hard threshold to a gated roll.)
-3. **Start vs lap-1 chaos.** Launch is a lap-0 time delta. 2.58 places/car reshuffle; grid gaps are only 0.20 s/slot so any time delta = big swings.
-   - → **PLANNED:** a "cautious opening lap" — **reduce `passAccrual` while `lap===0`** (field holds the launch/grid order through T1; racing opens from lap 1) **+ bump `GRID_GAP` 0.20 → 0.25**. (A *softer* version than a hard pin — avoids the negative-grid-`lapFrac` clamp problem in §16.3.)
+3. **✅ DONE (2026-06-13) — opening-lap caution + wider grid.** Implemented `LAP1_CAUTION(0.4)` (pass-credit ×0.4 while `lap===0` — the field settles the launch/grid order through T1, racing opens lap 1) and `GRID_GAP 0.20→0.25`. The start metric was **already in-corridor (~2.2)** after the §18.13 tow-gate calmed lap-1 draft swaps, so this is a *reinforcement* (robustness + "racing opens lap 1" correctness), not a big mover — as §18.3 intended, the launch shuffle (§9) is kept; only lap-1 combat is throttled. Sorting still happens (metric ~2.2, not frozen). *Original note:* Launch is a lap-0 time delta; 2.58 places/car reshuffle; grid gaps were only 0.20 s/slot so any time delta = big swings.
    - → **ALT/COMPLEMENT (considered):** temporarily widen `COMBAT_GAP` (≈0.8→1.2 s) in the first few mini-sectors of lap 1 — models the physical T1/chicane bottleneck where cars can't attack *regardless* of credit. Cleaner "first-corner caution" than only throttling accrual.
    - **Nuance:** the metric won't (and shouldn't) drop near 0 — some pace-vs-quali sorting *is* desirable (a racer with race-pace above his quali should climb). The goal is to kill the *opening-lap* spike, not to freeze the quali order for the whole race. A reviewer noting "this just delays the sorting to lap 2" is right that the underlying pace-sort persists by design; we're only smoothing the first-lap burst.
 4. **Pit realism.** Pit-loss is a full stationary freeze, and the **out-lap is already slow** (cold tyres, `tyreTemp = pitTemp 0.20` → `tyreTerm` cold penalty). So the model is freeze + cold-out-lap; there's no *in-lap* slow-down.
@@ -276,7 +275,8 @@ Independent reviews repeatedly flagged these as the model's load-bearing strengt
 | `CAR_PACE_K` | 9.0 | s/lap per ((power+aero)/2 − fieldMean) — the absolute car-performance term (§18.1) |
 | `RACE_FORM` | 0.15 | ±s/lap per-race form swing on every car (off/on weekend) |
 | `CAR_K` | 1.2 | s/lap per (power−aero)·(track.pw−df) car/track-character bias |
-| `GRID_GAP` | 0.20 s | grid spread per slot |
+| `GRID_GAP` | 0.25 s | grid spread per slot (widened from 0.20, §18.3) |
+| `LAP1_CAUTION` | 0.4 | pass-credit × on lap 0 — opening-lap caution (§18.3) |
 | `COMBAT_GAP` | 0.8 s | within this two cars fight |
 | `DIRTY_GAP` | 1.5 s | within this you're in dirty air |
 | `DIRTY_PACE_K` | 0.8 | s/lap pace lost in dirty air (× 1−straightness, §18.11) |

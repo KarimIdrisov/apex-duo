@@ -5,7 +5,7 @@ import { startFuel, burnFor, weightTerm, engineTerm, fuelLaps } from "./fuel.js"
 import { tyreTerm, warmStep } from "./tyres.js";
 import { miniSplits, MINI, N_MINI, sampleAt } from "./track.js";
 import { slipstream, dirtyWear, passAccrual, zoneFor } from "./overtake.js";
-import { PASS_CREDIT_CAP, PASS_CREDIT_DECAY, DIRTY_PACE_K } from "./data.js";
+import { PASS_CREDIT_CAP, PASS_CREDIT_DECAY, DIRTY_PACE_K, LAP1_CAUTION } from "./data.js";
 import { scheduleSC } from "./events.js";
 import { scheduleWeather, wetnessAt, weatherTerm } from "./weather.js";
 import { planRace, pitDecision, engineMode, paceMode } from "./ai_strategy.js";
@@ -222,8 +222,9 @@ export class Race {
         const tow = slipstream(s, me.car.power);
         // recency bleed + accrual, then cap: the draft can't be banked over a whole straight and
         // cashed in one tick on zone entry (the verified credit-banking over-power, §18.13).
+        const cautious = me.lap === 0 ? LAP1_CAUTION : 1;   // opening-lap caution: let the launch/grid order settle through T1 (§18.3)
         const cr = (me._passCredit ?? 0) * PASS_CREDIT_DECAY
-                 + passAccrual(edge, tow, me.engine, s) * (0.7 + ATTRW.overtaking * A(me).overtaking);
+                 + passAccrual(edge, tow, me.engine, s) * (0.7 + ATTRW.overtaking * A(me).overtaking) * cautious;
         me._passCredit = Math.min(cr, PASS_CREDIT_CAP);
         const zone = zoneFor(this.track.overtake_zones, sampleAt(me.lapFrac).mini);   // follower's local zone (or null)
         const ease = zone ? zone.ease : this.track.ot;
