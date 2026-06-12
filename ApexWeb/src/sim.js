@@ -202,7 +202,7 @@ export class Race {
           me._passCredit = 0; // pass completes naturally next ticks (no lap write)
           // announce once per pass episode: a fresh opponent (not the one we just cleared)
           // and not within the per-car cooldown — bounds the log to genuine on-track passes.
-          if (me._passedIdx !== ahead.idx && (me._passCd ?? -1) <= this.time) {
+          if (me.lap >= 1 && me._passedIdx !== ahead.idx && (me._passCd ?? -1) <= this.time) {  // skip the lap-0 grid settle
             this._emit({ type: "pass", lap: me.lap, a: me.idx, abbr: me.abbrev, b: ahead.idx, abbrB: ahead.abbrev });
             me._passedIdx = ahead.idx;
             me._passCd = this.time + 4;
