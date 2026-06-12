@@ -442,6 +442,25 @@ test("overtakes complete in a zone, or as a rare bold out-of-zone lunge", () => 
   for (const p of passes) assert.ok(p.zone === "brake" || p.zone === "slip" || p.zone === "bold", `pass carries a zone (${p.zone})`);
 });
 
+test("a successful bold lunge scrubs the attacker's tyres (§18.2 round-2)", () => {
+  for (let seed = 0; seed < 80; seed++) {
+    const r = new Race(field(), TRACK, seed);
+    const a = r.cars[0], b = r.cars[1];
+    a.car = { ...a.car, rel: 1 }; b.car = { ...a.car };
+    a.attrs = { ...a.attrs, pace: 0.55 };
+    b.attrs = { ...a.attrs, pace: 0.95, aggression: 0.95 };   // b ~1.8 s/lap faster, very aggressive
+    for (const c of r.cars) { c.lap = 5; c.lapFrac = 0.02 * c.idx; c.tyreTemp = 0.9; }
+    a.lapFrac = 0.50; b.lapFrac = 0.50 - 0.4 / TRACK.lt;      // b just behind a in a NON-zone mini (mid-lap)
+    const before = b.tyreTemp;
+    r._resolveCombat();                                       // one attempt (one-shot-per-rival)
+    if (r.events.some(e => e.type === "pass" && e.zone === "bold" && e.a === b.idx)) {
+      assert.ok(b.tyreTemp < before - 0.05, `a successful lunge scrubs tyres (${b.tyreTemp.toFixed(2)} < ${before})`);
+      return;
+    }
+  }
+  assert.fail("no bold pass fired across seeds — scenario/threshold drifted");
+});
+
 test("bold out-of-zone passes occur but stay rare (§18.2)", () => {
   let bold = 0, races = 20;
   for (let s = 0; s < races; s++) {

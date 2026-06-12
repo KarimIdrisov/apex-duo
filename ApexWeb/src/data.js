@@ -170,6 +170,8 @@ export const AGGR_PASS_ATTR = 0.70; // min driver aggression to attempt
 export const AGGR_PASS_REF  = 1.0;  // edge (above the threshold) at which the success factor saturates
 export const AGGR_PASS_K    = 1.6;  // overall success scalar (tuned so out-of-zone passes stay ~1-2/race)
 export const AGGR_PASS_DNF  = 0.02; // chance a FAILED lunge ends in contact → the attacker retires
+export const AGGR_PASS_SCRUB = 0.15;// tyre-temp scrubbed off on a SUCCESSFUL lunge (lock-up/run-wide) — a transient,
+                                    // self-healing pace cost so the bold move isn't free (§18.2 round-2)
 // anti-spam: ONE bold attempt per rival-ahead (keyed on ahead.idx), not a recurring time cooldown — over a
 // multi-thousand-second race a time cooldown would allow hundreds of risky attempts and inflate DNF.
 export const GRID_GAP  = 0.25;   // starting time spread per grid slot (seconds) — widened from 0.20 so a launch delta causes fewer swaps (§18.3)

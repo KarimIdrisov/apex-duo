@@ -6,7 +6,7 @@ import { tyreTerm, warmStep } from "./tyres.js";
 import { miniSplits, MINI, N_MINI, sampleAt } from "./track.js";
 import { slipstream, dirtyWear, passAccrual, zoneFor } from "./overtake.js";
 import { PASS_CREDIT_CAP, PASS_CREDIT_DECAY, DIRTY_PACE_K, LAP1_CAUTION,
-  AGGR_PASS_EDGE, AGGR_PASS_ATTR, AGGR_PASS_REF, AGGR_PASS_K, AGGR_PASS_DNF } from "./data.js";
+  AGGR_PASS_EDGE, AGGR_PASS_ATTR, AGGR_PASS_REF, AGGR_PASS_K, AGGR_PASS_DNF, AGGR_PASS_SCRUB } from "./data.js";
 import { scheduleSC } from "./events.js";
 import { scheduleWeather, wetnessAt, weatherTerm } from "./weather.js";
 import { planRace, pitDecision, engineMode, paceMode } from "./ai_strategy.js";
@@ -243,6 +243,7 @@ export class Race {
             const slot = ahead.lapFrac + (COMBAT_GAP * 0.1) / this.track.lt;   // nip just ahead of the car
             if (slot < 1) {   // guard the lap boundary — combat never writes lap (§16 invariant)
               me.lapFrac = slot; me._passCredit = 0;
+              me.tyreTemp = Math.max(0.1, me.tyreTemp - AGGR_PASS_SCRUB);   // scrubbed/flat-spotted tyres — the lunge isn't free (§18.2 round-2)
               if (me._passedIdx !== ahead.idx && (me._passCd ?? -1) <= this.time) {
                 this._emit({ type: "pass", lap: me.lap, a: me.idx, abbr: me.abbrev, b: ahead.idx, abbrB: ahead.abbrev, zone: "bold" });
                 me._passedIdx = ahead.idx; me._passCd = this.time + 4;
