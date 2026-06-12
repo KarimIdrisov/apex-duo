@@ -65,31 +65,48 @@ function computeBattles(cars) {
 }
 const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
+// time-interpolated progress from a per-car ring buffer of {prog,t} snapshots: smooth motion
+// between ~12 Hz snapshots regardless of the sim's step cadence (renders slightly in the past).
+function sampleBuf(buf, rt) {
+  if (!buf || !buf.length) return 0;
+  if (buf.length === 1 || rt <= buf[0].t) return buf[0].prog;
+  for (let i = buf.length - 1; i > 0; i--) {
+    const a = buf[i - 1], b = buf[i];
+    if (rt >= a.t) {
+      const span = b.t - a.t || 1, v = (b.prog - a.prog) / span;
+      return rt <= b.t ? a.prog + (b.prog - a.prog) * ((rt - a.t) / span)   // interpolate between two samples
+                       : b.prog + v * Math.min(rt - b.t, 140);              // mild extrapolation past the newest
+    }
+  }
+  return buf[buf.length - 1].prog;
+}
+
 // the rAF map loop: smoothly extrapolates each car's progress between ~12 Hz snapshots,
 // positions dots + labels, draws battle lines, parks pitting cars on the pit spur.
 function startMapLoop(root, ctx) {
   if (ctx._mapRAF) return;
+  const DELAY = 120;   // render this many ms behind the newest snapshot so motion interpolates smoothly
   const step = () => {
     ctx._mapRAF = requestAnimationFrame(step);
     const phase = ctx.weekend && ctx.weekend.phase;
-    if (!ctx._anim || (phase !== "race" && phase !== "result")) return;
-    const now = nowMs(), xy = {};
-    for (const idx in ctx._anim) {
-      const a = ctx._anim[idx];
+    if (!ctx._buf || (phase !== "race" && phase !== "result")) return;
+    const now = nowMs(), renderT = now - DELAY, xy = {};
+    for (const idx in ctx._buf) {
+      const meta = ctx._meta[idx];
       const dot = root.querySelector(`#car-${idx}`), lbl = root.querySelector(`#lbl-${idx}`);
-      if (!dot) continue;
-      if (a.retired) { dot.style.display = "none"; if (lbl) lbl.style.display = "none"; continue; }
+      if (!dot || !meta) continue;
+      if (meta.retired) { dot.style.display = "none"; if (lbl) lbl.style.display = "none"; continue; }
       dot.style.display = ""; if (lbl) lbl.style.display = "";
       let x, y;
       if (ctx._pit[idx] && now < ctx._pit[idx]) { [x, y] = PIT_STOP; }                 // parked in the pits
-      else { const dprog = a.prog + a.speed * Math.min(now - a.t, 220); [x, y] = pointAt(dprog); }
+      else { [x, y] = pointAt(sampleBuf(ctx._buf[idx], renderT)); }
       xy[idx] = [x, y];
-      const baseR = a.isPlayer ? 2.5 : 1.8;
+      const baseR = meta.isPlayer ? 2.5 : 1.8;
       const flashing = ctx._flash[idx] && now < ctx._flash[idx];
       dot.setAttribute("cx", x.toFixed(2)); dot.setAttribute("cy", y.toFixed(2));
       dot.setAttribute("r", (flashing ? baseR + 1.0 : baseR).toFixed(2));
-      dot.setAttribute("stroke", a.isLeader ? "#ffd000" : (flashing ? "#ff7a18" : (a.player ? "#fff" : "rgba(0,0,0,.45)")));
-      dot.setAttribute("stroke-width", (a.isLeader || flashing) ? "0.9" : (a.player ? "0.8" : "0.3"));
+      dot.setAttribute("stroke", meta.isLeader ? "#ffd000" : (flashing ? "#ff7a18" : (meta.player ? "#fff" : "rgba(0,0,0,.45)")));
+      dot.setAttribute("stroke-width", (meta.isLeader || flashing) ? "0.9" : (meta.player ? "0.8" : "0.3"));
       if (lbl) { lbl.setAttribute("x", x.toFixed(2)); lbl.setAttribute("y", (y - baseR - 1.1).toFixed(2)); }
     }
     const bg = root.querySelector("#battles");
@@ -192,7 +209,7 @@ function buildHud(root, ctx) {
   };
   ctx._hudReady = true;
   ctx._boardTick = 0;
-  ctx._anim = {}; ctx._pit = {}; ctx._flash = {}; ctx._prevPos = {};
+  ctx._buf = {}; ctx._meta = {}; ctx._pit = {}; ctx._flash = {}; ctx._prevPos = {};
   startMapLoop(root, ctx);
   sfx.lightsOut();
 }
@@ -207,20 +224,21 @@ function updateHud(root, ctx, snap) {
   $("#d-chip").textContent = snap.finished ? "ФИНИШ" : (snap.scActive ? "🟡 SAFETY CAR" : (snap.paused ? "ПАУЗА" : "ГОНКА"));
   $("#d-pause").textContent = snap.paused ? "▶" : "⏸";
   $("#d-speed").textContent = (snap.speed || 1) + "x";
-  // map: feed the smooth-animation state (the rAF loop does the actual positioning)
+  // map: push the latest snapshot into a per-car time buffer; the rAF loop interpolates between them
   const now = nowMs();
-  ctx._anim = ctx._anim || {}; ctx._pit = ctx._pit || {}; ctx._flash = ctx._flash || {};
-  const prevPos = ctx._prevPos || {};
+  ctx._buf = ctx._buf || {}; ctx._pit = ctx._pit || {}; ctx._flash = ctx._flash || {};
+  const prevPos = ctx._prevPos || {}, prevMeta = ctx._meta || {};
   const leadIdx = cars[0] && cars[0].idx;
   for (const c of cars) {
-    const prog = c.lap + c.lapFrac, p = ctx._anim[c.idx];
-    let speed = 0;
-    if (p && now > p.t) { const raw = (prog - p.prog) / (now - p.t); speed = (raw >= 0 && raw < 0.01) ? raw : 0; }
-    if (p && c.pitStops > (p.pitStops || 0)) ctx._pit[c.idx] = now + 1500;             // just pitted -> park briefly
+    const buf = ctx._buf[c.idx] || (ctx._buf[c.idx] = []);
+    buf.push({ prog: c.lap + c.lapFrac, t: now });
+    if (buf.length > 6) buf.shift();
+    const pm = prevMeta[c.idx];
+    if (pm && c.pitStops > pm.pitStops) ctx._pit[c.idx] = now + 1500;                  // just pitted -> park briefly
     if (prevPos[c.idx] != null && c.pos < prevPos[c.idx]) ctx._flash[c.idx] = now + 650; // gained a place -> flash
-    ctx._anim[c.idx] = { prog, speed, t: now, retired: c.retired, pitStops: c.pitStops,
-      isLeader: c.idx === leadIdx, player: c.player, isPlayer: c.isPlayer };
   }
+  ctx._meta = Object.fromEntries(cars.map(c => [c.idx,
+    { pitStops: c.pitStops, retired: c.retired, isLeader: c.idx === leadIdx, player: c.player, isPlayer: c.isPlayer }]));
   ctx._prevPos = Object.fromEntries(cars.map(c => [c.idx, c.pos]));
   ctx._battlePairs = computeBattles(cars);
   const scOv = $("#trk-sc"); if (scOv) scOv.setAttribute("opacity", snap.scActive ? "0.95" : "0");
