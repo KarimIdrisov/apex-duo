@@ -44,7 +44,7 @@ function fuelRunouts(engine) {
   for (let s = 0; s < 10; s++) {
     const r = new Race(field(), TRACK, 5000 + s);
     r.gridStart();
-    for (const c of r.cars) c.engine = engine;
+    for (const c of r.cars) r.setEngine(c.idx, engine);   // pin the mode so the AI brain can't override the forced test
     let g = 0; while (!r.finished && g++ < 500000) r.step();
     dry += r.cars.filter(c => c.retired && c.fuel <= 0).length;
   }
@@ -127,4 +127,29 @@ console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0
   console.log(`attrs: VER overtaking ${ver.overtaking.toFixed(2)} vs defending ${ver.defending.toFixed(2)}; ` +
     `HAM wet ${driverAttrs("HAM", 0.85).wet.toFixed(2)} > STR wet ${str.wet.toFixed(2)} (signature traits live); ` +
     `McLaren pit ${genPersonnel(0.95, 0).pitMult.toFixed(2)}× vs Cadillac ${genPersonnel(0.68, 10).pitMult.toFixed(2)}× (crew matters)`);
+}
+
+// strategy corridor: AI runs a sensible 1-2 stop race, pits in a mid-race window, and never
+// throws the fuel away. (Spec §13: strategy bites — optimum is 1-2 stops, not a 0-stop cruise.)
+{
+  let stopSum = 0, stopN = 0, lapSum = 0, lapN = 0, fuelDry = 0, races = 30;
+  for (let s = 0; s < races; s++) {
+    const r = new Race(field(), TRACK, 7700 + s);
+    r.gridStart();
+    const lastStops = new Map(r.cars.map(c => [c.idx, 0]));
+    let g = 0;
+    while (!r.finished && g++ < 500000) {
+      r.step();
+      for (const c of r.cars) {
+        if (c.player == null && c.pitStops > (lastStops.get(c.idx) || 0)) {
+          lapSum += c.lap; lapN++; lastStops.set(c.idx, c.pitStops);
+        }
+      }
+    }
+    for (const c of r.cars) if (c.player == null && !c.retired) { stopSum += c.pitStops; stopN++; }
+    fuelDry += r.cars.filter(c => c.player == null && c.retired && c.fuel <= 0).length;
+  }
+  console.log(`strategy: AI avg ${(stopSum / stopN).toFixed(2)} stops/race (expect ~1-2); ` +
+    `mean stop on lap ${(lapSum / lapN).toFixed(0)}/${TRACK.laps} (expect a mid-race window); ` +
+    `AI fuel run-outs ${fuelDry}/${races} races (expect 0 — the brain manages fuel)`);
 }
