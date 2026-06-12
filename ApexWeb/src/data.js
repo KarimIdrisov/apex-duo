@@ -28,7 +28,10 @@ export const TEAMS = [
 ];
 
 export const TRACK = {
-  name:"Барселона", gp:"Гран-при Испании", laps:66, lt:80.0, pit:21.5,
+  // lt/pw/df validated vs FastF1 2024 (Spain): lt 79.5–82, pw−df −0.25 ≈ our −0.27 (AERO). pit
+  // corrected 21.5→23.5 (real green-ref pit-loss 23.4/23.7). compounds stay manual (FastF1 can't
+  // isolate tyre pace; soft/hard −0.55/+0.55 symmetry confirmed). ot now vestigial (overtake_zones).
+  name:"Барселона", gp:"Гран-при Испании", laps:66, lt:80.0, pit:23.5,
   df:0.82, pw:0.55, ot:0.30, abr:1.25, harv:0.58, dep:0.55, sc:0.25, wet:0.30, el:0.82,
   // overtake zones (mini-sector indices 0..17): a pass completes only here (TODO #2b)
   overtake_zones: [
