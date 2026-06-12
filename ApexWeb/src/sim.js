@@ -4,7 +4,7 @@ import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, STEP, DNF_BASE, GRID_GAP, COMBAT
 import { startFuel, burnFor, weightTerm, engineTerm, fuelLaps } from "./fuel.js";
 import { tyreTerm, warmStep } from "./tyres.js";
 import { miniSplits, MINI, N_MINI, sampleAt } from "./track.js";
-import { slipstream, dirtyWear, passAccrual } from "./overtake.js";
+import { slipstream, dirtyWear, passAccrual, zoneFor } from "./overtake.js";
 import { scheduleSC, startIncidentHit } from "./events.js";
 import { scheduleWeather, wetnessAt, weatherTerm } from "./weather.js";
 import { planRace, pitDecision, engineMode, paceMode } from "./ai_strategy.js";
@@ -192,7 +192,10 @@ export class Race {
         const edge = this._lapTime(ahead) - this._lapTime(me);   // >0 => me faster
         const tow = slipstream(s, me.car.power);
         me._passCredit = (me._passCredit ?? 0) + passAccrual(edge, tow, me.engine, s) * (0.7 + ATTRW.overtaking * A(me).overtaking);
-        const resist = (1 - this.track.ot) * 2.0 * (0.7 + ATTRW.defending * A(ahead).defending);
+        const zone = zoneFor(this.track.overtake_zones, sampleAt(me.lapFrac).mini);   // follower's local zone (or null)
+        const ease = zone ? zone.ease : this.track.ot;
+        // outside any zone a pass cannot complete (resist = Infinity): stay pinned, credit keeps building
+        const resist = zone ? (1 - ease) * 2.0 * (0.7 + ATTRW.defending * A(ahead).defending) : Infinity;
         if (me._passCredit < resist) {
           // pinned behind the car ahead (writes ONLY lapFrac — invariant)
           const target = (ahead.lap + ahead.lapFrac) - (COMBAT_GAP * 0.5) / this.track.lt;
@@ -203,7 +206,7 @@ export class Race {
           // announce once per pass episode: a fresh opponent (not the one we just cleared)
           // and not within the per-car cooldown — bounds the log to genuine on-track passes.
           if (me.lap >= 1 && me._passedIdx !== ahead.idx && (me._passCd ?? -1) <= this.time) {  // skip the lap-0 grid settle
-            this._emit({ type: "pass", lap: me.lap, a: me.idx, abbr: me.abbrev, b: ahead.idx, abbrB: ahead.abbrev });
+            this._emit({ type: "pass", lap: me.lap, a: me.idx, abbr: me.abbrev, b: ahead.idx, abbrB: ahead.abbrev, zone: zone ? zone.type : null });
             me._passedIdx = ahead.idx;
             me._passCd = this.time + 4;
           }

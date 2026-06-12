@@ -356,3 +356,17 @@ test("pass events carry both drivers and are bounded", () => {
   for (const p of passes) assert.ok(p.abbr && p.abbrB && p.abbr !== p.abbrB, "two distinct drivers");
   assert.ok(passes.length < 400, `passes bounded (${passes.length})`);
 });
+
+test("overtakes complete only inside overtake zones", () => {
+  const r = new Race(field(), TRACK, 6601); r.gridStart();
+  let g = 0; while (!r.finished && g++ < 500000) r.step();
+  const passes = r.events.filter(e => e.type === "pass");
+  assert.ok(passes.length > 0, "some passes happened");
+  for (const p of passes) assert.ok(p.zone === "brake" || p.zone === "slip", `pass carries a zone (${p.zone})`);
+});
+
+test("determinism holds with overtake zones", () => {
+  const run = s => { const r = new Race(field(), TRACK, s); r.gridStart(); let g = 0;
+    while (!r.finished && g++ < 500000) r.step(); return r.order().map(c => c.abbrev).join(","); };
+  assert.equal(run(6602), run(6602));
+});
