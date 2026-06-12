@@ -112,6 +112,16 @@ export const ATTRW = {
   carWear:    0.20,  // tyre wear ×(2 - car.tyre)            → car.tyre 1.0 = neutral
 };
 
+// difficulty: the AI sharpness scalar (Race.difficulty). Lower = the AI is slower, sloppier,
+// and less willing to gamble -> easier for the player and more winner variety in the field.
+export const DIFFICULTY = {
+  easy:   { label: "Лёгкая",  ai: 0.55 },
+  normal: { label: "Обычная", ai: 0.80 },
+  hard:   { label: "Сложная", ai: 1.00 },
+};
+export const AI_HANDICAP = 0.80;  // s/lap an AI loses at difficulty 0 (scaled by 1-difficulty)
+export const AI_NOISE    = 0.45;  // extra lap-noise amplitude for AI at difficulty 0 (scaled by 1-difficulty)
+
 // pace modes: pace offset (s/lap), wear multiplier, mechanical-risk multiplier
 export const PACE_MODES = {
   conserve: { pace: 0.45, wear:0.80, risk:0.4 },
