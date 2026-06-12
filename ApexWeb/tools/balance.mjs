@@ -59,3 +59,17 @@ console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0
   console.log(`tyre deg (medium, warm): 20 laps = ${deg20.toFixed(2)} s/lap off fresh, ` +
     `30 laps = ${deg30.toFixed(2)} s/lap (expect ~1.5-3 at 20; the undercut also rides the cold out-lap)`);
 }
+
+// sector specialism: power car relatively faster in the straightest sector, aero car in the twistiest.
+{
+  const { MINI, miniSplits, N_SECTOR } = await import("../src/track.js");
+  const sectorStraightness = Array.from({ length: N_SECTOR }, (_, s) =>
+    MINI.filter(m => m.sector === s).reduce((a, m) => a + m.straightness, 0) /
+    MINI.filter(m => m.sector === s).length);
+  const straightSec = sectorStraightness.indexOf(Math.max(...sectorStraightness));
+  const twistySec = sectorStraightness.indexOf(Math.min(...sectorStraightness));
+  const secTime = (car, sec) => miniSplits(80, car).filter((_, i) => MINI[i].sector === sec).reduce((a, b) => a + b, 0);
+  const powerCar = { power: 0.95, aero: 0.78 }, aeroCar = { power: 0.78, aero: 0.95 };
+  console.log(`sectors: power car ${(secTime(powerCar, straightSec) - secTime(aeroCar, straightSec)).toFixed(3)}s vs aero car in straight S${straightSec + 1} (expect negative = faster), ` +
+    `${(secTime(powerCar, twistySec) - secTime(aeroCar, twistySec)).toFixed(3)}s in twisty S${twistySec + 1} (expect positive)`);
+}
