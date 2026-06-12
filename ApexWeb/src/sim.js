@@ -1,10 +1,11 @@
 // ApexWeb/src/sim.js
 import { RNG, mix32 } from "./rng.js";
-import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP, TYRE, DIRTY_GAP } from "./data.js";
+import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP, TYRE, DIRTY_GAP, EVENT } from "./data.js";
 import { startFuel, burnFor, weightTerm, engineTerm } from "./fuel.js";
 import { tyreTerm, warmStep } from "./tyres.js";
 import { miniSplits, MINI, N_MINI, sampleAt } from "./track.js";
 import { slipstream, dirtyWear, passAccrual } from "./overtake.js";
+import { scheduleSC, startIncidentHit } from "./events.js";
 
 const ENGINE_KEYS = new Set(["save", "standard", "push"]);
 
@@ -16,6 +17,8 @@ export class Race {
     this.time = 0;
     this.finished = false;
     this.sessionBestMini = new Array(N_MINI).fill(Infinity);
+    this.scLap = scheduleSC(this.erng, track.sc, track.laps);  // leader-lap it deploys on, or null
+    this.scActive = false; this.scEverActive = false; this.scStartLap = 0; this._started = false;
     this.cars = field.map((f, i) => ({
       idx: i, name: f.name, abbrev: f.abbrev, skill: f.skill, car: f.car,
       color: f.color, team: f.team, isPlayer: !!f.isPlayer, player: f.player ?? null,
@@ -47,11 +50,13 @@ export class Race {
     s += weightTerm(c.fuel);            // heavy tank = slower (eases as fuel burns)
     s += c.setupBonus;                                           // <=0, faster when set well
     s += this.rng.noise(0.06);
+    if (this.scActive) s *= EVENT.scPaceMult;   // everyone crawls behind the safety car
     return s;
   }
 
   step(dt = STEP) {
     if (this.finished) return;
+    if (!this._started) { this._started = true; this._startIncidents(); }
     this.time += dt;
     for (const c of this.cars) {
       if (c.retired) continue;
@@ -76,7 +81,14 @@ export class Race {
         this._serveLapEnd(c); // phase 3: pit + DNF (finishers handled in order())
       }
     }
-    this._resolveCombat();
+    if (!this.scActive) this._resolveCombat();   // no green-flag passing under the safety car
+    // safety-car lifecycle, driven by the leader's lap count
+    const leadLap = this.cars.reduce((m, c) => Math.max(m, c.lap), 0);
+    if (this.scLap != null && !this.scActive && !this.scEverActive && leadLap >= this.scLap) {
+      this.scActive = true; this.scEverActive = true; this.scStartLap = leadLap;
+    }
+    if (this.scActive && leadLap >= this.scStartLap + EVENT.scMinLaps) this.scActive = false;
+    this._resolveSC();
     if (this.cars.every(c => c.retired || c.lap >= this.track.laps)) this.finished = true;
   }
 
@@ -86,6 +98,27 @@ export class Race {
   gridStart() {
     const sorted = [...this.cars].sort((a, b) => b.skill - a.skill);
     sorted.forEach((c, slot) => { c.lap = 0; c.lapFrac = -slot * (GRID_GAP / this.track.lt); });
+  }
+
+  _startIncidents() {
+    for (const c of this.cars) {
+      if (startIncidentHit(this.erng, EVENT.startP)) {
+        c.lapFrac = Math.max(0, c.lapFrac - EVENT.startLoss / this.track.lt); // dropped back at the start
+        if (this.erng.unit() < EVENT.startDnf) c.retired = true; // rare: out on the spot
+      }
+    }
+  }
+
+  // bunch same-lap running cars into a tight train behind the leader (writes only lapFrac)
+  _resolveSC() {
+    if (!this.scActive) return;
+    const ord = this.order();
+    for (let i = 1; i < ord.length; i++) {
+      const ahead = ord[i - 1], me = ord[i];
+      if (me.retired || ahead.retired || me.lap !== ahead.lap) continue;
+      const minBehind = ahead.lapFrac - EVENT.scTrainGap / this.track.lt;
+      if (me.lapFrac < minBehind) me.lapFrac = minBehind;   // catch up into the train (forward only)
+    }
   }
 
   // combat: a follower within COMBAT_GAP of the car ahead is held up and builds
@@ -147,8 +180,9 @@ export class Race {
     }
     if (c.pitPending) {
       c.tyre = c.pitPending; c.pitPending = null; c.wear = 0; c.tyreAge = 0; c.tyreTemp = TYRE.pitTemp;
-      c.pitStops += 1; c.totalTime += this.track.pit;
-      c.lapFrac -= this.track.pit / this.track.lt;            // lose pit time on track
+      const pitLoss = this.track.pit * (this.scActive ? EVENT.scPitMult : 1);
+      c.pitStops += 1; c.totalTime += pitLoss;
+      c.lapFrac -= pitLoss / this.track.lt;                   // lose pit time on track (cheaper under SC)
       if (c.lapFrac < 0) c.lapFrac = 0;
     }
     if (c.fuel <= 0) { c.retired = true; return; }   // ran the tank dry

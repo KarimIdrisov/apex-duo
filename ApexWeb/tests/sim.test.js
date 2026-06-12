@@ -166,3 +166,45 @@ test("following closely in dirty air wears the tyres faster than running in clea
   }
   assert.ok(bWear(true) > bWear(false), "dirty air should wear the follower's tyres faster");
 });
+
+import { EVENT } from "../src/data.js";
+
+test("a safety car occurs at roughly track.sc across seeds", () => {
+  let sc = 0;
+  for (let s = 0; s < 200; s++) {
+    const r = new Race(field(), TRACK, 7000 + s);
+    r.gridStart();
+    let g = 0; while (!r.finished && g++ < 500000) r.step();
+    if (r.scEverActive) sc++;
+  }
+  const freq = sc / 200;
+  assert.ok(freq > TRACK.sc - 0.12 && freq < TRACK.sc + 0.12, `SC freq ${freq} ~ ${TRACK.sc}`);
+});
+
+test("under the safety car the field bunches into a tight train", () => {
+  let tightObserved = false;
+  for (let s = 0; s < 60 && !tightObserved; s++) {
+    const r = new Race(field(), TRACK, 7000 + s);
+    r.gridStart();
+    let g = 0;
+    while (!r.finished && g++ < 500000) {
+      r.step();
+      if (r.scActive) {
+        const ord = r.order().filter(c => !c.retired);
+        const lead = ord[0];
+        const sameLap = ord.filter(c => c.lap === lead.lap);
+        if (sameLap.length > 4) {
+          const spread = (lead.lap + lead.lapFrac) - (sameLap[sameLap.length - 1].lap + sameLap[sameLap.length - 1].lapFrac);
+          if (spread * TRACK.lt < EVENT.scTrainGap * sameLap.length + 0.5) tightObserved = true;
+        }
+      }
+    }
+  }
+  assert.ok(tightObserved, "the SC train should bunch same-lap cars to ~train-gap spacing");
+});
+
+test("determinism holds with events", () => {
+  const run = s => { const r = new Race(field(), TRACK, s); r.gridStart(); let g = 0;
+    while (!r.finished && g++ < 500000) r.step(); return r.order().map(c => c.abbrev); };
+  assert.deepEqual(run(7042), run(7042));
+});
