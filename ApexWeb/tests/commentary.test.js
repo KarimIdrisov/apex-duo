@@ -29,3 +29,16 @@ test("deterministic: same event -> same line", () => {
 test("unknown event type returns empty string (safe)", () => {
   assert.equal(describe({ type: "???", lap: 1 }), "");
 });
+
+test("zone passes get zone-flavoured lines (brake / slip)", () => {
+  const brake = describe({ type: "pass", lap: 5, abbr: "NOR", abbrB: "LEC", zone: "brake" });
+  const slip = describe({ type: "pass", lap: 5, abbr: "NOR", abbrB: "LEC", zone: "slip" });
+  assert.ok(/торм/i.test(brake), "brake mentions braking");
+  assert.ok(/слип|выхлоп|прям/i.test(slip), "slip mentions slipstream/straight");
+  assert.ok(brake.includes("NOR") && brake.includes("LEC"));
+});
+
+test("a pass without a zone still works (default line)", () => {
+  const s = describe({ type: "pass", lap: 5, abbr: "NOR", abbrB: "LEC" });
+  assert.ok(typeof s === "string" && s.includes("NOR") && s.includes("LEC"));
+});
