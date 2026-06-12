@@ -103,3 +103,17 @@ console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0
   }
   console.log(`safety car: occurred in ${sc}/60 races = ${(sc / 60).toFixed(2)} (expect ~${TRACK.sc})`);
 }
+
+// weather corridor: rain occurs near track.wet; in the wet, wets beat slicks (crossover holds).
+{
+  const { weatherTerm } = await import("../src/weather.js");
+  let rained = 0;
+  for (let s = 0; s < 60; s++) {
+    const r = new Race(field(), TRACK, 9800 + s);
+    if (r.weather.rains) rained++;
+  }
+  const dryGap = weatherTerm("wet", 0) - weatherTerm("hard", 0);     // >0: slick faster in the dry
+  const wetGap = weatherTerm("hard", 0.85) - weatherTerm("wet", 0.85); // >0: wet faster in the rain
+  console.log(`weather: rained in ${rained}/60 races = ${(rained / 60).toFixed(2)} (expect ~${TRACK.wet}); ` +
+    `dry slick advantage ${dryGap.toFixed(1)}s, wet-tyre advantage in rain ${wetGap.toFixed(1)}s (both expect > 0)`);
+}
