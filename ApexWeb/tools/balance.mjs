@@ -33,3 +33,18 @@ console.log(`races: ${N}`);
 console.log(`avg DNF/race: ${(dnfTotal/N).toFixed(2)}  (target ~1-2)`);
 console.log(`avg pace spread best->worst: ${(topGapSum/N).toFixed(2)} s/lap (target ~1.5-2.5)`);
 console.log(`winners:`, winners);
+
+// fuel corridor: a full-push field should run several cars dry; a standard field should not.
+// calibrated: push=212, standard=0 (FUEL.margin=0.06, ENGINE_MODES.push.burn=1.20)
+function fuelRunouts(engine) {
+  let dry = 0;
+  for (let s = 0; s < 10; s++) {
+    const r = new Race(field(), TRACK, 5000 + s);
+    r.gridStart();
+    for (const c of r.cars) c.engine = engine;
+    let g = 0; while (!r.finished && g++ < 500000) r.step();
+    dry += r.cars.filter(c => c.retired && c.fuel <= 0).length;
+  }
+  return dry;
+}
+console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0), standard=${fuelRunouts("standard")} (expect 0)`);
