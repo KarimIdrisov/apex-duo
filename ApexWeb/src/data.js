@@ -93,7 +93,8 @@ export const PASS_CREDIT_CAP   = 2.5;   // max bankable pass-credit — a whole 
 export const PASS_CREDIT_DECAY = 0.97;  // per-tick credit bleed (recency) — stale draft from laps ago doesn't carry (§18.13)
 export const DIRTY_GAP  = 1.5;   // seconds: within this behind a car you are in dirty air
 export const DIRTY_WEAR = 0.006; // extra tyre wear/tick in dirty air, × (1 - straightness)
-export const DIRTY_PACE_K = 0.8; // s/lap the follower LOSES in dirty air, × (1 - straightness): lost downforce
+export const DIRTY_PACE_K = 1.1; // s/lap the follower LOSES in dirty air at ZERO gap, × (1 - straightness) × (1 - gap/DIRTY_GAP):
+                                 // lost downforce, graded by proximity (close hurts more); ~0.8 at the typical ~0.4 s pinned gap (§18.11)
                                  // costs pace, worse in corners — following is genuinely hard (the tow still pays on straights) (§18.11)
 
 // events (Phase 5): start incident + safety car.

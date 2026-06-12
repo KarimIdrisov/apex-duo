@@ -180,6 +180,19 @@ test("following closely in dirty air wears the tyres faster than running in clea
   assert.ok(bWear(true) > bWear(false), "dirty air should wear the follower's tyres faster");
 });
 
+test("dirty-air pace penalty is stronger the closer you follow (§18.11 graded)", () => {
+  function dp(gapS) {
+    const r = new Race(field(), TRACK, 9);
+    const a = r.cars[0], b = r.cars[1];
+    a.car = { ...a.car }; b.car = { ...a.car }; a.attrs = b.attrs;
+    for (const c of r.cars) { c.lap = 1; c.lapFrac = 0.02 * c.idx; }
+    a.lapFrac = 0.50; b.lapFrac = 0.50 - gapS / TRACK.lt;   // b is gapS seconds behind a (dirty air)
+    r._resolveCombat();
+    return b._dirtyPace;
+  }
+  assert.ok(dp(0.3) > dp(1.2), "following 0.3s back should cost more pace than 1.2s back");
+});
+
 test("following closely in dirty air costs the follower lap-time (not just tyre wear)", () => {
   function bAvg(behind) {
     const r = new Race(field(), TRACK, 9);

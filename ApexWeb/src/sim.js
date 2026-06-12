@@ -219,7 +219,7 @@ export class Race {
       // dirty air: sitting close (even outside passing range) costs the follower tyre life AND pace, worse in corners
       if (gapSec > 0 && gapSec < DIRTY_GAP) {
         me._dirtyWear += dirtyWear(s) * (1 - ATTRW.discipline * (A(me).discipline - 0.5) * 2);   // a disciplined driver runs cleaner in traffic (§18.7)
-        me._dirtyPace = DIRTY_PACE_K * (1 - s);
+        me._dirtyPace = DIRTY_PACE_K * (1 - s) * (1 - gapSec / DIRTY_GAP);   // ramps with proximity — close hurts more, 0 at the edge of DIRTY_GAP (§18.11 round-2)
       }
       // close combat: hold-up + pass-credit, with slipstream and braking-zone concentration
       if (gapSec > 0 && gapSec < COMBAT_GAP && me.lap === ahead.lap) {
