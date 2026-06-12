@@ -48,3 +48,14 @@ function fuelRunouts(engine) {
   return dry;
 }
 console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0), standard=${fuelRunouts("standard")} (expect 0)`);
+
+// undercut corridor: fresh+warm vs worn lap-time delta should pay back the pit loss over a few laps.
+{
+  const { tyreTerm } = await import("../src/tyres.js");
+  const fresh = tyreTerm("medium", 0, 1);        // fresh, warm
+  const worn  = tyreTerm("medium", 28, 1);       // ~28-lap-old tyre, warm
+  const perLapGain = worn - fresh;               // s/lap a fresh tyre claws back
+  const pitLoss = TRACK.pit;                      // s lost in the pit
+  console.log(`undercut: fresh tyre gains ${perLapGain.toFixed(2)} s/lap vs a 28-lap tyre; ` +
+    `pays back the ${pitLoss}s stop in ~${(pitLoss / perLapGain).toFixed(0)} laps (expect a single-digit number)`);
+}

@@ -8,8 +8,8 @@ const clamp01 = x => Math.max(0, Math.min(1, x));
 export function tyreTerm(compound, wear, temp) {
   const c = COMPOUNDS[compound];
   let deg;
-  if (wear <= c.cliff) deg = 0.012 * wear * (1 + (wear / c.cliff) * 0.5); // gently accelerating curve
-  else deg = 0.012 * c.cliff * 1.5 + (wear - c.cliff) * 0.10;             // steep past the cliff
+  if (wear <= c.cliff) deg = 0.075 * wear * (1 + (wear / c.cliff) * 0.5); // gently accelerating curve
+  else deg = 0.075 * c.cliff * 1.5 + (wear - c.cliff) * 0.60;             // steep past the cliff
   const cold = (1 - clamp01(temp)) * TYRE.warmPen;
   return deg + cold;
 }
