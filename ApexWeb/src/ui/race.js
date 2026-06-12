@@ -3,6 +3,7 @@
 // Skeleton is built ONCE (so the lever buttons survive ~12 Hz updates and clicks
 // land); only values + the board + car dots are mutated each snapshot.
 import { TRACK, TRACK_PATH, DRIVER_INFO } from "../data.js";
+import { describe } from "../commentary.js";
 import { sfx } from "../audio.js";
 
 const PACE = ["conserve", "balanced", "push"], ENGINE = ["save", "standard", "push"];
@@ -161,6 +162,10 @@ function buildHud(root, ctx) {
           ${labels}
         </svg>
       </div>
+      <div class="panel" id="feed-panel" style="padding:8px 10px">
+        <div class="label" style="margin:0 0 4px">📻 Радио</div>
+        <div id="d-feed" style="display:flex;flex-direction:column;gap:3px;max-height:120px;overflow:hidden;font-size:12px"></div>
+      </div>
       <div class="panel">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
           <div style="font-weight:700">Моя машина — <span id="d-me"></span></div>
@@ -209,7 +214,7 @@ function buildHud(root, ctx) {
   };
   ctx._hudReady = true;
   ctx._boardTick = 0;
-  ctx._buf = {}; ctx._meta = {}; ctx._pit = {}; ctx._flash = {}; ctx._prevPos = {};
+  ctx._buf = {}; ctx._meta = {}; ctx._pit = {}; ctx._flash = {}; ctx._prevPos = {}; ctx._feed = [];
   startMapLoop(root, ctx);
   sfx.lightsOut();
 }
@@ -242,6 +247,15 @@ function updateHud(root, ctx, snap) {
   ctx._prevPos = Object.fromEntries(cars.map(c => [c.idx, c.pos]));
   ctx._battlePairs = computeBattles(cars);
   const scOv = $("#trk-sc"); if (scOv) scOv.setAttribute("opacity", snap.scActive ? "0.95" : "0");
+  // commentary feed: append new events, keep the last ~24, render newest-first (fading)
+  ctx._feed = ctx._feed || [];
+  if (snap.events && snap.events.length) {
+    for (const ev of snap.events) { const line = describe(ev); if (line) ctx._feed.push({ line, lap: ev.lap }); }
+    if (ctx._feed.length > 24) ctx._feed = ctx._feed.slice(-24);
+  }
+  const feedEl = $("#d-feed");
+  if (feedEl) feedEl.innerHTML = ctx._feed.slice(-7).reverse()
+    .map((m, i) => `<div style="opacity:${(1 - i * 0.12).toFixed(2)}"><span style="color:var(--muted)">L${m.lap}</span> ${m.line}</div>`).join("");
   // control strip
   const pos = cars.indexOf(me), ahead = cars[pos - 1], behind = cars[pos + 1];
   $("#d-me").textContent = `P${me.pos} ${me.abbrev}`;
