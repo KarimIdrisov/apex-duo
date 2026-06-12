@@ -130,9 +130,13 @@ function onMessage(m) {
   if (m.type === "snapshot") { ctx.snapshot = m; rerender(); }
   if (m.type === "phase")    { ctx.weekend.phase = m.phase; rerender(); }
   if (ctx.role === "host" && m.type === "command") onCommand(m);
-  if (ctx.role === "host" && m.type === "hello") {       // late joiner: resync phase + state
-    ctx.net.send({ type: "phase", phase: ctx.weekend.phase });
-    if (ctx.snapshot) ctx.net.send({ type: "snapshot", ...ctx.snapshot });
+  if (ctx.role === "host" && m.type === "hello") {
+    if (ctx.weekend.phase === "lobby") {
+      ctx.weekend.start();                                   // partner joined -> begin the weekend
+    } else {                                                 // late joiner mid-weekend: resync
+      ctx.net.send({ type: "phase", phase: ctx.weekend.phase });
+      if (ctx.snapshot) ctx.net.send({ type: "snapshot", ...ctx.snapshot });
+    }
   }
 }
 

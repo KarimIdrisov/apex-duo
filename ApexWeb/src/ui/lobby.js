@@ -21,10 +21,13 @@ export function render(root, ctx) {
     </div>`;
   const useP2P = true;            // set false to dev with two tabs (LocalNet)
   root.querySelector("#team").onchange = e => ctx.teamIdx = +e.target.value;
-  root.querySelector("#host").onclick = async () => {
-    const code = await hostGame(useP2P);
-    root.querySelector("#status").textContent = `Код комнаты: ${code} — передай напарнику. Жми «Готов», когда оба тут.`;
-    ctx.weekend.start();          // host -> practice; onPhase broadcasts it, hello re-syncs late joiners
+  root.querySelector("#host").onclick = async (e) => {
+    e.target.disabled = true; e.target.textContent = "Создаём комнату…";
+    const code = await hostGame(useP2P);   // stay in lobby; the weekend starts when the partner joins
+    root.querySelector("#status").innerHTML =
+      `<div style="margin-top:6px">Код комнаты — передай напарнику:</div>
+       <div style="font-size:20px;font-weight:700;color:var(--good);user-select:all;word-break:break-all;margin:6px 0">${code}</div>
+       <div>Ждём, когда напарник войдёт по коду…</div>`;
   };
   root.querySelector("#solo").onclick = () => startSolo();   // single-player vs AI
   root.querySelector("#join").onclick = async () => {
