@@ -43,6 +43,10 @@ function onCommand(cmd) {
       ctx.paused = !ctx.paused;
       if (ctx.race) pushRaceState();   // reflect pause on both screens immediately
       break;
+    case "set_speed":
+      ctx.speed = cmd.value;
+      if (ctx.race) pushRaceState();   // reflect new speed on both screens
+      break;
     case "set_setup": ctx.setups = ctx.setups || {}; ctx.setups[cmd.player] = cmd.setup; break;
     case "quali_risk":
       ctx.qrisk = ctx.qrisk || {};
@@ -68,6 +72,7 @@ function startRaceHost() {
   });
   ctx.paused = false;
   ctx._frame = 0;
+  ctx.speed = ctx.speed || 1;
 }
 // build the full 22-car field: player team's two drivers flagged, rest AI.
 // Reused by quali grid and the race start (Task 15).
@@ -100,6 +105,7 @@ function broadcastQualiGrid() {
 function raceSnapshot() {
   return {
     type: "snapshot", phase: "race", paused: ctx.paused, finished: ctx.race.finished,
+    speed: ctx.speed || 1,
     cars: ctx.race.order().map(c => ({
       idx: c.idx, pos: c.pos, abbrev: c.abbrev, color: c.color, player: c.player,
       lap: c.lap, lapFrac: c.lapFrac, tyre: c.tyre, wear: c.wear, soc: c.soc,
@@ -115,7 +121,8 @@ function pushRaceState() {
 }
 function hostLoop() {
   if (ctx.role === "host" && ctx.weekend.phase === "race" && ctx.race && !ctx.paused) {
-    ctx.race.step(STEP);                                    // ~60 ticks/s -> ~15x realtime (~6 min race)
+    const steps = ctx.speed || 1;                           // 1x ≈ 15x realtime (~6 min); 2x/4x fast-forward
+    for (let i = 0; i < steps && !ctx.race.finished; i++) ctx.race.step(STEP);
     if ((++ctx._frame % 5) === 0) pushRaceState();          // throttle broadcast/render to ~12 Hz
     if (ctx.race.finished) {
       pushRaceState();
