@@ -9,6 +9,7 @@ import * as quali from "./ui/quali.js";
 import * as race from "./ui/race.js";
 import { buildGrid } from "./quali.js";
 import { paceBonus, closeness, trackIdeal } from "./setup.js";
+import { driverAttrs, composeCar, genPersonnel } from "./team.js";
 import { fuelLaps } from "./fuel.js";
 import { sfx } from "./audio.js";
 
@@ -92,8 +93,9 @@ function buildField() {
     const player = isPlayerTeam ? (di === 0 ? "p1" : (ctx.solo ? null : "p2")) : null;
     const setup = (player && ctx.setups && ctx.setups[player]) ? ctx.setups[player] : [0.5, 0.5, 0.5];
     return {
-      idx: idx++, name: d.name, abbrev: d.abbrev, skill: d.skill, car: t.car, color: t.color,
-      team: t.name, isPlayer: isPlayerTeam, player,
+      idx: idx++, name: d.name, abbrev: d.abbrev, skill: d.skill,
+      car: composeCar(t.car), color: t.color, team: t.name, isPlayer: isPlayerTeam, player,
+      attrs: driverAttrs(d.abbrev, d.skill), personnel: genPersonnel(t.facility, ti),
       setup, setupBonus: paceBonus(closeness(setup, ideal)), startTyre: "medium",
     };
   }));
