@@ -97,7 +97,7 @@ inter +0.30  1.9  70  1.1  0.5      wet   +0.50 1.6 75 1.0 0.9
 
 ## 6. Fuel & engine modes (`fuel.js`)
 
-- Start with `laps·(1+FUEL.margin 0.06)` lap-equivalents. Burn `ENGINE_MODES[mode].burn / car.fuel` per lap (save 0.85 / standard 1.0 / push 1.20). Empty tank → DNF.
+- Start with `laps·(1+FUEL.margin 0.06)` lap-equivalents. Burn `ENGINE_MODES[mode].burn / car.fuel` per lap (save 0.85 / standard 1.0 / push 1.20). **`car.fuel` is a fuel-*efficiency* scalar (1.0 = neutral, >1 = more efficient → burns less); it is NOT a tank size or the remaining fuel.** Empty tank (`fuel ≤ 0`) → DNF (fuel starvation).
 - `weightTerm = 0.020 · fuel` s/lap (a full tank ≈ +1.4 s/lap early, fading to ~0).
 - Engine pace offset: save +0.35 / std 0 / push −0.30 s/lap. So **push = faster now, burns more, may run dry**; the lever is a fuel↔pace trade.
 
@@ -221,11 +221,14 @@ Each item carries our current **stance** (as of 2026-06-13, after a first review
    - → **OPEN:** whether to also make `setupBonus` a bigger player lever (helps the human, not AI-vs-AI spread).
 2. **`track.ot` is now dead.** With overtake zones the non-zone branch returns `resist=∞`, so `track.ot` is computed but unused. (See §8 — this is *not* a permanent block; passes complete in a zone every ~28% of the lap.)
    - → **PLANNED:** a rare **aggressive out-of-zone pass** — if `edge > ~1.0 s` and `attrs.aggression` is high, allow a finite-resist attempt outside a zone with a contact/DNF risk. Gives texture, *uses* `aggression`, and repurposes `track.ot` as its base — without dismantling zones.
+     **Anti-spam constraint (required):** the attempt must be **instantaneous** (do NOT accumulate `passCredit` on a failure) with a per-car **cooldown** (or it's one-shot per battle), else AI/players spam risky moves every lap and inflate DNF. **Validation:** over 1000 sims, out-of-zone passes ≤ ~1–2/race and DNF stays in the §17 corridor (~1.77).
    - **We agree the hard `∞` reads as too "gamey"** (multiple reviewers flag it) — hence the gated aggressive pass above. But the *flat* fixes proposed don't work:
    - → **REJECTED:** a *general* finite out-of-zone `resist` (e.g. 2.5–3.5) or a time-decaying one. **Trap:** pass-credit *accumulates* while in `COMBAT_GAP` (it's only reset when the follower drops out of range), so any finite out-of-zone resist is beaten within a lap or two → passes happen everywhere → zones become meaningless.
    - → **REJECTED:** a flat per-tick `random_pass_chance` (~0.01–0.03) outside zones — over the dozens of ticks a follower spends in range, the cumulative probability is high → frequent out-of-zone passes, eroding zones the same way. (A *low per-attempt* chance gated on a real pace edge is fine — that's the aggressive pass.) The fix that works keeps credit un-accumulated outside zones and requires an *instantaneous* big edge.
 3. **Start vs lap-1 chaos.** Launch is a lap-0 time delta. 2.58 places/car reshuffle; grid gaps are only 0.20 s/slot so any time delta = big swings.
    - → **PLANNED:** a "cautious opening lap" — **reduce `passAccrual` while `lap===0`** (field holds the launch/grid order through T1; racing opens from lap 1) **+ bump `GRID_GAP` 0.20 → 0.25**. (A *softer* version than a hard pin — avoids the negative-grid-`lapFrac` clamp problem in §16.3.)
+   - → **ALT/COMPLEMENT (considered):** temporarily widen `COMBAT_GAP` (≈0.8→1.2 s) in the first few mini-sectors of lap 1 — models the physical T1/chicane bottleneck where cars can't attack *regardless* of credit. Cleaner "first-corner caution" than only throttling accrual.
+   - **Nuance:** the metric won't (and shouldn't) drop near 0 — some pace-vs-quali sorting *is* desirable (a racer with race-pace above his quali should climb). The goal is to kill the *opening-lap* spike, not to freeze the quali order for the whole race. A reviewer noting "this just delays the sorting to lap 2" is right that the underlying pace-sort persists by design; we're only smoothing the first-lap burst.
 4. **Pit realism.** Pit-loss is a full stationary freeze, and the **out-lap is already slow** (cold tyres, `tyreTemp = pitTemp 0.20` → `tyreTerm` cold penalty). So the model is freeze + cold-out-lap; there's no *in-lap* slow-down.
    - → **LOW-PRIORITY (open):** split a little of the loss onto the in-lap (lift for the pit entry) for richer in/out-lap undercut timing — even without pit-lane geometry. Valid but small; the freeze + cold-out-lap already give a working undercut.
    - → **REJECTED:** a dedicated `inLapPush` multiplier — the existing engine/pace push modes already let a player push the in-lap, so it's near-duplicate.
@@ -248,6 +251,7 @@ Independent reviews repeatedly flagged these as the model's load-bearing strengt
 - **Split RNG streams** (`rng` per-tick vs `erng` for events) — keeps consecutive race seeds from giving near-identical events; a deliberate, correct choice.
 - **Tyre cliff** (§5) — the accelerating curve + hard cliff is what makes stint length and the undercut matter. Good model.
 - **Credit-based overtaking** (§8) — pace-edge → accruing pass-credit → release is a strong, emergent model (vs random or instantaneous passes). The *zone gating* on top is the debated part (§18.2), not the credit core.
+- **Pit-stop freeze model** (§10) — `pitTimer` stationary-in-the-box + cold-out-lap tyres captures the time loss, position drop, and undercut/overcut tactics with no pit-lane geometry. Multiple reviewers called this an exemplary lightweight abstraction; keep it (the §18.4 in-lap split is optional polish, not a fix).
 
 ## 20. Constants quick-reference (`src/data.js`)
 
