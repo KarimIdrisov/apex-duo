@@ -53,3 +53,10 @@ import { FIT_K } from "../src/data.js";
 test("FIT_K present (per-sector car-fit strength)", () => {
   assert.ok(FIT_K > 0 && FIT_K < 2);
 });
+
+import { SLIP_K, DIRTY_GAP, DIRTY_WEAR } from "../src/data.js";
+test("overtaking constants present and sane", () => {
+  assert.ok(SLIP_K > 0);
+  assert.ok(DIRTY_GAP > 0.8);
+  assert.ok(DIRTY_WEAR > 0);
+});
