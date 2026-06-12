@@ -68,6 +68,7 @@ function buildHud(root, ctx) {
           <div style="font-weight:700">Моя машина — <span id="d-me"></span></div>
           <div class="label" style="margin:0" id="d-gaps"></div>
         </div>
+        <div id="d-mini" style="display:flex;gap:2px;margin:2px 0 8px"></div>
         <p class="label" id="d-tyrelabel"></p>
         <div class="bar"><i id="d-wear"></i></div>
         <p class="label" style="margin-top:8px">Топливо <span id="d-fuel-txt"></span></p>
@@ -135,6 +136,11 @@ function updateHud(root, ctx, snap) {
   $("#d-gaps").innerHTML = `${ahead ? "↑ " + gap(ahead, me) : "— лидер"}${behind ? " &nbsp; ↓ " + gap(me, behind) : ""}`;
   const cold = (me.tyreTemp ?? 1) < 0.85 ? ` <span style="color:#4aa3ff" title="шина не прогрета">❄</span>` : "";
   $("#d-tyrelabel").innerHTML = `Резина ${tyreIcon(me.tyre, 22)} <span style="text-transform:capitalize">${me.tyre}</span>${cold} · ${me.tyreAge} кр · износ`;
+  const COLORS = { p: "#b14aef", g: "#3ddc84", y: "#e7c84b" };
+  const cols = me.miniColors || [];
+  $("#d-mini").innerHTML = cols.length
+    ? cols.map((k, i) => `<div title="мини-сектор ${i + 1}" style="flex:1;height:8px;border-radius:2px;background:${COLORS[k] || "#3f3f46"}"></div>`).join("")
+    : `<div class="label" style="margin:0">мини-сектора появятся после первого круга</div>`;
   $("#d-wear").style.width = Math.max(0, Math.min(100, 100 - me.wear)) + "%";
   const lapsLeft = TRACK.laps - me.lap;
   const ratio = lapsLeft > 0 ? Math.min(1.4, (me.fuelLaps || 0) / lapsLeft) : 1;   // >=1 means enough
