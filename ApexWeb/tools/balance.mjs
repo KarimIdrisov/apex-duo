@@ -73,3 +73,21 @@ console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0
   console.log(`sectors: power car ${(secTime(powerCar, straightSec) - secTime(aeroCar, straightSec)).toFixed(3)}s vs aero car in straight S${straightSec + 1} (expect negative = faster), ` +
     `${(secTime(powerCar, twistySec) - secTime(aeroCar, twistySec)).toFixed(3)}s in twisty S${twistySec + 1} (expect positive)`);
 }
+
+// overtaking corridor: racing happens (net position change from grid to flag) but isn't chaos,
+// and dirty air bites harder in corners than on straights.
+{
+  const { dirtyWear } = await import("../src/overtake.js");
+  let moved = 0;
+  for (let s = 0; s < 20; s++) {
+    const r = new Race(field(), TRACK, 9000 + s);
+    r.gridStart();
+    const start = Object.fromEntries(r.order().map(c => [c.idx, c.pos]));
+    let g = 0; while (!r.finished && g++ < 500000) r.step();
+    const fin = r.order();
+    moved += fin.reduce((a, c) => a + Math.abs(c.pos - start[c.idx]), 0) / fin.length;
+  }
+  console.log(`overtaking: avg |grid→finish| position change = ${(moved / 20).toFixed(2)} places/car ` +
+    `(expect ~1-5: racing, not a procession or chaos); dirty-air wear corner/straight = ` +
+    `${dirtyWear(0).toFixed(4)}/${dirtyWear(1).toFixed(4)}`);
+}
