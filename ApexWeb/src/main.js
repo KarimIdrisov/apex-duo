@@ -118,7 +118,7 @@ function raceSnapshot() {
       lap: c.lap, lapFrac: c.lapFrac, tyre: c.tyre, wear: c.wear,
       pace: c.pace, engine: c.engine, retired: c.retired, isPlayer: c.isPlayer,
       fuel: c.fuel, fuelLaps: fuelLaps(c.fuel, c.engine, c.car.fuel),
-      pitStops: c.pitStops, tyreAge: c.tyreAge, lastLap: c.lastLap, startPos: c.startPos,
+      pitStops: c.pitStops, tyreAge: c.tyreAge, tyreTemp: c.tyreTemp, lastLap: c.lastLap, startPos: c.startPos,
     })),
   };
 }
