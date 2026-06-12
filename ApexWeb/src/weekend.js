@@ -6,12 +6,14 @@ export class Weekend {
     this.phase = "lobby";
     this.ready = { p1: false, p2: false };
     this.onPhase = null;                       // optional callback(phase)
+    this.solo = false;                         // solo mode: p1 alone advances phases
   }
   start() { this._goto("practice"); }
   setReady(player) {
     if (player !== "p1" && player !== "p2") return;
     this.ready[player] = true;
-    if (this.ready.p1 && this.ready.p2) this._advance();
+    const advance = this.solo ? this.ready.p1 : (this.ready.p1 && this.ready.p2);
+    if (advance) this._advance();
   }
   _advance() {
     const i = ORDER.indexOf(this.phase);

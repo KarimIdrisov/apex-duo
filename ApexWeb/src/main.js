@@ -27,7 +27,7 @@ export const ctx = {
 
 function rerender() { SCREENS[ctx.weekend.phase].render(root, ctx); }
 ctx.weekend.onPhase = (phase) => {
-  if (ctx.role === "host") { onPhaseHost(); ctx.net.send({ type: "phase", phase }); }
+  if (ctx.role === "host") { onPhaseHost(); if (ctx.net) ctx.net.send({ type: "phase", phase }); }
   rerender();
 };
 
@@ -76,7 +76,8 @@ function buildField() {
   const ideal = trackIdeal(TRACK.laps * 1000 + Math.round(TRACK.lt));
   return TEAMS.flatMap((t, ti) => t.drivers.map((d, di) => {
     const isPlayerTeam = ti === ctx.teamIdx;
-    const player = isPlayerTeam ? (di === 0 ? "p1" : "p2") : null;
+    // solo: only p1 is human, the teammate car runs as AI (player null)
+    const player = isPlayerTeam ? (di === 0 ? "p1" : (ctx.solo ? null : "p2")) : null;
     const setup = (player && ctx.setups && ctx.setups[player]) ? ctx.setups[player] : [0.5, 0.5, 0.5];
     return {
       idx: idx++, name: d.name, abbrev: d.abbrev, skill: d.skill, car: t.car, color: t.color,
@@ -91,7 +92,7 @@ function broadcastQualiGrid() {
   const field = buildField().map(f => ({ ...f, risk: f.player ? (ctx.qrisk?.[f.player] ?? 0.5) : 0.5 }));
   const grid = buildGrid(field, TRACK, 1234);
   ctx.snapshot = { grid };
-  if (ctx.role === "host") ctx.net.send({ type: "snapshot", grid });
+  if (ctx.net) ctx.net.send({ type: "snapshot", grid });
   rerender();
 }
 
@@ -150,6 +151,14 @@ export async function joinGame(code, useP2P) {
   ctx.net.onMessage(onMessage);
   if (useP2P) await ctx.net.join(code);
   ctx.net.send({ type: "hello" });   // ask the host to sync us to the current phase
+}
+
+// solo: single player engineers car p1; teammate + grid are AI. No network.
+export function startSolo() {
+  ctx.role = "host"; ctx.myPlayer = "p1"; ctx.solo = true; ctx.net = null;
+  ctx.weekend.solo = true;
+  requestAnimationFrame(hostLoop);
+  ctx.weekend.start();
 }
 
 rerender();

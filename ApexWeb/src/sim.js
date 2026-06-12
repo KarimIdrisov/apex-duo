@@ -109,6 +109,13 @@ export class Race {
 
   _serveLapEnd(c) {
     // called at lap completion in step(); handles pit + DNF
+    // AI cars (no human engineer) auto-pit once near the tyre cliff if enough race remains
+    if (c.player == null && c.pitStops === 0 && !c.pitPending) {
+      const comp = COMPOUNDS[c.tyre];
+      if (c.wear >= comp.cliff * 0.8 && (this.track.laps - c.lap) > 6) {
+        c.pitPending = c.tyre === "soft" ? "medium" : "hard";   // fresh, harder set
+      }
+    }
     if (c.pitPending) {
       c.tyre = c.pitPending; c.pitPending = null; c.wear = 0;
       c.pitStops += 1; c.totalTime += this.track.pit;
