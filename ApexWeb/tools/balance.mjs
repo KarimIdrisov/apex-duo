@@ -81,7 +81,7 @@ console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0
 // and dirty air bites harder in corners than on straights.
 {
   const { dirtyWear } = await import("../src/overtake.js");
-  let moved = 0;
+  let moved = 0, passEvents = 0, zonedPasses = 0;
   for (let s = 0; s < 20; s++) {
     const r = new Race(field(), TRACK, 9000 + s);
     r.gridStart();
@@ -89,10 +89,14 @@ console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0
     let g = 0; while (!r.finished && g++ < 500000) r.step();
     const fin = r.order();
     moved += fin.reduce((a, c) => a + Math.abs(c.pos - start[c.idx]), 0) / fin.length;
+    const passes = r.events.filter(e => e.type === "pass");
+    passEvents += passes.length;
+    zonedPasses += passes.filter(e => e.zone).length;
   }
   console.log(`overtaking: avg |grid→finish| position change = ${(moved / 20).toFixed(2)} places/car ` +
     `(expect ~1-5: racing, not a procession or chaos); dirty-air wear corner/straight = ` +
-    `${dirtyWear(0).toFixed(4)}/${dirtyWear(1).toFixed(4)}`);
+    `${dirtyWear(0).toFixed(4)}/${dirtyWear(1).toFixed(4)}; ` +
+    `passes/race ${(passEvents / 20).toFixed(1)}, in-zone ${passEvents ? (100 * zonedPasses / passEvents).toFixed(0) : 0}%`);
 }
 
 // safety-car corridor: SC occurrence over many races should land near track.sc.
