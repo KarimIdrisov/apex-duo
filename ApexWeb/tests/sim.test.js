@@ -84,3 +84,28 @@ test("requestPit serves a stop and switches compound", () => {
   assert.equal(r.cars[0].tyre, "hard");
   assert.ok(r.cars[0].pitStops === 1);
 });
+
+test("fuel depletes over laps; push burns faster than save", () => {
+  const f = field();
+  const r = new Race(f, TRACK, 11);
+  r.setEngine(0, "push"); r.setEngine(1, "save");
+  r.cars[1].skill = r.cars[0].skill; r.cars[1].car = r.cars[0].car;
+  const f0 = r.cars[0].fuel;
+  for (let i = 0; i < 4000; i++) r.step();
+  assert.ok(r.cars[0].fuel < f0, "fuel should deplete");
+  if (r.cars[0].lap === r.cars[1].lap) assert.ok(r.cars[0].fuel < r.cars[1].fuel);
+});
+
+test("pushing the whole race runs the tank dry -> DNF", () => {
+  const r = new Race(field(), TRACK, 7);
+  for (const c of r.cars) c.engine = "push";
+  let guard = 0;
+  while (!r.finished && guard++ < 500000) r.step();
+  assert.ok(r.cars.some(c => c.retired && c.fuel <= 0), "someone should run dry");
+});
+
+test("determinism holds with fuel", () => {
+  const run = s => { const r = new Race(field(), TRACK, s); let g = 0;
+    while (!r.finished && g++ < 500000) r.step(); return r.order().map(c => c.abbrev); };
+  assert.deepEqual(run(3), run(3));
+});

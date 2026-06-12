@@ -1,6 +1,9 @@
 // ApexWeb/src/sim.js
 import { RNG, mix32 } from "./rng.js";
-import { COMPOUNDS, PACE_MODES, ERS_MODES, SKILL_K, CAR_K, CLIP_PEN, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP } from "./data.js";
+import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP } from "./data.js";
+import { startFuel, burnFor, weightTerm, engineTerm } from "./fuel.js";
+
+const ENGINE_KEYS = new Set(["save", "standard", "push"]);
 
 export class Race {
   constructor(field, track, seed) {
@@ -15,25 +18,27 @@ export class Race {
       setup: f.setup ?? [0.5, 0.5, 0.5], setupBonus: f.setupBonus ?? 0,
       lap: 0, lapFrac: 0, lapTimeAccum: 0, lastLap: 0, totalTime: 0,
       avgLap: 0, _lapSum: 0, _lapN: 0,
-      tyre: f.startTyre ?? "medium", wear: 0, soc: 60, tyreAge: 0,
-      pace: "balanced", ers: "balanced",
+      tyre: f.startTyre ?? "medium", wear: 0, tyreAge: 0,
+      fuel: startFuel(track), engine: "standard",
+      pace: "balanced",
       retired: false, pitPending: null, pos: i + 1, startPos: i + 1,
       pitStops: 0, pitTimer: 0,
     }));
   }
 
   setPace(i, mode) { if (PACE_MODES[mode]) this.cars[i].pace = mode; }
-  setErs(i, mode) { if (ERS_MODES[mode]) this.cars[i].ers = mode; }
+  setEngine(i, mode) { if (ENGINE_KEYS.has(mode)) this.cars[i].engine = mode; }
 
   // clean lap time for one car right now (seconds)
   _lapTime(c) {
-    const t = this.track, comp = COMPOUNDS[c.tyre], pm = PACE_MODES[c.pace], em = ERS_MODES[c.ers];
+    const t = this.track, comp = COMPOUNDS[c.tyre], pm = PACE_MODES[c.pace];
     let s = t.lt;
     s -= SKILL_K * (c.skill - 0.5);
     s -= CAR_K * ((c.car.power - c.car.aero) * (t.pw - t.df));   // track-character bias
     s += comp.pace + this._wearTerm(c, comp);
     s += pm.pace;
-    s += em.pace + (c.soc <= 0 ? CLIP_PEN : 0);
+    s += engineTerm(c.engine);          // fuel push/save lever
+    s += weightTerm(c.fuel);            // heavy tank = slower (eases as fuel burns)
     s += c.setupBonus;                                           // <=0, faster when set well
     s += this.rng.noise(0.06);
     return s;
@@ -61,9 +66,9 @@ export class Race {
         c.totalTime += c.lastLap;
         c.lapTimeAccum = 0;
         // per-lap wear + SoC
-        const comp = COMPOUNDS[c.tyre], pm = PACE_MODES[c.pace], em = ERS_MODES[c.ers];
+        const comp = COMPOUNDS[c.tyre], pm = PACE_MODES[c.pace];
         c.wear += comp.wear * pm.wear;
-        c.soc = Math.max(0, Math.min(100, c.soc + em.soc));
+        c.fuel -= burnFor(c.engine, c.car.fuel);
         c.tyreAge += 1;
         this._serveLapEnd(c); // phase 3: pit + DNF (finishers handled in order())
       }
@@ -92,7 +97,7 @@ export class Race {
       const gapSec = gapLaps * this.track.lt;
       if (gapSec > 0 && gapSec < COMBAT_GAP && me.lap === ahead.lap) {
         const edge = this._lapTime(ahead) - this._lapTime(me);   // >0 => me faster
-        me._passCredit = (me._passCredit ?? 0) + Math.max(0, edge) * (me.ers === "attack" ? 1.5 : 1);
+        me._passCredit = (me._passCredit ?? 0) + Math.max(0, edge) * (me.engine === "push" ? 1.3 : 1);
         const resist = (1 - this.track.ot) * 2.0;                 // high where ot low
         if (me._passCredit < resist) {
           // pinned: clamp just behind the car ahead (dirty-air hold-up)
@@ -123,6 +128,7 @@ export class Race {
       c.lapFrac -= this.track.pit / this.track.lt;            // lose pit time on track
       if (c.lapFrac < 0) c.lapFrac = 0;
     }
+    if (c.fuel <= 0) { c.retired = true; return; }   // ran the tank dry
     const pm = PACE_MODES[c.pace];
     if (this.erng.unit() < DNF_BASE * (1 - c.car.rel) * pm.risk) c.retired = true;
   }
