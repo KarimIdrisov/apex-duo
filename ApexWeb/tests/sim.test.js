@@ -152,3 +152,17 @@ test("first flier colours are all session-best (purple) and determinism holds", 
   while (lead.lap < 1 && guard++ < 80000) r.step();
   assert.ok(lead.miniColors.every(x => x === "p"), "leader's first lap should be all session bests");
 });
+
+test("following closely in dirty air wears the tyres faster than running in clean air", () => {
+  function bWear(behind) {
+    const r = new Race(field(), TRACK, 9);
+    const a = r.cars[0], b = r.cars[1];
+    a.skill = 0.90; b.skill = 0.88;
+    for (let i = 0; i < r.cars.length; i++) { r.cars[i].lap = 1; r.cars[i].lapFrac = 0.02 * i; }
+    if (behind) { a.lapFrac = 0.60; b.lapFrac = 0.60 - 0.6 / TRACK.lt; }  // b ~0.6s behind a
+    else        { a.lapFrac = 0.05; b.lapFrac = 0.60; }                   // b in clean air, far from a
+    for (let k = 0; k < 700; k++) r.step();   // ~2 laps
+    return b.wear;
+  }
+  assert.ok(bWear(true) > bWear(false), "dirty air should wear the follower's tyres faster");
+});

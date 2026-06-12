@@ -1,9 +1,10 @@
 // ApexWeb/src/sim.js
 import { RNG, mix32 } from "./rng.js";
-import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP, TYRE } from "./data.js";
+import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP, TYRE, DIRTY_GAP } from "./data.js";
 import { startFuel, burnFor, weightTerm, engineTerm } from "./fuel.js";
 import { tyreTerm, warmStep } from "./tyres.js";
-import { miniSplits, MINI, N_MINI } from "./track.js";
+import { miniSplits, MINI, N_MINI, sampleAt } from "./track.js";
+import { slipstream, dirtyWear, passAccrual } from "./overtake.js";
 
 const ENGINE_KEYS = new Set(["save", "standard", "push"]);
 
@@ -27,6 +28,7 @@ export class Race {
       retired: false, pitPending: null, pos: i + 1, startPos: i + 1,
       pitStops: 0, pitTimer: 0,
       lastMini: [], bestMini: new Array(N_MINI).fill(Infinity), miniColors: [], sectorTimes: [0, 0, 0],
+      _dirtyWear: 0,
     }));
   }
 
@@ -66,7 +68,8 @@ export class Race {
         c.lapTimeAccum = 0;
         // per-lap wear + fuel burn
         const comp = COMPOUNDS[c.tyre], pm = PACE_MODES[c.pace];
-        c.wear += comp.wear * pm.wear;
+        c.wear += comp.wear * pm.wear + c._dirtyWear;   // dirty-air wear accrued while following
+        c._dirtyWear = 0;
         c.tyreTemp = warmStep(c.tyreTemp, c.tyre);
         c.fuel -= burnFor(c.engine, c.car.fuel);   // c.car.fuel: economy rating (1=standard), wired in Phase 7
         c.tyreAge += 1;
@@ -93,14 +96,18 @@ export class Race {
     for (let i = 1; i < ord.length; i++) {
       const ahead = ord[i - 1], me = ord[i];
       if (me.retired || ahead.retired) continue;
-      const gapLaps = (ahead.lap + ahead.lapFrac) - (me.lap + me.lapFrac);
-      const gapSec = gapLaps * this.track.lt;
+      const gapSec = ((ahead.lap + ahead.lapFrac) - (me.lap + me.lapFrac)) * this.track.lt;
+      const s = sampleAt(me.lapFrac).straightness;          // local track character at the follower
+      // dirty air: sitting close (even outside passing range) costs the follower tyre life, worse in corners
+      if (gapSec > 0 && gapSec < DIRTY_GAP) me._dirtyWear += dirtyWear(s);
+      // close combat: hold-up + pass-credit, with slipstream and braking-zone concentration
       if (gapSec > 0 && gapSec < COMBAT_GAP && me.lap === ahead.lap) {
         const edge = this._lapTime(ahead) - this._lapTime(me);   // >0 => me faster
-        me._passCredit = (me._passCredit ?? 0) + Math.max(0, edge) * (me.engine === "push" ? 1.3 : 1);
+        const tow = slipstream(s, me.car.power);
+        me._passCredit = (me._passCredit ?? 0) + passAccrual(edge, tow, me.engine, s);
         const resist = (1 - this.track.ot) * 2.0;                 // high where ot low
         if (me._passCredit < resist) {
-          // pinned: clamp just behind the car ahead (dirty-air hold-up)
+          // pinned behind the car ahead (writes ONLY lapFrac — invariant)
           const target = (ahead.lap + ahead.lapFrac) - (COMBAT_GAP * 0.5) / this.track.lt;
           const desiredFrac = target - me.lap;
           if (desiredFrac < me.lapFrac) me.lapFrac = Math.max(0, desiredFrac);
