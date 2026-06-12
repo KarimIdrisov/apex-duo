@@ -329,3 +329,30 @@ test("determinism holds across difficulty", () => {
   assert.deepEqual(run(0.8), run(0.8));
   assert.notDeepEqual(run(0.55), run(1.0));
 });
+
+test("sim emits a deterministic event log (start, and same seed -> identical events)", () => {
+  const run = s => { const r = new Race(field(), TRACK, s); r.gridStart(); let g = 0;
+    while (!r.finished && g++ < 500000) r.step(); return r.events; };
+  const e1 = run(4242), e2 = run(4242);
+  assert.ok(Array.isArray(e1) && e1.length > 0, "events produced");
+  assert.ok(e1.some(e => e.type === "start"), "has a start event");
+  assert.deepEqual(e1, e2, "same seed -> identical event log");
+});
+
+test("a full race produces pit, fastlap and finish events", () => {
+  const r = new Race(field(), TRACK, 4243); r.gridStart();
+  let g = 0; while (!r.finished && g++ < 500000) r.step();
+  const types = new Set(r.events.map(e => e.type));
+  assert.ok(types.has("pit"), "someone pitted");
+  assert.ok(types.has("fastlap"), "a fastest lap was set");
+  assert.ok(types.has("finish"), "race finished");
+  for (const e of r.events) assert.ok(typeof e.lap === "number", "every event has a lap");
+});
+
+test("pass events carry both drivers and are bounded", () => {
+  const r = new Race(field(), TRACK, 4244); r.gridStart();
+  let g = 0; while (!r.finished && g++ < 500000) r.step();
+  const passes = r.events.filter(e => e.type === "pass");
+  for (const p of passes) assert.ok(p.abbr && p.abbrB && p.abbr !== p.abbrB, "two distinct drivers");
+  assert.ok(passes.length < 400, `passes bounded (${passes.length})`);
+});

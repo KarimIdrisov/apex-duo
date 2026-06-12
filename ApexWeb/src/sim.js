@@ -51,7 +51,13 @@ export class Race {
         c._aiForm = f * (1 - this.difficulty) * AI_FORM;
       }
     }
+    this.events = [];                 // deterministic structured event log (string-free)
+    this._fastLap = Infinity;         // best lap time seen so far (for "fastest lap" events)
+    this._scWas = false;              // safety-car edge detector
+    this._retiredSeen = new Set();    // idx already announced as DNF
   }
+
+  _emit(ev) { this.events.push(ev); }   // append a structured event (read-only w.r.t. the sim)
 
   setPace(i, mode) { if (PACE_MODES[mode]) { this.cars[i].pace = mode; this.cars[i]._pin = true; } }
   setEngine(i, mode) { if (ENGINE_KEYS.has(mode)) { this.cars[i].engine = mode; this.cars[i]._pin = true; } }
@@ -81,7 +87,11 @@ export class Race {
 
   step(dt = STEP) {
     if (this.finished) return;
-    if (!this._started) { this._started = true; this._startIncidents(); }
+    if (!this._started) {
+      this._started = true; this._startIncidents();
+      const pole = this.order()[0];
+      this._emit({ type: "start", lap: 0, a: pole.idx, abbr: pole.abbrev });
+    }
     this.time += dt;
     const leadProg = this.cars.reduce((m, c) => Math.max(m, c.lap + c.lapFrac), 0);
     this.wetness = wetnessAt(this.weather, leadProg);
@@ -95,6 +105,10 @@ export class Race {
         c.lap += 1;
         c.lastLap = c.lapTimeAccum;
         this._recordMinis(c);
+        if (c.lap > 1 && !this.scActive && c.lastLap < this._fastLap) {   // new overall fastest (ignore lap 1 / SC laps)
+          this._fastLap = c.lastLap;
+          this._emit({ type: "fastlap", lap: c.lap, a: c.idx, abbr: c.abbrev, t: c.lastLap });
+        }
         c._lapSum += c.lastLap; c._lapN++; c.avgLap = c._lapSum / c._lapN;
         c.totalTime += c.lastLap;
         c.lapTimeAccum = 0;
@@ -119,8 +133,17 @@ export class Race {
       this.scActive = true; this.scEverActive = true; this.scStartLap = leadLap;
     }
     if (this.scActive && leadLap >= this.scStartLap + EVENT.scMinLaps) this.scActive = false;
+    if (this.scActive && !this._scWas) this._emit({ type: "sc_on", lap: leadLap });
+    if (!this.scActive && this._scWas) this._emit({ type: "sc_off", lap: leadLap });
+    this._scWas = this.scActive;
     this._resolveSC();
-    if (this.cars.every(c => c.retired || c.lap >= this.track.laps)) this.finished = true;
+    for (const c of this.cars) {
+      if (c.retired && !this._retiredSeen.has(c.idx)) { this._retiredSeen.add(c.idx); this._emit({ type: "dnf", lap: c.lap, a: c.idx, abbr: c.abbrev }); }
+    }
+    if (this.cars.every(c => c.retired || c.lap >= this.track.laps)) {
+      if (!this.finished) { const w = this.order()[0]; this._emit({ type: "finish", lap: w.lap, a: w.idx, abbr: w.abbrev }); }
+      this.finished = true;
+    }
   }
 
   requestPit(i, compound) { this.cars[i].pitPending = compound; }
@@ -177,6 +200,13 @@ export class Race {
           if (desiredFrac < me.lapFrac) me.lapFrac = Math.max(0, desiredFrac);
         } else {
           me._passCredit = 0; // pass completes naturally next ticks (no lap write)
+          // announce once per pass episode: a fresh opponent (not the one we just cleared)
+          // and not within the per-car cooldown — bounds the log to genuine on-track passes.
+          if (me._passedIdx !== ahead.idx && (me._passCd ?? -1) <= this.time) {
+            this._emit({ type: "pass", lap: me.lap, a: me.idx, abbr: me.abbrev, b: ahead.idx, abbrB: ahead.abbrev });
+            me._passedIdx = ahead.idx;
+            me._passCd = this.time + 4;
+          }
         }
       } else {
         me._passCredit = 0;
@@ -236,6 +266,7 @@ export class Race {
       c.tyre = c.pitPending; c.pitPending = null; c.wear = 0; c.tyreAge = 0; c.tyreTemp = TYRE.pitTemp;
       const pitLoss = this.track.pit * (this.scActive ? EVENT.scPitMult : 1) * (c.personnel ? c.personnel.pitMult : 1);
       c.pitStops += 1; c.totalTime += pitLoss;
+      this._emit({ type: "pit", lap: c.lap, a: c.idx, abbr: c.abbrev, compound: c.tyre });
       c.lapFrac -= pitLoss / this.track.lt;                   // lose pit time on track (cheaper under SC)
       if (c.lapFrac < 0) c.lapFrac = 0;
     }
