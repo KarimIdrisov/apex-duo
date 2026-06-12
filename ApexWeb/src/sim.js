@@ -15,9 +15,9 @@ export class Race {
       setup: f.setup ?? [0.5, 0.5, 0.5], setupBonus: f.setupBonus ?? 0,
       lap: 0, lapFrac: 0, lapTimeAccum: 0, lastLap: 0, totalTime: 0,
       avgLap: 0, _lapSum: 0, _lapN: 0,
-      tyre: f.startTyre ?? "medium", wear: 0, soc: 60,
+      tyre: f.startTyre ?? "medium", wear: 0, soc: 60, tyreAge: 0,
       pace: "balanced", ers: "balanced",
-      retired: false, pitPending: null, pos: i + 1,
+      retired: false, pitPending: null, pos: i + 1, startPos: i + 1,
       pitStops: 0, pitTimer: 0,
     }));
   }
@@ -64,6 +64,7 @@ export class Race {
         const comp = COMPOUNDS[c.tyre], pm = PACE_MODES[c.pace], em = ERS_MODES[c.ers];
         c.wear += comp.wear * pm.wear;
         c.soc = Math.max(0, Math.min(100, c.soc + em.soc));
+        c.tyreAge += 1;
         this._serveLapEnd(c); // phase 3: pit + DNF (finishers handled in order())
       }
     }
@@ -117,7 +118,7 @@ export class Race {
       }
     }
     if (c.pitPending) {
-      c.tyre = c.pitPending; c.pitPending = null; c.wear = 0;
+      c.tyre = c.pitPending; c.pitPending = null; c.wear = 0; c.tyreAge = 0;
       c.pitStops += 1; c.totalTime += this.track.pit;
       c.lapFrac -= this.track.pit / this.track.lt;            // lose pit time on track
       if (c.lapFrac < 0) c.lapFrac = 0;

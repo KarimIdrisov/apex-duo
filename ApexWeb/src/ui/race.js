@@ -1,120 +1,171 @@
-// ApexWeb/src/ui/race.js — race HUD (variant B "driver focus").
-// Built ONCE, then mutated in place each snapshot so the ~12 Hz state updates
-// never destroy the buttons mid-click (that ate every press before).
-import { TRACK, DRIVER_INFO } from "../data.js";
+// ApexWeb/src/ui/race.js — race screen in a timing-dashboard style:
+// header + real SVG circuit map + your-car control strip + full timing leaderboard.
+// Skeleton is built ONCE (so the lever buttons survive ~12 Hz updates and clicks
+// land); only values + the board + car dots are mutated each snapshot.
+import { TRACK, TRACK_PATH, DRIVER_INFO } from "../data.js";
 import { sfx } from "../audio.js";
-
-const teamLogo = (a, s = 22) => { const l = DRIVER_INFO[a] && DRIVER_INFO[a].logo; return l ? `<img src="assets/teams/${l}.png" alt="" style="height:${s}px;width:${s}px;object-fit:contain;vertical-align:middle;margin-right:7px">` : ""; };
-const tyreIcon = (t, s = 24) => `<img src="assets/tyres/${t}.png" alt="${t}" style="height:${s}px;width:${s}px;object-fit:contain;vertical-align:middle">`;
 
 const PACE = ["conserve", "balanced", "push"], ERS = ["harvest", "balanced", "attack"];
 const PACE_L = { conserve: "Save", balanced: "Norm", push: "Push" };
 const ERS_L = { harvest: "Harv", balanced: "Bal", attack: "Atk" };
 const SPEEDS = [1, 2, 4];
 
+const logo = (a, s = 18) => { const l = DRIVER_INFO[a] && DRIVER_INFO[a].logo; return l ? `<img src="assets/teams/${l}.png" alt="" style="height:${s}px;width:${s}px;object-fit:contain;vertical-align:middle;margin-right:6px">` : ""; };
+const tyreIcon = (t, s = 18) => `<img src="assets/tyres/${t}.png" alt="${t}" style="height:${s}px;width:${s}px;object-fit:contain;vertical-align:middle">`;
+
+// ---- real circuit geometry (fit into a 100x100 viewBox) + arc-length sampler ----
+const RAW = [];
+for (let i = 0; i < TRACK_PATH.length; i += 2) RAW.push([TRACK_PATH[i] * 100, TRACK_PATH[i + 1] * 100]);
+const PATH_D = "M" + RAW.map(p => `${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(" L") + " Z";
+const SEG = []; let TOTAL = 0;
+for (let i = 0; i < RAW.length; i++) {
+  const a = RAW[i], b = RAW[(i + 1) % RAW.length];
+  const d = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  SEG.push({ a, b, d, acc: TOTAL }); TOTAL += d;
+}
+function pointAt(frac) {
+  let t = (((frac % 1) + 1) % 1) * TOTAL;
+  for (const s of SEG) { if (t <= s.d) { const r = s.d ? t / s.d : 0; return [s.a[0] + (s.b[0] - s.a[0]) * r, s.a[1] + (s.b[1] - s.a[1]) * r]; } t -= s.d; }
+  return RAW[0];
+}
+
+function fmtLap(t) { if (!t) return "—"; const m = Math.floor(t / 60); return `${m}:${(t - m * 60).toFixed(3).padStart(6, "0")}`; }
+function fmtGap(dp) { if (dp <= 0.0001) return "—"; const laps = Math.floor(dp); return laps >= 1 ? `+${laps} LAP` : "+" + (dp * TRACK.lt).toFixed(1); }
+const me_of = (cars, ctx) => cars.find(c => c.player && c.player === ctx.myPlayer) || cars.find(c => c.isPlayer) || cars[0];
+
 export function render(root, ctx) {
   const snap = ctx.snapshot;
   if (!snap || !snap.cars) { root.innerHTML = `<div class="panel">Старт гонки…</div>`; ctx._hudReady = false; return; }
-  if (snap.finished) {
-    root.innerHTML = `<div class="panel"><h2>Финиш — ${TRACK.name}</h2>
-      <p class="label">Итоговый порядок</p>${tower(snap.cars, ctx)}</div>`;
-    ctx._hudReady = false; return;
-  }
-  if (!ctx._hudReady || !root.querySelector("#hud")) buildHud(root, ctx);
+  if (!ctx._hudReady || !root.querySelector("#dash")) buildHud(root, ctx);
   updateHud(root, ctx, snap);
 }
 
-// one-time skeleton + handlers (handlers read live state at click time)
 function buildHud(root, ctx) {
+  const dots = ctx.snapshot.cars.map(c =>
+    `<circle id="car-${c.idx}" r="${c.isPlayer ? 2.4 : 1.7}" fill="${c.color || "#888"}"
+       stroke="${c.player ? "#fff" : "rgba(0,0,0,.4)"}" stroke-width="${c.player ? 0.8 : 0.3}"></circle>`).join("");
   root.innerHTML = `
-    <div id="hud">
-      <div class="panel" style="display:flex;justify-content:space-between;align-items:center">
-        <span id="hud-lap"></span><span id="hud-pos"></span>
-        <span><button class="btn" id="hud-speed" style="margin-right:6px">1x</button><button class="btn" id="hud-pause">⏸</button></span>
+    <div id="dash">
+      <div class="panel" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div><div style="font-weight:700;font-size:16px">${TRACK.gp}</div>
+          <div class="label" style="margin:0">${TRACK.name} · <span id="d-chip">ГОНКА</span></div></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="text-align:right"><div class="label" style="margin:0">КРУГ</div>
+            <div style="font-weight:700"><span id="d-lap">0</span>/${TRACK.laps}</div></div>
+          <button class="btn" id="d-speed">1x</button><button class="btn" id="d-pause">⏸</button>
+        </div>
       </div>
-      <canvas id="hud-map" width="320" height="120" class="panel" style="display:block;width:100%"></canvas>
+      <div class="panel" style="padding:10px">
+        <svg viewBox="0 0 100 100" style="width:100%;max-height:230px;display:block">
+          <path d="${PATH_D}" fill="none" stroke="#2a2a31" stroke-width="3.2" stroke-linejoin="round"/>
+          <path d="${PATH_D}" fill="none" stroke="#3f3f46" stroke-width="1.4" stroke-linejoin="round"/>
+          ${dots}
+        </svg>
+      </div>
       <div class="panel">
-        <p id="hud-ahead"></p>
-        <p id="hud-behind"></p>
-        <p class="label" id="hud-tyrelabel"></p>
-        <div class="bar"><i id="hud-wear"></i></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div style="font-weight:700">Моя машина — <span id="d-me"></span></div>
+          <div class="label" style="margin:0" id="d-gaps"></div>
+        </div>
+        <p class="label" id="d-tyrelabel"></p>
+        <div class="bar"><i id="d-wear"></i></div>
         <p class="label" style="margin-top:8px">Заряд ERS</p>
-        <div class="bar"><i id="hud-soc"></i></div>
+        <div class="bar"><i id="d-soc"></i></div>
         <p class="label" style="margin-top:10px">Темп</p>
-        <div class="seg" id="hud-pace">${PACE.map(p => `<button data-v="${p}">${PACE_L[p]}</button>`).join("")}</div>
+        <div class="seg" id="d-pace">${PACE.map(p => `<button data-v="${p}">${PACE_L[p]}</button>`).join("")}</div>
         <p class="label" style="margin-top:8px">ERS</p>
-        <div class="seg" id="hud-ers">${ERS.map(e => `<button data-v="${e}">${ERS_L[e]}</button>`).join("")}</div>
-        <button class="primary" id="hud-pit" style="margin-top:10px;background:var(--bad)">⛽ В боксы → ${tyreIcon("hard", 22)} Hard</button>
+        <div class="seg" id="d-ers">${ERS.map(e => `<button data-v="${e}">${ERS_L[e]}</button>`).join("")}</div>
+        <button class="primary" id="d-pit" style="margin-top:10px;background:var(--bad)">⛽ В боксы → ${tyreIcon("hard", 20)} Hard</button>
       </div>
-      <div class="panel">
-        <button class="btn" id="hud-toggle" style="width:100%"></button>
-        <div id="hud-table" style="display:none;margin-top:6px"></div>
+      <div class="panel" style="padding:8px">
+        <div class="label" style="padding:0 6px 6px">Leaderboard</div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap">
+            <thead><tr style="color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.05em">
+              <th style="text-align:left;padding:4px 6px">P</th><th></th>
+              <th style="text-align:left;padding:4px 6px">Пилот</th>
+              <th style="padding:4px 6px">Pit</th><th style="text-align:left;padding:4px 6px">Шина</th>
+              <th style="text-align:right;padding:4px 6px">Gap</th><th style="text-align:right;padding:4px 6px">Int</th>
+              <th style="text-align:right;padding:4px 6px">Last</th>
+            </tr></thead>
+            <tbody id="d-board"></tbody>
+          </table>
+        </div>
       </div>
     </div>`;
   const myIdx = () => ctx._myIdx;
-  root.querySelector("#hud-wear").style.background = "linear-gradient(90deg,#3ddc84,#e7c84b 70%,#e7553b)";
-  root.querySelector("#hud-soc").style.background = "linear-gradient(90deg,#4aa3ff,#9b6bff)";
-  root.querySelector("#hud-pace").onclick = e => { const v = e.target.dataset && e.target.dataset.v; if (v) ctx.send({ cmd: "set_pace", car: myIdx(), mode: v }); };
-  root.querySelector("#hud-ers").onclick = e => { const v = e.target.dataset && e.target.dataset.v; if (v) ctx.send({ cmd: "set_ers", car: myIdx(), mode: v }); };
-  root.querySelector("#hud-pit").onclick = () => { sfx.pit(); ctx.send({ cmd: "request_pit", car: myIdx(), compound: "hard" }); };
-  root.querySelector("#hud-pause").onclick = () => ctx.send({ cmd: "toggle_pause" });
-  root.querySelector("#hud-speed").onclick = () => {
+  root.querySelector("#d-wear").style.background = "linear-gradient(90deg,#3ddc84,#e7c84b 70%,#e7553b)";
+  root.querySelector("#d-soc").style.background = "linear-gradient(90deg,#4aa3ff,#9b6bff)";
+  root.querySelector("#d-pace").onclick = e => { const v = e.target.dataset && e.target.dataset.v; if (v) ctx.send({ cmd: "set_pace", car: myIdx(), mode: v }); };
+  root.querySelector("#d-ers").onclick = e => { const v = e.target.dataset && e.target.dataset.v; if (v) ctx.send({ cmd: "set_ers", car: myIdx(), mode: v }); };
+  root.querySelector("#d-pit").onclick = () => { sfx.pit(); ctx.send({ cmd: "request_pit", car: myIdx(), compound: "hard" }); };
+  root.querySelector("#d-pause").onclick = () => ctx.send({ cmd: "toggle_pause" });
+  root.querySelector("#d-speed").onclick = () => {
     const cur = (ctx.snapshot && ctx.snapshot.speed) || 1;
     ctx.send({ cmd: "set_speed", value: SPEEDS[(SPEEDS.indexOf(cur) + 1) % SPEEDS.length] });
   };
-  root.querySelector("#hud-toggle").onclick = () => { ctx.showTable = !ctx.showTable; updateHud(root, ctx, ctx.snapshot); };
   ctx._hudReady = true;
-  sfx.lightsOut();   // F1 start sequence when the race HUD first appears
+  ctx._boardTick = 0;
+  sfx.lightsOut();
 }
 
-// lightweight per-snapshot update — no innerHTML rebuild of the controls
 function updateHud(root, ctx, snap) {
   const cars = snap.cars;
-  const me = cars.find(c => c.player && c.player === ctx.myPlayer) || cars.find(c => c.isPlayer) || cars[0];
+  const me = me_of(cars, ctx);
   ctx._myIdx = me.idx;
-  const pos = cars.indexOf(me), ahead = cars[pos - 1], behind = cars[pos + 1];
   const $ = id => root.querySelector(id);
-  $("#hud-lap").textContent = `🏁 ${me.lap}/${TRACK.laps}`;
-  $("#hud-pos").textContent = `P${me.pos} ${me.abbrev}`;
-  $("#hud-pause").textContent = snap.paused ? "▶" : "⏸";
-  $("#hud-speed").textContent = ((snap.speed || 1) + "x");
-  $("#hud-ahead").textContent = ahead ? `↑ ${ahead.abbrev} +${gap(ahead, me)}` : "— лидер —";
-  $("#hud-behind").textContent = behind ? `↓ ${behind.abbrev} +${gap(me, behind)}` : "";
-  $("#hud-tyrelabel").innerHTML = `Резина ${tyreIcon(me.tyre, 30)} <span style="text-transform:capitalize">${me.tyre}</span> · износ`;
-  $("#hud-wear").style.width = Math.max(0, Math.min(100, 100 - me.wear)) + "%";
-  $("#hud-soc").style.width = Math.max(0, Math.min(100, me.soc)) + "%";
-  for (const b of $("#hud-pace").children) b.classList.toggle("on", b.dataset.v === me.pace);
-  for (const b of $("#hud-ers").children) b.classList.toggle("on", b.dataset.v === me.ers);
-  $("#hud-toggle").textContent = ctx.showTable ? "Скрыть таблицу" : "Таблица (22)";
-  const tbl = $("#hud-table");
-  tbl.style.display = ctx.showTable ? "block" : "none";
-  if (ctx.showTable) tbl.innerHTML = tower(cars, ctx);
-  drawMap($("#hud-map"), cars);
-}
-
-// time gap (s) between two cars by track-distance, leader first
-function gap(a, b) { return Math.abs(((a.lap + a.lapFrac) - (b.lap + b.lapFrac)) * TRACK.lt).toFixed(1); }
-
-function tower(cars, ctx) {
-  return cars.map(c => {
-    const bg = c.player === ctx.myPlayer ? "background:#1d6fd6;color:#fff"
-      : c.isPlayer ? "background:#2a4a7a;color:#cfe0ff" : "";
-    return `<div style="display:flex;justify-content:space-between;padding:2px 6px;${bg};border-radius:3px">
-      <span>${c.pos} ${teamLogo(c.abbrev, 22)}${c.abbrev}</span><span>${c.retired ? "DNF" : tyreIcon(c.tyre, 22)}</span></div>`;
-  }).join("");
-}
-
-function drawMap(cv, cars) {
-  if (!cv) return;
-  const g = cv.getContext("2d");
-  g.clearRect(0, 0, cv.width, cv.height);
-  const cx = cv.width / 2, cy = cv.height / 2, rx = cv.width / 2 - 16, ry = cv.height / 2 - 12;
-  g.strokeStyle = "#2a2f3a"; g.lineWidth = 10;
-  g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); g.stroke();
+  // header
+  $("#d-lap").textContent = me.lap;
+  $("#d-chip").textContent = snap.finished ? "ФИНИШ" : (snap.paused ? "ПАУЗА" : "ГОНКА");
+  $("#d-pause").textContent = snap.paused ? "▶" : "⏸";
+  $("#d-speed").textContent = (snap.speed || 1) + "x";
+  // car dots on the circuit
   for (const c of cars) {
-    if (c.retired) continue;
-    const a = c.lapFrac * Math.PI * 2 - Math.PI / 2;
-    g.fillStyle = (c.player || c.isPlayer) ? "#fff" : (c.color || "#888");
-    g.beginPath(); g.arc(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry, c.isPlayer ? 5 : 3, 0, Math.PI * 2); g.fill();
+    const el = root.querySelector(`#car-${c.idx}`);
+    if (!el) continue;
+    if (c.retired) { el.style.display = "none"; continue; }
+    el.style.display = "";
+    const [x, y] = pointAt(c.lapFrac);
+    el.setAttribute("cx", x.toFixed(2)); el.setAttribute("cy", y.toFixed(2));
   }
+  // control strip
+  const pos = cars.indexOf(me), ahead = cars[pos - 1], behind = cars[pos + 1];
+  $("#d-me").textContent = `P${me.pos} ${me.abbrev}`;
+  $("#d-gaps").innerHTML = `${ahead ? "↑ " + gap(ahead, me) : "— лидер"}${behind ? " &nbsp; ↓ " + gap(me, behind) : ""}`;
+  $("#d-tyrelabel").innerHTML = `Резина ${tyreIcon(me.tyre, 22)} <span style="text-transform:capitalize">${me.tyre}</span> · ${me.tyreAge} кр · износ`;
+  $("#d-wear").style.width = Math.max(0, Math.min(100, 100 - me.wear)) + "%";
+  $("#d-soc").style.width = Math.max(0, Math.min(100, me.soc)) + "%";
+  for (const b of $("#d-pace").children) b.classList.toggle("on", b.dataset.v === me.pace);
+  for (const b of $("#d-ers").children) b.classList.toggle("on", b.dataset.v === me.ers);
+  // leaderboard (throttled — positions change slowly)
+  if ((ctx._boardTick++ % 3) === 0 || snap.finished) $("#d-board").innerHTML = board(cars, ctx);
+}
+
+function gap(a, b) { return Math.abs(((a.lap + a.lapFrac) - (b.lap + b.lapFrac)) * TRACK.lt).toFixed(1) + "с"; }
+
+function delta(c) {
+  const d = (c.startPos || 0) - c.pos;
+  if (!c.startPos || d === 0) return `<span style="color:var(--muted)">—</span>`;
+  return d > 0 ? `<span style="color:var(--good)">▲${d}</span>` : `<span style="color:var(--bad)">▼${-d}</span>`;
+}
+
+function board(cars, ctx) {
+  const lead = cars[0], lp = lead.lap + lead.lapFrac;
+  return cars.map((c, i) => {
+    const prog = c.lap + c.lapFrac;
+    const gapL = c.retired ? "—" : (i === 0 ? "—" : fmtGap(lp - prog));
+    const intv = c.retired ? "—" : (i === 0 ? "—" : fmtGap((cars[i - 1].lap + cars[i - 1].lapFrac) - prog));
+    const mine = c.player === ctx.myPlayer, team = !mine && c.isPlayer;
+    const bg = mine ? "background:rgba(0,111,238,.22)" : team ? "background:rgba(0,111,238,.10)" : "";
+    return `<tr style="${bg};border-top:1px solid var(--border)">
+      <td style="padding:5px 6px;font-weight:700">${c.pos}</td>
+      <td style="padding:5px 2px">${delta(c)}</td>
+      <td style="padding:5px 6px">${logo(c.abbrev, 18)}<b>${c.abbrev}</b></td>
+      <td style="padding:5px 6px;text-align:center;color:var(--muted)">${c.pitStops || 0}</td>
+      <td style="padding:5px 6px">${c.retired ? '<span style="color:var(--bad)">DNF</span>' : tyreIcon(c.tyre, 16) + ' <span style="color:var(--muted)">' + c.tyreAge + '</span>'}</td>
+      <td style="padding:5px 6px;text-align:right">${gapL}</td>
+      <td style="padding:5px 6px;text-align:right;color:var(--muted)">${intv}</td>
+      <td style="padding:5px 6px;text-align:right">${fmtLap(c.lastLap)}</td>
+    </tr>`;
+  }).join("");
 }

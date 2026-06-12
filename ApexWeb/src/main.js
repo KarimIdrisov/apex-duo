@@ -70,7 +70,7 @@ function startRaceHost() {
   const grid = buildGrid(withRisk, TRACK, 1234);
   grid.forEach((g, slot) => {
     const c = ctx.race.cars[g.idx];
-    c.lap = 0; c.lapFrac = -slot * (GRID_GAP / TRACK.lt);
+    c.lap = 0; c.lapFrac = -slot * (GRID_GAP / TRACK.lt); c.startPos = slot + 1;
   });
   ctx.paused = false;
   ctx._frame = 0;
@@ -112,6 +112,7 @@ function raceSnapshot() {
       idx: c.idx, pos: c.pos, abbrev: c.abbrev, color: c.color, player: c.player,
       lap: c.lap, lapFrac: c.lapFrac, tyre: c.tyre, wear: c.wear, soc: c.soc,
       pace: c.pace, ers: c.ers, retired: c.retired, isPlayer: c.isPlayer,
+      pitStops: c.pitStops, tyreAge: c.tyreAge, lastLap: c.lastLap, startPos: c.startPos,
     })),
   };
 }
