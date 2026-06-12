@@ -29,7 +29,7 @@ export const TEAMS = [
 
 export const TRACK = {
   name:"Барселона", gp:"Гран-при Испании", laps:66, lt:80.0, pit:21.5,
-  df:0.82, pw:0.55, ot:0.30, abr:1.25, harv:0.58, dep:0.55, sc:0.25, el:0.82,
+  df:0.82, pw:0.55, ot:0.30, abr:1.25, harv:0.58, dep:0.55, sc:0.25, wet:0.30, el:0.82,
 };
 
 // real circuit outline (Barcelona-Catalunya), normalized 0..1, ported from the
@@ -58,9 +58,11 @@ export const TRACK_PATH = [
 ];
 
 export const COMPOUNDS = {
-  soft:   { pace:-0.55, wear:2.6, cliff:65, warm:1.4 },
-  medium: { pace: 0.00, wear:1.7, cliff:78, warm:1.0 },
-  hard:   { pace: 0.55, wear:1.1, cliff:90, warm:0.7 },
+  soft:   { pace:-0.55, wear:2.6, cliff:65, warm:1.4, wet_opt:0.0 },
+  medium: { pace: 0.00, wear:1.7, cliff:78, warm:1.0, wet_opt:0.0 },
+  hard:   { pace: 0.55, wear:1.1, cliff:90, warm:0.7, wet_opt:0.0 },
+  inter:  { pace: 0.30, wear:1.9, cliff:70, warm:1.1, wet_opt:0.5 },
+  wet:    { pace: 0.50, wear:1.6, cliff:75, warm:1.0, wet_opt:0.9 },
 };
 
 // tyre temperature model. temp 0..1 (1 = in the window). Fresh tyres are cold.
@@ -89,6 +91,12 @@ export const EVENT = {
   scMinLaps:  3,     // the SC stays out this many leader-laps
   scTrainGap: 0.6,   // seconds between cars in the bunched SC train
   scPitMult:  0.55,  // pit time-loss multiplier under SC (a cheap stop)
+};
+
+// weather (Phase 6): wet pace penalty for using a compound off its optimal wetness.
+export const WET = {
+  mismatch: 3.0,  // s/lap per unit |wetness - compound.wet_opt|
+  slick:    8.0,  // s/lap extra for a slick once standing water forms (× wetness over 0.4)
 };
 
 // pace modes: pace offset (s/lap), wear multiplier, mechanical-risk multiplier

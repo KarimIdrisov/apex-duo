@@ -70,3 +70,16 @@ test("event constants present and sane", () => {
   assert.ok(EVENT.scTrainGap > 0);
   assert.ok(EVENT.scPitMult > 0 && EVENT.scPitMult < 1);
 });
+
+import { WET } from "../src/data.js";
+test("wet compounds + wet_opt + weather constants", () => {
+  for (const c of ["soft", "medium", "hard", "inter", "wet"]) {
+    assert.ok(COMPOUNDS[c], c);
+    assert.ok(COMPOUNDS[c].wet_opt >= 0 && COMPOUNDS[c].wet_opt <= 1, `${c}.wet_opt`);
+  }
+  assert.equal(COMPOUNDS.hard.wet_opt, 0);
+  assert.ok(COMPOUNDS.inter.wet_opt > 0.2 && COMPOUNDS.inter.wet_opt < 0.8);
+  assert.ok(COMPOUNDS.wet.wet_opt > 0.7);
+  assert.ok(TRACK.wet > 0 && TRACK.wet < 1);
+  assert.ok(WET.mismatch > 0 && WET.slick > 0);
+});
