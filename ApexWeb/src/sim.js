@@ -1,7 +1,8 @@
 // ApexWeb/src/sim.js
 import { RNG, mix32 } from "./rng.js";
-import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP } from "./data.js";
+import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP, TYRE } from "./data.js";
 import { startFuel, burnFor, weightTerm, engineTerm } from "./fuel.js";
+import { tyreTerm, warmStep } from "./tyres.js";
 
 const ENGINE_KEYS = new Set(["save", "standard", "push"]);
 
@@ -18,7 +19,7 @@ export class Race {
       setup: f.setup ?? [0.5, 0.5, 0.5], setupBonus: f.setupBonus ?? 0,
       lap: 0, lapFrac: 0, lapTimeAccum: 0, lastLap: 0, totalTime: 0,
       avgLap: 0, _lapSum: 0, _lapN: 0,
-      tyre: f.startTyre ?? "medium", wear: 0, tyreAge: 0,
+      tyre: f.startTyre ?? "medium", wear: 0, tyreAge: 0, tyreTemp: TYRE.gridTemp,
       fuel: startFuel(track), engine: "standard",
       pace: "balanced",
       retired: false, pitPending: null, pos: i + 1, startPos: i + 1,
@@ -35,19 +36,13 @@ export class Race {
     let s = t.lt;
     s -= SKILL_K * (c.skill - 0.5);
     s -= CAR_K * ((c.car.power - c.car.aero) * (t.pw - t.df));   // track-character bias
-    s += comp.pace + this._wearTerm(c, comp);
+    s += comp.pace + tyreTerm(c.tyre, c.wear, c.tyreTemp);
     s += pm.pace;
     s += engineTerm(c.engine);          // fuel push/save lever
     s += weightTerm(c.fuel);            // heavy tank = slower (eases as fuel burns)
     s += c.setupBonus;                                           // <=0, faster when set well
     s += this.rng.noise(0.06);
     return s;
-  }
-
-  _wearTerm(c, comp) {
-    // linear up to the cliff, then steep
-    if (c.wear <= comp.cliff) return c.wear * 0.012;
-    return comp.cliff * 0.012 + (c.wear - comp.cliff) * 0.10;
   }
 
   step(dt = STEP) {
@@ -68,6 +63,7 @@ export class Race {
         // per-lap wear + fuel burn
         const comp = COMPOUNDS[c.tyre], pm = PACE_MODES[c.pace];
         c.wear += comp.wear * pm.wear;
+        c.tyreTemp = warmStep(c.tyreTemp, c.tyre);
         c.fuel -= burnFor(c.engine, c.car.fuel);   // c.car.fuel: economy rating (1=standard), wired in Phase 7
         c.tyreAge += 1;
         this._serveLapEnd(c); // phase 3: pit + DNF (finishers handled in order())
@@ -123,7 +119,7 @@ export class Race {
       }
     }
     if (c.pitPending) {
-      c.tyre = c.pitPending; c.pitPending = null; c.wear = 0; c.tyreAge = 0;
+      c.tyre = c.pitPending; c.pitPending = null; c.wear = 0; c.tyreAge = 0; c.tyreTemp = TYRE.pitTemp;
       c.pitStops += 1; c.totalTime += this.track.pit;
       c.lapFrac -= this.track.pit / this.track.lt;            // lose pit time on track
       if (c.lapFrac < 0) c.lapFrac = 0;

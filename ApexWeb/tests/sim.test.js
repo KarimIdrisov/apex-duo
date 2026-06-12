@@ -109,3 +109,24 @@ test("determinism holds with fuel", () => {
     while (!r.finished && g++ < 500000) r.step(); return r.order().map(c => c.abbrev); };
   assert.deepEqual(run(3), run(3));
 });
+
+import { TYRE } from "../src/data.js";
+
+test("a pit drops the tyre cold, then it warms over the following laps", () => {
+  const r = new Race(field(), TRACK, 21);
+  const c = r.cars[0];
+  r.requestPit(0, "medium");
+  let guard = 0;
+  while (c.pitStops === 0 && guard++ < 80000) r.step();   // run until the pit is served
+  const tempAfterPit = c.tyreTemp;
+  const lap0 = c.lap;
+  while (c.lap < lap0 + 2 && guard++ < 80000) r.step();   // two more laps
+  assert.ok(tempAfterPit <= TYRE.pitTemp + 1e-9, `fresh tyre should start cold (${tempAfterPit})`);
+  assert.ok(c.tyreTemp > tempAfterPit, "tyre should warm up over the following laps");
+});
+
+test("determinism holds with tyre warm-up", () => {
+  const run = s => { const r = new Race(field(), TRACK, s); let g = 0;
+    while (!r.finished && g++ < 500000) r.step(); return r.order().map(c => c.abbrev); };
+  assert.deepEqual(run(4), run(4));
+});
