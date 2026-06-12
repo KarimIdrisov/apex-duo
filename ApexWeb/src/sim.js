@@ -5,7 +5,7 @@ import { startFuel, burnFor, weightTerm, engineTerm, fuelLaps } from "./fuel.js"
 import { tyreTerm, warmStep } from "./tyres.js";
 import { miniSplits, MINI, N_MINI, sampleAt } from "./track.js";
 import { slipstream, dirtyWear, passAccrual, zoneFor } from "./overtake.js";
-import { PASS_CREDIT_CAP, PASS_CREDIT_DECAY } from "./data.js";
+import { PASS_CREDIT_CAP, PASS_CREDIT_DECAY, DIRTY_PACE_K } from "./data.js";
 import { scheduleSC } from "./events.js";
 import { scheduleWeather, wetnessAt, weatherTerm } from "./weather.js";
 import { planRace, pitDecision, engineMode, paceMode } from "./ai_strategy.js";
@@ -40,7 +40,7 @@ export class Race {
       retired: false, pitPending: null, pos: i + 1, startPos: i + 1,
       pitStops: 0, pitTimer: 0,
       lastMini: [], bestMini: new Array(N_MINI).fill(Infinity), miniColors: [], sectorTimes: [0, 0, 0],
-      _dirtyWear: 0, _launch: 0,
+      _dirtyWear: 0, _dirtyPace: 0, _launch: 0,
     }));
     // field-mean car performance ((power+aero)/2), fixed for the race — the anchor the
     // absolute car-pace term is measured against, so a better-than-average car is faster (§18.1).
@@ -85,6 +85,7 @@ export class Race {
     s += weightTerm(c.fuel);            // heavy tank = slower (eases as fuel burns)
     s += c.setupBonus;                                           // <=0, faster when set well
     s += this.rng.noise(0.06) * (1.3 - ATTRW.noise * A(c).consistency);      // consistency steadies the lap
+    s += c._dirtyPace || 0;                                                   // dirty-air pace loss (set by _resolveCombat, §18.11)
     s += c._form || 0;                                                        // per-race form (off/on weekend), every car
     if (c.player == null && this.difficulty < 1) {                            // difficulty handicap (AI only)
       s += (1 - this.difficulty) * AI_HANDICAP;                              // easier AI = a touch slower
@@ -145,6 +146,7 @@ export class Race {
       }
     }
     if (!this.scActive) this._resolveCombat();   // no green-flag passing under the safety car
+    else for (const c of this.cars) c._dirtyPace = 0;   // no dirty-air pace penalty while the field crawls behind the SC
     this._aiDrive();   // AI engine/pace management (post-combat: pos + pass-credit are fresh)
     // safety-car lifecycle, driven by the leader's lap count
     const leadLap = this.cars.reduce((m, c) => Math.max(m, c.lap), 0);
@@ -206,13 +208,14 @@ export class Race {
   // Writes ONLY lapFrac (relative to the car's own lap). Never assigns lap.
   _resolveCombat() {
     const ord = this.order(); // sorted leaders-first; pos set
+    for (const c of this.cars) c._dirtyPace = 0;   // fresh each green tick — dirty-air pace penalty is instantaneous
     for (let i = 1; i < ord.length; i++) {
       const ahead = ord[i - 1], me = ord[i];
       if (me.retired || ahead.retired || me.pitTimer > 0 || ahead.pitTimer > 0) continue;  // a car in the pits isn't racing
       const gapSec = ((ahead.lap + ahead.lapFrac) - (me.lap + me.lapFrac)) * this.track.lt;
       const s = sampleAt(me.lapFrac).straightness;          // local track character at the follower
-      // dirty air: sitting close (even outside passing range) costs the follower tyre life, worse in corners
-      if (gapSec > 0 && gapSec < DIRTY_GAP) me._dirtyWear += dirtyWear(s);
+      // dirty air: sitting close (even outside passing range) costs the follower tyre life AND pace, worse in corners
+      if (gapSec > 0 && gapSec < DIRTY_GAP) { me._dirtyWear += dirtyWear(s); me._dirtyPace = DIRTY_PACE_K * (1 - s); }
       // close combat: hold-up + pass-credit, with slipstream and braking-zone concentration
       if (gapSec > 0 && gapSec < COMBAT_GAP && me.lap === ahead.lap) {
         const edge = this._lapTime(ahead) - this._lapTime(me);   // >0 => me faster

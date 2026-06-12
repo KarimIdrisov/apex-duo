@@ -180,6 +180,21 @@ test("following closely in dirty air wears the tyres faster than running in clea
   assert.ok(bWear(true) > bWear(false), "dirty air should wear the follower's tyres faster");
 });
 
+test("following closely in dirty air costs the follower lap-time (not just tyre wear)", () => {
+  function bAvg(behind) {
+    const r = new Race(field(), TRACK, 9);
+    const a = r.cars[0], b = r.cars[1];
+    a.car = { ...a.car, rel: 1 }; b.car = { ...a.car };   // identical cars
+    a.attrs = b.attrs; a.skill = b.skill;                 // identical drivers → no real pace edge
+    for (let i = 0; i < r.cars.length; i++) { r.cars[i].lap = 1; r.cars[i].lapFrac = 0.02 * i; }
+    if (behind) { a.lapFrac = 0.60; b.lapFrac = 0.60 - 0.6 / TRACK.lt; }  // b ~0.6s behind a (dirty air)
+    else        { a.lapFrac = 0.05; b.lapFrac = 0.60; }                   // b in clean air, far from a
+    for (let k = 0; k < 1400; k++) r.step();   // ~4 laps
+    return b.avgLap;
+  }
+  assert.ok(bAvg(true) > bAvg(false), "running in dirty air should make the follower's laps slower");
+});
+
 import { EVENT } from "../src/data.js";
 
 test("a safety car occurs at roughly track.sc across seeds", () => {
