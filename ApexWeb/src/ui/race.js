@@ -77,7 +77,9 @@ function buildHud(root, ctx) {
         <div class="seg" id="d-pace">${PACE.map(p => `<button data-v="${p}">${PACE_L[p]}</button>`).join("")}</div>
         <p class="label" style="margin-top:8px">Мотор</p>
         <div class="seg" id="d-engine">${ENGINE.map(e => `<button data-v="${e}">${ENGINE_L[e]}</button>`).join("")}</div>
-        <button class="primary" id="d-pit" style="margin-top:10px;background:var(--bad)">⛽ В боксы → ${tyreIcon("hard", 20)} Hard</button>
+        <p class="label" style="margin-top:8px">Пит — компаунд <span id="d-weather"></span></p>
+        <div class="seg" id="d-compound">${["soft","medium","hard","inter","wet"].map(t => `<button data-v="${t}">${tyreIcon(t, 18)}</button>`).join("")}</div>
+        <button class="primary" id="d-pit" style="margin-top:8px;background:var(--bad)">⛽ В боксы</button>
       </div>
       </div>
       <div class="panel dash-board" style="padding:8px">
@@ -100,7 +102,8 @@ function buildHud(root, ctx) {
   root.querySelector("#d-wear").style.background = "linear-gradient(90deg,#3ddc84,#e7c84b 70%,#e7553b)";
   root.querySelector("#d-pace").onclick = e => { const v = e.target.dataset && e.target.dataset.v; if (v) ctx.send({ cmd: "set_pace", car: myIdx(), mode: v }); };
   root.querySelector("#d-engine").onclick = e => { const v = e.target.dataset && e.target.dataset.v; if (v) ctx.send({ cmd: "set_engine", car: myIdx(), mode: v }); };
-  root.querySelector("#d-pit").onclick = () => { sfx.pit(); ctx.send({ cmd: "request_pit", car: myIdx(), compound: "hard" }); };
+  root.querySelector("#d-compound").onclick = e => { const b = e.target.closest("button"); if (b && b.dataset.v) { ctx.nextCompound = b.dataset.v; updateHud(root, ctx, ctx.snapshot); } };
+  root.querySelector("#d-pit").onclick = () => { sfx.pit(); ctx.send({ cmd: "request_pit", car: myIdx(), compound: ctx.nextCompound || "medium" }); };
   root.querySelector("#d-pause").onclick = () => ctx.send({ cmd: "toggle_pause" });
   root.querySelector("#d-speed").onclick = () => {
     const cur = (ctx.snapshot && ctx.snapshot.speed) || 1;
@@ -149,6 +152,10 @@ function updateHud(root, ctx, snap) {
   $("#d-fuel-txt").textContent = `${(me.fuelLaps || 0).toFixed(1)} кр запас`;
   for (const b of $("#d-pace").children) b.classList.toggle("on", b.dataset.v === me.pace);
   for (const b of $("#d-engine").children) b.classList.toggle("on", b.dataset.v === me.engine);
+  const wet = snap.wetness || 0;
+  $("#d-weather").innerHTML = wet < 0.1 ? "☀️ сухо" : wet < 0.45 ? "🌦️ сыро " + Math.round(wet * 100) + "%" : "🌧️ дождь " + Math.round(wet * 100) + "%";
+  const nc = ctx.nextCompound || "medium";
+  for (const b of $("#d-compound").children) b.classList.toggle("on", b.dataset.v === nc);
   // leaderboard (throttled — positions change slowly)
   if ((ctx._boardTick++ % 3) === 0 || snap.finished) $("#d-board").innerHTML = board(cars, ctx);
 }
