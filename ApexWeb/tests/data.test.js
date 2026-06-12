@@ -71,7 +71,7 @@ test("event constants present and sane", () => {
   assert.ok(EVENT.scPitMult > 0 && EVENT.scPitMult < 1);
 });
 
-import { WET } from "../src/data.js";
+import { WET, ATTRW } from "../src/data.js";
 test("wet compounds + wet_opt + weather constants", () => {
   for (const c of ["soft", "medium", "hard", "inter", "wet"]) {
     assert.ok(COMPOUNDS[c], c);
@@ -82,4 +82,12 @@ test("wet compounds + wet_opt + weather constants", () => {
   assert.ok(COMPOUNDS.wet.wet_opt > 0.7);
   assert.ok(TRACK.wet > 0 && TRACK.wet < 1);
   assert.ok(WET.mismatch > 0 && WET.slick > 0);
+});
+
+test("attribute modulation weights + car tyre/fuel indicators + facility", () => {
+  for (const k of ["wear", "overtaking", "defending", "wet", "noise", "starts", "fuel"]) assert.ok(ATTRW[k] > 0, k);
+  for (const t of TEAMS) {
+    assert.ok(t.car.tyre > 0 && t.car.fuel > 0, `${t.name} car tyre/fuel`);
+    assert.ok(t.facility >= 0 && t.facility <= 1, `${t.name} facility`);
+  }
 });

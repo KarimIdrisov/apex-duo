@@ -3,27 +3,27 @@
 // rel = engine.rel*chassis.rel). Values track the prototype's tier order.
 
 export const TEAMS = [
-  { name:"McLaren",      color:"#ff8000", car:{power:0.93, aero:0.97, energy:0.90, rel:0.95},
+  { name:"McLaren",      color:"#ff8000", facility:0.95, car:{power:0.93, aero:0.97, energy:0.90, rel:0.95, tyre:1.05, fuel:1.05},
     drivers:[{name:"Норрис",abbrev:"NOR",skill:0.950},{name:"Пиастри",abbrev:"PIA",skill:0.942}] },
-  { name:"Mercedes",     color:"#27f4d2", car:{power:0.95, aero:0.90, energy:0.93, rel:0.94},
+  { name:"Mercedes",     color:"#27f4d2", facility:0.92, car:{power:0.95, aero:0.90, energy:0.93, rel:0.94, tyre:1.04, fuel:1.04},
     drivers:[{name:"Антонелли",abbrev:"ANT",skill:0.934},{name:"Расселл",abbrev:"RUS",skill:0.928}] },
-  { name:"Red Bull",     color:"#3671c6", car:{power:0.90, aero:0.93, energy:0.88, rel:0.90},
+  { name:"Red Bull",     color:"#3671c6", facility:0.90, car:{power:0.90, aero:0.93, energy:0.88, rel:0.90, tyre:1.03, fuel:1.02},
     drivers:[{name:"Ферстаппен",abbrev:"VER",skill:0.944},{name:"Аджар",abbrev:"HAD",skill:0.848}] },
-  { name:"Ferrari",      color:"#e8002d", car:{power:0.94, aero:0.88, energy:0.90, rel:0.91},
+  { name:"Ferrari",      color:"#e8002d", facility:0.88, car:{power:0.94, aero:0.88, energy:0.90, rel:0.91, tyre:1.02, fuel:1.02},
     drivers:[{name:"Леклер",abbrev:"LEC",skill:0.898},{name:"Хэмилтон",abbrev:"HAM",skill:0.886}] },
-  { name:"Williams",     color:"#64c4ff", car:{power:0.94, aero:0.82, energy:0.90, rel:0.88},
+  { name:"Williams",     color:"#64c4ff", facility:0.80, car:{power:0.94, aero:0.82, energy:0.90, rel:0.88, tyre:0.99, fuel:1.00},
     drivers:[{name:"Сайнс",abbrev:"SAI",skill:0.862},{name:"Албон",abbrev:"ALB",skill:0.852}] },
-  { name:"Aston Martin", color:"#229971", car:{power:0.90, aero:0.83, energy:0.88, rel:0.89},
+  { name:"Aston Martin", color:"#229971", facility:0.82, car:{power:0.90, aero:0.83, energy:0.88, rel:0.89, tyre:1.00, fuel:1.00},
     drivers:[{name:"Алонсо",abbrev:"ALO",skill:0.846},{name:"Стролл",abbrev:"STR",skill:0.800}] },
-  { name:"Alpine",       color:"#0093cc", car:{power:0.86, aero:0.84, energy:0.85, rel:0.86},
+  { name:"Alpine",       color:"#0093cc", facility:0.74, car:{power:0.86, aero:0.84, energy:0.85, rel:0.86, tyre:0.98, fuel:0.99},
     drivers:[{name:"Гасли",abbrev:"GAS",skill:0.816},{name:"Колапинто",abbrev:"COL",skill:0.788}] },
-  { name:"RB",           color:"#6692ff", car:{power:0.90, aero:0.81, energy:0.88, rel:0.88},
+  { name:"RB",           color:"#6692ff", facility:0.78, car:{power:0.90, aero:0.81, energy:0.88, rel:0.88, tyre:0.99, fuel:1.00},
     drivers:[{name:"Лоусон",abbrev:"LAW",skill:0.798},{name:"Линдблад",abbrev:"LIN",skill:0.768}] },
-  { name:"Haas",         color:"#b6babd", car:{power:0.94, aero:0.79, energy:0.90, rel:0.87},
+  { name:"Haas",         color:"#b6babd", facility:0.72, car:{power:0.94, aero:0.79, energy:0.90, rel:0.87, tyre:0.97, fuel:0.99},
     drivers:[{name:"Окон",abbrev:"OCO",skill:0.786},{name:"Бирман",abbrev:"BEA",skill:0.760}] },
-  { name:"Sauber",       color:"#52e252", car:{power:0.88, aero:0.80, energy:0.86, rel:0.86},
+  { name:"Sauber",       color:"#52e252", facility:0.70, car:{power:0.88, aero:0.80, energy:0.86, rel:0.86, tyre:0.98, fuel:0.99},
     drivers:[{name:"Хюлькенберг",abbrev:"HUL",skill:0.764},{name:"Бортолето",abbrev:"BOR",skill:0.738}] },
-  { name:"Cadillac",     color:"#c9a227", car:{power:0.94, aero:0.78, energy:0.90, rel:0.84},
+  { name:"Cadillac",     color:"#c9a227", facility:0.68, car:{power:0.94, aero:0.78, energy:0.90, rel:0.84, tyre:0.97, fuel:0.98},
     drivers:[{name:"Перес",abbrev:"PER",skill:0.742},{name:"Боттас",abbrev:"BOT",skill:0.726}] },
 ];
 
@@ -97,6 +97,19 @@ export const EVENT = {
 export const WET = {
   mismatch: 3.0,  // s/lap per unit |wetness - compound.wet_opt|
   slick:    8.0,  // s/lap extra for a slick once standing water forms (× wetness over 0.4)
+};
+
+// FM driver-attribute modulation weights (Phase 7). Each effect is CENTERED on the
+// attribute's 0.5 midpoint, so an average driver reproduces the pre-Phase-7 behaviour.
+export const ATTRW = {
+  wear:       0.30,  // tyre wear ×(1 - wear·(tyre-0.5)·2)   → ±30% across the attr range
+  overtaking: 0.60,  // pass-credit ×(0.7 + overtaking·0.6)
+  defending:  0.60,  // pass resistance ×(0.7 + defending·0.6)
+  wet:        0.60,  // wet penalty ×(1.3 - wet·0.6)
+  noise:      0.60,  // lap noise ×(1.3 - consistency·0.6)
+  starts:     1.0,   // start-incident prob ×(1.5 - starts)
+  fuel:       0.20,  // fuel burn ×(1.1 - smoothness·0.2)
+  carWear:    0.20,  // tyre wear ×(2 - car.tyre)            → car.tyre 1.0 = neutral
 };
 
 // pace modes: pace offset (s/lap), wear multiplier, mechanical-risk multiplier
