@@ -92,7 +92,7 @@ test("attribute modulation weights + car tyre/fuel indicators + facility", () =>
   }
 });
 
-import { DIFFICULTY, AI_HANDICAP, AI_NOISE } from "../src/data.js";
+import { DIFFICULTY, AI_HANDICAP, AI_NOISE, AI_FORM } from "../src/data.js";
 test("difficulty presets ascend easy<normal<hard in [0,1] with labels", () => {
   for (const k of ["easy", "normal", "hard"]) {
     assert.ok(DIFFICULTY[k] && typeof DIFFICULTY[k].label === "string", k);
@@ -100,5 +100,5 @@ test("difficulty presets ascend easy<normal<hard in [0,1] with labels", () => {
   }
   assert.ok(DIFFICULTY.easy.ai < DIFFICULTY.normal.ai && DIFFICULTY.normal.ai < DIFFICULTY.hard.ai);
   assert.equal(DIFFICULTY.hard.ai, 1);
-  assert.ok(AI_HANDICAP > 0 && AI_NOISE > 0);
+  assert.ok(AI_HANDICAP > 0 && AI_NOISE > 0 && AI_FORM > 0);
 });

@@ -120,7 +120,9 @@ export const DIFFICULTY = {
   hard:   { label: "Сложная", ai: 1.00 },
 };
 export const AI_HANDICAP = 0.80;  // s/lap an AI loses at difficulty 0 (scaled by 1-difficulty)
-export const AI_NOISE    = 0.45;  // extra lap-noise amplitude for AI at difficulty 0 (scaled by 1-difficulty)
+export const AI_NOISE    = 0.25;  // extra per-lap noise amplitude for AI at difficulty 0 (scaled by 1-difficulty)
+export const AI_FORM     = 1.0;   // per-RACE form swing amplitude for AI at difficulty 0 (scaled by 1-difficulty);
+                                  // a fixed whole-race offset per car → genuine upsets at low difficulty (doesn't average out)
 
 // pace modes: pace offset (s/lap), wear multiplier, mechanical-risk multiplier
 export const PACE_MODES = {

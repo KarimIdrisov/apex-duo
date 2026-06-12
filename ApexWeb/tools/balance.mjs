@@ -153,3 +153,26 @@ console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0
     `mean stop on lap ${(lapSum / lapN).toFixed(0)}/${TRACK.laps} (expect a mid-race window); ` +
     `AI fuel run-outs ${fuelDry}/${races} races (expect 0 — the brain manages fuel)`);
 }
+
+// difficulty corridor: lower difficulty makes the AI field slower and MORE varied (more winners),
+// higher difficulty is razor-sharp (the best car dominates). Each level keeps DNF in band.
+{
+  const sample = (diff, races = 40) => {
+    const winners = {}; let dnf = 0, spread = 0, n = 0;
+    for (let s = 0; s < races; s++) {
+      const r = new Race(field(), TRACK, 1000 + s, diff);
+      r.gridStart();
+      let g = 0; while (!r.finished && g++ < 500000) r.step();
+      const ord = r.order(); winners[ord[0].abbrev] = (winners[ord[0].abbrev] || 0) + 1;
+      dnf += r.cars.filter(c => c.retired).length;
+      const fin = r.cars.filter(c => !c.retired).map(c => c.avgLap).sort((a, b) => a - b);
+      if (fin.length > 1) { spread += fin[fin.length - 1] - fin[0]; n++; }
+    }
+    return { uniqueWinners: Object.keys(winners).length, topWin: Math.max(...Object.values(winners)),
+      dnf: (dnf / races).toFixed(2), spread: (spread / n).toFixed(2), winners };
+  };
+  const easy = sample(0.55), hard = sample(1.0);
+  console.log(`difficulty easy(0.55): ${easy.uniqueWinners} winners, top ${easy.topWin}/40, DNF ${easy.dnf}, spread ${easy.spread}`);
+  console.log(`difficulty hard(1.00): ${hard.uniqueWinners} winners, top ${hard.topWin}/40, DNF ${hard.dnf}, spread ${hard.spread}`);
+  console.log(`  -> expect easy has >= hard unique winners (more variety) and each DNF ~1-2.5`);
+}

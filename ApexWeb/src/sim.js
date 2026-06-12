@@ -1,6 +1,6 @@
 // ApexWeb/src/sim.js
 import { RNG, mix32 } from "./rng.js";
-import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP, TYRE, DIRTY_GAP, EVENT, ATTRW, AI_HANDICAP, AI_NOISE } from "./data.js";
+import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP, TYRE, DIRTY_GAP, EVENT, ATTRW, AI_HANDICAP, AI_NOISE, AI_FORM } from "./data.js";
 import { startFuel, burnFor, weightTerm, engineTerm, fuelLaps } from "./fuel.js";
 import { tyreTerm, warmStep } from "./tyres.js";
 import { miniSplits, MINI, N_MINI, sampleAt } from "./track.js";
@@ -43,7 +43,13 @@ export class Race {
     }));
     this.difficulty = difficulty;   // AI sharpness scalar (lobby-selected; default ~Обычная)
     for (const c of this.cars) {
-      if (c.player == null) { c.aiPlan = planRace(c, track, seed, this.difficulty); c.aiStopsDone = 0; }
+      if (c.player == null) {
+        c.aiPlan = planRace(c, track, seed, this.difficulty); c.aiStopsDone = 0;
+        // per-race form: a fixed whole-race pace offset per car, seeded (no rng draw → other streams untouched),
+        // scaled by 1-difficulty → easy AI has off/on weekends (upsets); hard AI is razor-flat.
+        const f = ((mix32(((seed >>> 0) + (c.idx >>> 0) * 0x9e3779b1) >>> 0) % 2000) / 1000) - 1;  // [-1,1]
+        c._aiForm = f * (1 - this.difficulty) * AI_FORM;
+      }
     }
   }
 
@@ -65,7 +71,8 @@ export class Race {
     s += this.rng.noise(0.06) * (1.3 - ATTRW.noise * A(c).consistency);      // consistency steadies the lap
     if (c.player == null && this.difficulty < 1) {                            // difficulty handicap (AI only)
       s += (1 - this.difficulty) * AI_HANDICAP;                              // easier AI = a touch slower
-      s += this.rng.noise((1 - this.difficulty) * AI_NOISE);                 // ...and less consistent (more upsets)
+      s += (c._aiForm || 0);                                                 // per-race form: off/on weekend (creates upsets)
+      s += this.rng.noise((1 - this.difficulty) * AI_NOISE);                 // ...and less consistent lap-to-lap
     }
     if (c.lap === 0 && c._startPenalty) s += c._startPenalty;   // lost time from a start incident (lap 1 only)
     if (this.scActive) s *= EVENT.scPaceMult;   // everyone crawls behind the safety car
