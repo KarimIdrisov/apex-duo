@@ -1,4 +1,5 @@
 // ApexWeb/src/ui/quali.js
+import { DRIVER_INFO } from "../data.js";
 export function render(root, ctx) {
   ctx.myRisk = ctx.myRisk ?? 0.5;          // this player's risk slider (NOT the host risk map)
   const grid = ctx.snapshot?.grid;          // host computes + broadcasts after a run
@@ -16,8 +17,12 @@ export function render(root, ctx) {
     ctx.send({ cmd:"quali_risk", player:ctx.myPlayer, risk: ctx.myRisk });
   root.querySelector("#ready").onclick = () => ctx.send({ cmd:"ready", player: ctx.myPlayer });
 }
+function logo(abbrev){
+  const l = DRIVER_INFO[abbrev] && DRIVER_INFO[abbrev].logo;
+  return l ? `<img src="assets/teams/${l}.png" alt="" style="height:16px;width:16px;object-fit:contain;vertical-align:middle;margin-right:6px">` : "";
+}
 function gridHtml(grid){
   return `<p class="label">Стартовая решётка</p>` + grid.map((g,i)=>
     `<div style="display:flex;justify-content:space-between;padding:2px 6px">
-       <span>${i+1}. ${g.abbrev}</span><span>${g.time.toFixed(3)}</span></div>`).join("");
+       <span>${i+1}. ${logo(g.abbrev)}${g.abbrev}</span><span>${g.time.toFixed(3)}</span></div>`).join("");
 }

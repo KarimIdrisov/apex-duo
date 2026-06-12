@@ -9,9 +9,12 @@ import * as quali from "./ui/quali.js";
 import * as race from "./ui/race.js";
 import { buildGrid } from "./quali.js";
 import { paceBonus, closeness, trackIdeal } from "./setup.js";
+import { sfx } from "./audio.js";
 
 const SCREENS = { lobby, practice, quali, race, result: race };
 const root = document.getElementById("app");
+// any button press blips (and unlocks the AudioContext on first gesture)
+root.addEventListener("click", e => { if (e.target.closest("button")) sfx.click(); });
 
 export const ctx = {
   net: null, role: null, weekend: new Weekend(), race: null,

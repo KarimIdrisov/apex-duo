@@ -61,3 +61,16 @@ export const STEP      = 0.25;   // sim time-step (seconds)
 export const COMBAT_GAP = 0.8;   // seconds: within this, two cars fight
 export const PASS_K    = 1.6;    // pass-credit accrual per unit track.ot
 export const GRID_GAP  = 0.20;   // starting time spread per grid slot (seconds)
+
+// team name -> logo file in assets/teams/ (Godot art; Sauber=audi, RB=racing_bulls)
+export const TEAM_LOGO = {
+  "McLaren": "mclaren", "Mercedes": "mercedes", "Red Bull": "red_bull", "Ferrari": "ferrari",
+  "Williams": "williams", "Aston Martin": "aston_martin", "Alpine": "alpine", "RB": "racing_bulls",
+  "Haas": "haas", "Sauber": "audi", "Cadillac": "cadillac",
+};
+
+// driver abbrev -> { logo, color, team } so UI can show a logo from just an abbrev
+export const DRIVER_INFO = {};
+for (const t of TEAMS) for (const d of t.drivers) {
+  DRIVER_INFO[d.abbrev] = { logo: TEAM_LOGO[t.name], color: t.color, team: t.name };
+}

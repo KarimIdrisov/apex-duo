@@ -1,14 +1,20 @@
 // ApexWeb/src/ui/lobby.js
-import { TEAMS } from "../data.js";
+import { TEAMS, TEAM_LOGO } from "../data.js";
 import { hostGame, joinGame, startSolo } from "../main.js";
 
+const logoSrc = i => `assets/teams/${TEAM_LOGO[TEAMS[i].name]}.png`;
+
 export function render(root, ctx) {
-  const teamOpts = TEAMS.map((t,i)=>`<option value="${i}">${t.name}</option>`).join("");
+  ctx.teamIdx = ctx.teamIdx || 0;
+  const teamOpts = TEAMS.map((t,i)=>`<option value="${i}" ${i===ctx.teamIdx?"selected":""}>${t.name}</option>`).join("");
   root.innerHTML = `
     <div class="panel">
       <h2>Apex Web — кооп-уикенд</h2>
       <p class="label">Команда</p>
-      <select id="team">${teamOpts}</select>
+      <div style="display:flex;align-items:center;gap:10px">
+        <img id="teamlogo" src="${logoSrc(ctx.teamIdx)}" alt="" style="height:34px;width:34px;object-fit:contain">
+        <select id="team" style="flex:1">${teamOpts}</select>
+      </div>
       <div style="height:10px"></div>
       <button class="primary" id="host">Создать комнату</button>
       <div style="height:8px"></div>
@@ -20,7 +26,10 @@ export function render(root, ctx) {
       <p id="status" class="label" style="margin-top:10px"></p>
     </div>`;
   const useP2P = true;            // set false to dev with two tabs (LocalNet)
-  root.querySelector("#team").onchange = e => ctx.teamIdx = +e.target.value;
+  root.querySelector("#team").onchange = e => {
+    ctx.teamIdx = +e.target.value;
+    root.querySelector("#teamlogo").src = logoSrc(ctx.teamIdx);
+  };
   root.querySelector("#host").onclick = async (e) => {
     e.target.disabled = true; e.target.textContent = "Создаём комнату…";
     const code = await hostGame(useP2P);   // stay in lobby; the weekend starts when the partner joins
