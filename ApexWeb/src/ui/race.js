@@ -4,8 +4,8 @@
 import { TRACK, DRIVER_INFO } from "../data.js";
 import { sfx } from "../audio.js";
 
-const teamLogo = a => { const l = DRIVER_INFO[a] && DRIVER_INFO[a].logo; return l ? `<img src="assets/teams/${l}.png" alt="" style="height:15px;width:15px;object-fit:contain;vertical-align:middle;margin-right:5px">` : ""; };
-const tyreIcon = (t, s = 16) => `<img src="assets/tyres/${t}.png" alt="${t}" style="height:${s}px;width:${s}px;object-fit:contain;vertical-align:middle">`;
+const teamLogo = (a, s = 22) => { const l = DRIVER_INFO[a] && DRIVER_INFO[a].logo; return l ? `<img src="assets/teams/${l}.png" alt="" style="height:${s}px;width:${s}px;object-fit:contain;vertical-align:middle;margin-right:7px">` : ""; };
+const tyreIcon = (t, s = 24) => `<img src="assets/tyres/${t}.png" alt="${t}" style="height:${s}px;width:${s}px;object-fit:contain;vertical-align:middle">`;
 
 const PACE = ["conserve", "balanced", "push"], ERS = ["harvest", "balanced", "attack"];
 const PACE_L = { conserve: "Save", balanced: "Norm", push: "Push" };
@@ -44,7 +44,7 @@ function buildHud(root, ctx) {
         <div class="seg" id="hud-pace">${PACE.map(p => `<button data-v="${p}">${PACE_L[p]}</button>`).join("")}</div>
         <p class="label" style="margin-top:8px">ERS</p>
         <div class="seg" id="hud-ers">${ERS.map(e => `<button data-v="${e}">${ERS_L[e]}</button>`).join("")}</div>
-        <button class="primary" id="hud-pit" style="margin-top:10px;background:var(--bad)">⛽ В боксы → ${tyreIcon("hard", 16)} Hard</button>
+        <button class="primary" id="hud-pit" style="margin-top:10px;background:var(--bad)">⛽ В боксы → ${tyreIcon("hard", 22)} Hard</button>
       </div>
       <div class="panel">
         <button id="hud-toggle" style="width:100%;background:#262b36;color:var(--ink);border:0;border-radius:6px;padding:8px"></button>
@@ -80,7 +80,7 @@ function updateHud(root, ctx, snap) {
   $("#hud-speed").textContent = ((snap.speed || 1) + "x");
   $("#hud-ahead").textContent = ahead ? `↑ ${ahead.abbrev} +${gap(ahead, me)}` : "— лидер —";
   $("#hud-behind").textContent = behind ? `↓ ${behind.abbrev} +${gap(me, behind)}` : "";
-  $("#hud-tyrelabel").innerHTML = `Резина ${tyreIcon(me.tyre, 16)} <span style="text-transform:capitalize">${me.tyre}</span> · износ`;
+  $("#hud-tyrelabel").innerHTML = `Резина ${tyreIcon(me.tyre, 30)} <span style="text-transform:capitalize">${me.tyre}</span> · износ`;
   $("#hud-wear").style.width = Math.max(0, Math.min(100, 100 - me.wear)) + "%";
   $("#hud-soc").style.width = Math.max(0, Math.min(100, me.soc)) + "%";
   for (const b of $("#hud-pace").children) b.classList.toggle("on", b.dataset.v === me.pace);
@@ -100,7 +100,7 @@ function tower(cars, ctx) {
     const bg = c.player === ctx.myPlayer ? "background:#1d6fd6;color:#fff"
       : c.isPlayer ? "background:#2a4a7a;color:#cfe0ff" : "";
     return `<div style="display:flex;justify-content:space-between;padding:2px 6px;${bg};border-radius:3px">
-      <span>${c.pos} ${teamLogo(c.abbrev)}${c.abbrev}</span><span>${c.retired ? "DNF" : tyreIcon(c.tyre, 14)}</span></div>`;
+      <span>${c.pos} ${teamLogo(c.abbrev, 22)}${c.abbrev}</span><span>${c.retired ? "DNF" : tyreIcon(c.tyre, 22)}</span></div>`;
   }).join("");
 }
 

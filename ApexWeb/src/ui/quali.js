@@ -19,7 +19,7 @@ export function render(root, ctx) {
 }
 function logo(abbrev){
   const l = DRIVER_INFO[abbrev] && DRIVER_INFO[abbrev].logo;
-  return l ? `<img src="assets/teams/${l}.png" alt="" style="height:16px;width:16px;object-fit:contain;vertical-align:middle;margin-right:6px">` : "";
+  return l ? `<img src="assets/teams/${l}.png" alt="" style="height:24px;width:24px;object-fit:contain;vertical-align:middle;margin-right:8px">` : "";
 }
 function gridHtml(grid){
   return `<p class="label">Стартовая решётка</p>` + grid.map((g,i)=>

@@ -12,8 +12,8 @@ export function render(root, ctx) {
       <h2>Apex Web — кооп-уикенд</h2>
       <p class="label">Команда</p>
       <div style="display:flex;align-items:center;gap:10px">
-        <img id="teamlogo" src="${logoSrc(ctx.teamIdx)}" alt="" style="height:34px;width:34px;object-fit:contain">
-        <select id="team" style="flex:1">${teamOpts}</select>
+        <img id="teamlogo" src="${logoSrc(ctx.teamIdx)}" alt="" style="height:52px;width:52px;object-fit:contain">
+        <select id="team" style="flex:1;padding:8px">${teamOpts}</select>
       </div>
       <div style="height:10px"></div>
       <button class="primary" id="host">Создать комнату</button>
