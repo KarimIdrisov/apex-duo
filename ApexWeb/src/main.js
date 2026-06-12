@@ -5,13 +5,12 @@ import { Race } from "./sim.js";
 import { TEAMS, TRACK, STEP, GRID_GAP } from "./data.js";
 import * as lobby from "./ui/lobby.js";
 import * as practice from "./ui/practice.js";
-import * as setup from "./ui/setup.js";
 import * as quali from "./ui/quali.js";
 import * as race from "./ui/race.js";
 import { buildGrid } from "./quali.js";
 import { paceBonus, closeness, trackIdeal } from "./setup.js";
 
-const SCREENS = { lobby, practice, setup, quali, race, result: race };
+const SCREENS = { lobby, practice, quali, race, result: race };
 const root = document.getElementById("app");
 
 export const ctx = {

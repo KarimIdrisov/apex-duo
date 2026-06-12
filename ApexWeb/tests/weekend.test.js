@@ -11,12 +11,12 @@ test("starts in lobby, advances only when both ready", () => {
   w.setReady("p1");
   assert.equal(w.phase, "practice", "one ready is not enough");
   w.setReady("p2");
-  assert.equal(w.phase, "setup", "both ready advances");
+  assert.equal(w.phase, "quali", "both ready advances");
 });
 
 test("ready flags reset on each new phase", () => {
   const w = new Weekend(); w.start();
-  w.setReady("p1"); w.setReady("p2");          // -> setup
+  w.setReady("p1"); w.setReady("p2");          // -> quali
   assert.equal(w.ready.p1, false);
   assert.equal(w.ready.p2, false);
 });
@@ -24,6 +24,6 @@ test("ready flags reset on each new phase", () => {
 test("full phase order ends at result", () => {
   const w = new Weekend(); w.start();
   const seen = [w.phase];
-  for (let i = 0; i < 4; i++) { w.setReady("p1"); w.setReady("p2"); seen.push(w.phase); }
-  assert.deepEqual(seen, ["practice","setup","quali","race","result"]);
+  for (let i = 0; i < 3; i++) { w.setReady("p1"); w.setReady("p2"); seen.push(w.phase); }
+  assert.deepEqual(seen, ["practice","quali","race","result"]);
 });

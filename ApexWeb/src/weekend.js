@@ -1,5 +1,6 @@
 // ApexWeb/src/weekend.js
-const ORDER = ["lobby", "practice", "setup", "quali", "race", "result"];
+// practice now folds in the setup puzzle, so there is no separate setup phase
+const ORDER = ["lobby", "practice", "quali", "race", "result"];
 
 export class Weekend {
   constructor() {
