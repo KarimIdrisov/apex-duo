@@ -30,7 +30,7 @@ function buildHud(root, ctx) {
     <div id="hud">
       <div class="panel" style="display:flex;justify-content:space-between;align-items:center">
         <span id="hud-lap"></span><span id="hud-pos"></span>
-        <span><button id="hud-speed" style="margin-right:6px">1x</button><button id="hud-pause">⏸</button></span>
+        <span><button class="btn" id="hud-speed" style="margin-right:6px">1x</button><button class="btn" id="hud-pause">⏸</button></span>
       </div>
       <canvas id="hud-map" width="320" height="120" class="panel" style="display:block;width:100%"></canvas>
       <div class="panel">
@@ -47,7 +47,7 @@ function buildHud(root, ctx) {
         <button class="primary" id="hud-pit" style="margin-top:10px;background:var(--bad)">⛽ В боксы → ${tyreIcon("hard", 22)} Hard</button>
       </div>
       <div class="panel">
-        <button id="hud-toggle" style="width:100%;background:#262b36;color:var(--ink);border:0;border-radius:6px;padding:8px"></button>
+        <button class="btn" id="hud-toggle" style="width:100%"></button>
         <div id="hud-table" style="display:none;margin-top:6px"></div>
       </div>
     </div>`;
