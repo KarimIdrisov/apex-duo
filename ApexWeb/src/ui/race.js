@@ -133,7 +133,8 @@ function updateHud(root, ctx, snap) {
   const pos = cars.indexOf(me), ahead = cars[pos - 1], behind = cars[pos + 1];
   $("#d-me").textContent = `P${me.pos} ${me.abbrev}`;
   $("#d-gaps").innerHTML = `${ahead ? "↑ " + gap(ahead, me) : "— лидер"}${behind ? " &nbsp; ↓ " + gap(me, behind) : ""}`;
-  $("#d-tyrelabel").innerHTML = `Резина ${tyreIcon(me.tyre, 22)} <span style="text-transform:capitalize">${me.tyre}</span> · ${me.tyreAge} кр · износ`;
+  const cold = (me.tyreTemp ?? 1) < 0.85 ? ` <span style="color:#4aa3ff" title="шина не прогрета">❄</span>` : "";
+  $("#d-tyrelabel").innerHTML = `Резина ${tyreIcon(me.tyre, 22)} <span style="text-transform:capitalize">${me.tyre}</span>${cold} · ${me.tyreAge} кр · износ`;
   $("#d-wear").style.width = Math.max(0, Math.min(100, 100 - me.wear)) + "%";
   const lapsLeft = TRACK.laps - me.lap;
   const ratio = lapsLeft > 0 ? Math.min(1.4, (me.fuelLaps || 0) / lapsLeft) : 1;   // >=1 means enough
