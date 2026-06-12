@@ -127,6 +127,9 @@ export const ATTRW = {
   starts:     1.0,   // start-incident prob ×(1.5 - starts)
   fuel:       0.20,  // fuel burn ×(1.1 - smoothness·0.2)
   carWear:    0.20,  // tyre wear ×(2 - car.tyre)            → car.tyre 1.0 = neutral
+  composure:  0.50,  // bog-down + quali-mistake prob ×(1 - composure·(comp-0.5)·2)  → calmer under pressure (§18.7)
+  aggression: 0.40,  // pass-credit ×(1 + aggression·(aggr-0.5)·2)                    → braver overtaker (§18.7)
+  discipline: 0.40,  // dirty-air wear ×(1 - discipline·(disc-0.5)·2)                 → cleaner in traffic (§18.7)
 };
 
 // difficulty: the AI sharpness scalar (Race.difficulty). Lower = the AI is slower, sloppier,

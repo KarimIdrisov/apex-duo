@@ -183,7 +183,8 @@ export class Race {
     for (const c of this.cars) {
       let launch = (mean - A(c).starts) * EVENT.startLaunch + this.erng.noise(EVENT.startReact);  // s lost (good starter < 0)
       launch = Math.max(-EVENT.startCap, Math.min(EVENT.startCap, launch));
-      if (this.erng.unit() < EVENT.startP) {                   // rare bog-down / anti-stall
+      const composed = 1 - ATTRW.composure * (A(c).composure - 0.5) * 2;   // a composed driver bogs down less often (§18.7)
+      if (this.erng.unit() < EVENT.startP * composed) {        // rare bog-down / anti-stall
         launch += EVENT.startLoss;
         if (this.erng.unit() < EVENT.startDnf) c.retired = true;
       }
@@ -215,7 +216,10 @@ export class Race {
       const gapSec = ((ahead.lap + ahead.lapFrac) - (me.lap + me.lapFrac)) * this.track.lt;
       const s = sampleAt(me.lapFrac).straightness;          // local track character at the follower
       // dirty air: sitting close (even outside passing range) costs the follower tyre life AND pace, worse in corners
-      if (gapSec > 0 && gapSec < DIRTY_GAP) { me._dirtyWear += dirtyWear(s); me._dirtyPace = DIRTY_PACE_K * (1 - s); }
+      if (gapSec > 0 && gapSec < DIRTY_GAP) {
+        me._dirtyWear += dirtyWear(s) * (1 - ATTRW.discipline * (A(me).discipline - 0.5) * 2);   // a disciplined driver runs cleaner in traffic (§18.7)
+        me._dirtyPace = DIRTY_PACE_K * (1 - s);
+      }
       // close combat: hold-up + pass-credit, with slipstream and braking-zone concentration
       if (gapSec > 0 && gapSec < COMBAT_GAP && me.lap === ahead.lap) {
         const edge = this._lapTime(ahead) - this._lapTime(me);   // >0 => me faster
@@ -223,8 +227,9 @@ export class Race {
         // recency bleed + accrual, then cap: the draft can't be banked over a whole straight and
         // cashed in one tick on zone entry (the verified credit-banking over-power, §18.13).
         const cautious = me.lap === 0 ? LAP1_CAUTION : 1;   // opening-lap caution: let the launch/grid order settle through T1 (§18.3)
+        const aggr = 1 + ATTRW.aggression * (A(me).aggression - 0.5) * 2;   // a braver driver commits harder to the move (§18.7)
         const cr = (me._passCredit ?? 0) * PASS_CREDIT_DECAY
-                 + passAccrual(edge, tow, me.engine, s) * (0.7 + ATTRW.overtaking * A(me).overtaking) * cautious;
+                 + passAccrual(edge, tow, me.engine, s) * (0.7 + ATTRW.overtaking * A(me).overtaking) * cautious * aggr;
         me._passCredit = Math.min(cr, PASS_CREDIT_CAP);
         const zone = zoneFor(this.track.overtake_zones, sampleAt(me.lapFrac).mini);   // follower's local zone (or null)
         const ease = zone ? zone.ease : this.track.ot;

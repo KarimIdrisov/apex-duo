@@ -195,6 +195,34 @@ test("following closely in dirty air costs the follower lap-time (not just tyre 
   assert.ok(bAvg(true) > bAvg(false), "running in dirty air should make the follower's laps slower");
 });
 
+test("a more aggressive driver builds pass-credit faster behind the same car (§18.7)", () => {
+  function credit(aggr) {
+    const r = new Race(field(), TRACK, 9);
+    const a = r.cars[0], b = r.cars[1];
+    a.car = { ...a.car, rel: 1 }; b.car = { ...a.car };
+    a.attrs = { ...a.attrs, pace: 0.6 }; b.attrs = { ...a.attrs, pace: 0.9, aggression: aggr };  // b genuinely faster
+    for (const c of r.cars) { c.lap = 1; c.lapFrac = 0.02 * c.idx; }
+    a.lapFrac = 0.30; b.lapFrac = 0.30 - 0.4 / TRACK.lt;   // b ~0.4s behind a, within COMBAT_GAP, same lap
+    r._resolveCombat();
+    return b._passCredit || 0;
+  }
+  assert.ok(credit(0.9) > credit(0.2), "higher aggression accrues more pass-credit");
+});
+
+test("a disciplined driver wears tyres slower in dirty air than an undisciplined one (§18.7)", () => {
+  function wear(disc) {
+    const r = new Race(field(), TRACK, 9);
+    const a = r.cars[0], b = r.cars[1];
+    a.car = { ...a.car }; b.car = { ...a.car };
+    a.attrs = { ...a.attrs }; b.attrs = { ...a.attrs, discipline: disc };   // equal pace → b stays in a's dirty air
+    for (const c of r.cars) { c.lap = 1; c.lapFrac = 0.02 * c.idx; }
+    a.lapFrac = 0.60; b.lapFrac = 0.60 - 0.6 / TRACK.lt;   // b ~0.6s behind a (dirty air)
+    for (let k = 0; k < 700; k++) r.step();
+    return b.wear;
+  }
+  assert.ok(wear(0.9) < wear(0.2), "discipline reduces dirty-air wear");
+});
+
 import { EVENT } from "../src/data.js";
 
 test("a safety car occurs at roughly track.sc across seeds", () => {

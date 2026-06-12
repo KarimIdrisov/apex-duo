@@ -31,6 +31,19 @@ test("higher risk lowers the mean lap time but raises variance", () => {
   assert.ok(variance(risky) > variance(safe), "risky should be more variable");
 });
 
+test("a composed driver loses less time to lock-ups under pressure (§18.7)", () => {
+  const base = driverAttrs("NOR", 0.8);
+  const calm    = { abbrev: "X", skill: 0.8, attrs: { ...base, composure: 0.95 } };
+  const rattled = { abbrev: "Y", skill: 0.8, attrs: { ...base, composure: 0.05 } };
+  const cm = (car.power + car.aero) / 2;   // single-car mean → car-pace term zero, times realistic
+  let calmSum = 0, rattSum = 0;
+  for (let s = 0; s < 300; s++) {          // high risk → mistakes matter; same seed → same noise, only the lock-up roll differs
+    calmSum += qualiLap(calm, car, TRACK, [0.5,0.5,0.5], 0.9, new RNG(s), cm);
+    rattSum += qualiLap(rattled, car, TRACK, [0.5,0.5,0.5], 0.9, new RNG(s), cm);
+  }
+  assert.ok(rattSum > calmSum, `rattled driver loses more time to lock-ups (${rattSum.toFixed(1)} vs ${calmSum.toFixed(1)})`);
+});
+
 test("buildGrid returns all cars sorted fastest-first", () => {
   let idx = 0;
   const field = TEAMS.flatMap(t => t.drivers.map(d => ({
