@@ -115,7 +115,7 @@ function raceSnapshot() {
     speed: ctx.speed || 1,
     cars: ctx.race.order().map(c => ({
       idx: c.idx, pos: c.pos, abbrev: c.abbrev, color: c.color, player: c.player,
-      lap: c.lap, lapFrac: c.lapFrac, tyre: c.tyre, wear: c.wear, soc: c.soc,
+      lap: c.lap, lapFrac: c.lapFrac, tyre: c.tyre, wear: c.wear,
       pace: c.pace, engine: c.engine, retired: c.retired, isPlayer: c.isPlayer,
       fuel: c.fuel, fuelLaps: fuelLaps(c.fuel, c.engine, c.car.fuel),
       pitStops: c.pitStops, tyreAge: c.tyreAge, lastLap: c.lastLap, startPos: c.startPos,
