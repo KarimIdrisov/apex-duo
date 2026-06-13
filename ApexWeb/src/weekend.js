@@ -1,6 +1,6 @@
 // ApexWeb/src/weekend.js
 // practice now folds in the setup puzzle, so there is no separate setup phase
-const ORDER = ["lobby", "practice", "quali", "race", "result"];
+const ORDER = ["lobby", "practice1", "practice2", "practice3", "quali", "race", "result"];
 
 export class Weekend {
   constructor() {
@@ -9,7 +9,7 @@ export class Weekend {
     this.onPhase = null;                       // optional callback(phase)
     this.solo = false;                         // solo mode: p1 alone advances phases
   }
-  start() { this._goto("practice"); }
+  start() { this._goto("practice1"); }
   setReady(player) {
     if (player !== "p1" && player !== "p2") return;
     this.ready[player] = true;

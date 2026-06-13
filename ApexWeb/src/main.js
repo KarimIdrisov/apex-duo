@@ -16,7 +16,8 @@ import { newPracticeState, applyPracticeRun } from "./practice.js";
 import { mix32 } from "./rng.js";
 import { sfx } from "./audio.js";
 
-const SCREENS = { lobby, practice, quali, race, result: race };
+const SCREENS = { lobby, practice1: practice, practice2: practice, practice3: practice, quali, race, result: race };
+const isPractice = p => p === "practice1" || p === "practice2" || p === "practice3";
 const root = document.getElementById("app");
 // any button press blips (and unlocks the AudioContext on first gesture)
 root.addEventListener("click", e => { if (e.target.closest("button")) sfx.click(); });
