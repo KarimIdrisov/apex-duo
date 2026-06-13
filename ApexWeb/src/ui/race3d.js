@@ -5,7 +5,7 @@
 // they catch the car ahead, so a train fans out instead of stacking on the centerline.
 import * as THREE from "https://esm.sh/three@0.160.0";
 import { TRACK_PATH } from "../data.js";
-import { buildCenterline, pointAt, tangentAt, bounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint } from "../geom3d.js";
+import { buildCenterline, pointAt, tangentAt, bounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath } from "../geom3d.js";
 
 const WORLD = 120;                 // larger track axis spans ~120 world units
 const HALF_W = 3.0;                // track half-width (world units) — wider for a real-track feel
@@ -18,7 +18,7 @@ const KERB_RED = [0.86, 0.16, 0.18], KERB_WHITE = [0.88, 0.88, 0.9];
 const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
 export function init(canvas, ctx) {
-  const cl = buildCenterline(TRACK_PATH);
+  const cl = buildCenterline(splinePath(TRACK_PATH));   // Catmull-Rom-smoothed: soft corners, no per-vertex snapping
   const b = bounds(cl);
   const sc = WORLD / b.size;                       // normalized -> world scale
   const wx = (p) => (p[0] - b.cx) * sc;            // center the track at world origin

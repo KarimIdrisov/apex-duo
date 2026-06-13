@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint } from "../src/geom3d.js";
+import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath } from "../src/geom3d.js";
 
 const SQUARE = [0, 0, 1, 0, 1, 1, 0, 1];   // unit-square loop, perimeter 4
 
@@ -76,4 +76,22 @@ test("racingLineOffset hugs the inside of a corner; offsetPoint moves perpendicu
 test("racingLineOffset ~0 on a straight", () => {
   const cl = buildCenterline([0, 0, 1, 0, 1, 1, 0, 1]);   // square: frac 0.125 = mid a straight edge
   assert.ok(Math.abs(racingLineOffset(cl, 0.125, 1, 8)) < 1e-6);
+});
+
+test("splinePath: denser smooth loop through the originals, far gentler corners than the raw polygon", () => {
+  const sq = [0, 0, 1, 0, 1, 1, 0, 1], sub = 8;
+  const sp = splinePath(sq, sub);
+  assert.equal(sp.length, 4 * sub * 2);                       // n*sub points (flat x,y)
+  for (let i = 0; i < 4; i++) {                                // still passes through each original corner
+    assert.ok(Math.abs(sp[i * sub * 2] - sq[i * 2]) < 1e-9 && Math.abs(sp[i * sub * 2 + 1] - sq[i * 2 + 1]) < 1e-9);
+  }
+  const cl = buildCenterline(sp);                             // max heading change between consecutive segments
+  let maxTurn = 0;
+  for (let k = 0; k < cl.seg.length; k++) {
+    const a = cl.seg[k], b = cl.seg[(k + 1) % cl.seg.length];
+    const a1 = Math.atan2(a.b[1] - a.a[1], a.b[0] - a.a[0]), a2 = Math.atan2(b.b[1] - b.a[1], b.b[0] - b.a[0]);
+    let d = Math.abs(a2 - a1); if (d > Math.PI) d = 2 * Math.PI - d;
+    maxTurn = Math.max(maxTurn, d);
+  }
+  assert.ok(maxTurn < 1.0, `smoothed max per-segment turn ${maxTurn} rad should be well under the raw 90° (1.57)`);
 });

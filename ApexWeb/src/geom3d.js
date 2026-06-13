@@ -109,3 +109,26 @@ export function offsetPoint(cl, frac, lat) {
   const [tx, ty] = tangentAt(cl, frac);
   return [px + (-ty) * lat, py + tx * lat];
 }
+
+// Catmull-Rom resample of a closed polygon path into a denser, SMOOTH loop that still
+// passes through every original point (`sub` samples per original segment). Rounds off
+// the sharp polygon corners so the track ribbon, car path and heading move smoothly
+// through them instead of snapping at each vertex.
+export function splinePath(path, sub = 8) {
+  const pts = [];
+  for (let i = 0; i < path.length; i += 2) pts.push([path[i], path[i + 1]]);
+  const n = pts.length;
+  if (n < 3) return path.slice();
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n], p3 = pts[(i + 2) % n];
+    for (let s = 0; s < sub; s++) {
+      const t = s / sub, t2 = t * t, t3 = t2 * t;
+      out.push(
+        0.5 * (2 * p1[0] + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
+        0.5 * (2 * p1[1] + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3),
+      );
+    }
+  }
+  return out;
+}
