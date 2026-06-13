@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Race } from "../src/sim.js";
-import { TEAMS, TRACK, STEP } from "../src/data.js";
+import { TEAMS, TRACK, STEP, SKILL_K } from "../src/data.js";
 import { driverAttrs } from "../src/team.js";
 
 function field() {
@@ -80,6 +80,30 @@ test("a clearly faster car gains positions over a stint", () => {
   for (let i = 0; i < 6000; i++) r.step();
   const endPos = r.order().find(c => c.idx === 21).pos;
   assert.ok(endPos < startPos, `start=${startPos} end=${endPos}`);
+});
+
+test("on-track passing scales with the pace edge — a clearly faster car passes more than a barely-faster one (audit r3)", () => {
+  // regression lock for the dirty-air-vs-pass-edge coupling fix: dirty air must slow the follower on
+  // track but NOT zero its passing intent, so a real pace edge converts into passes (was ~flat before).
+  function passesAtEdge(edgeS) {
+    let n = 0;
+    for (let s = 0; s < 16; s++) {
+      const r = new Race(field(), TRACK, 4000 + s);
+      const a = r.cars[0], b = r.cars[1];
+      a.car = { ...a.car, rel: 1 }; b.car = { ...a.car };
+      a.attrs = { ...a.attrs, pace: 0.6 }; b.attrs = { ...a.attrs, pace: 0.6 + edgeS / SKILL_K };  // b is edgeS s/lap faster
+      for (const c of r.cars) { if (c !== a && c !== b) { c.lap = 1; c.lapFrac = 0; } }   // clear 1v1
+      a.lap = 1; a.lapFrac = 0.50; b.lap = 1; b.lapFrac = 0.50 - 0.4 / TRACK.lt;            // b ~0.4s behind a
+      let g = 0;
+      while (b.lap < 26 && g++ < 120000) {
+        r.step();
+        if (a.retired || b.retired) break;
+        if ((b.lap + b.lapFrac) > (a.lap + a.lapFrac)) { n++; break; }   // b got ahead
+      }
+    }
+    return n;
+  }
+  assert.ok(passesAtEdge(0.8) > passesAtEdge(0.1), "a faster car must convert its edge into more on-track passes");
 });
 
 test("requestPit serves a stop and switches compound", () => {

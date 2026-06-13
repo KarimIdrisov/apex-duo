@@ -90,7 +90,7 @@ export const SLIP_K     = 0.25;  // pass-credit/tick from tow, × straightness �
 export const EDGE_REF   = 0.35;  // s/lap pace edge at which the tow converts in full; below this the tow is
                                  // scaled down so the draft AMPLIFIES a real edge, never builds a pass from nothing (§18.13)
 export const PASS_CREDIT_CAP   = 2.5;   // max bankable pass-credit — a whole straight of tow can't be cashed in one tick (§18.13)
-export const PASS_CREDIT_DECAY = 0.97;  // per-tick credit bleed (recency) — stale draft from laps ago doesn't carry (§18.13)
+export const PASS_CREDIT_DECAY = 0.99;  // per-tick credit bleed (recency) — gentle, so credit built in a brake zone survives the dirty-air laps to the next zone (audit r3; was 0.97 which annihilated it between zones)
 export const BLUE_GAP   = 0.5;   // seconds: a car a lap+ down within this far AHEAD on track triggers a lapping (blue flags)
 export const BLUE_PACE  = 0.5;   // s/lap rate the lapping car loses while spending its blue-flag budget
 export const BLUE_COST  = 0.12;  // total s lost PER backmarker cleared — a fixed one-shot cost (no closing-rate runaway);

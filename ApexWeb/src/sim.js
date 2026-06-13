@@ -225,7 +225,7 @@ export class Race {
       }
       // close combat: hold-up + pass-credit, with slipstream and braking-zone concentration
       if (gapSec > 0 && gapSec < COMBAT_GAP && me.lap === ahead.lap) {
-        const edge = this._lapTime(ahead) - this._lapTime(me);   // >0 => me faster
+        const edge = this._lapTime(ahead) - (this._lapTime(me) - (me._dirtyPace || 0));   // >0 => me faster on CLEAN pace; dirty air slows me on track but must not zero my passing intent (audit r3)
         const tow = slipstream(s, me.car.power);
         // recency bleed + accrual, then cap: the draft can't be banked over a whole straight and
         // cashed in one tick on zone entry (the verified credit-banking over-power, §18.13).
