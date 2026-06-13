@@ -106,21 +106,6 @@ export function init(canvas, ctx) {
   const grassMat = new THREE.MeshStandardMaterial({ map: grassMap, roughness: 1, metalness: 0 }); mats.push(grassMat);
   const grass = new THREE.Mesh(grassGeo, grassMat); grass.rotation.x = -Math.PI / 2; grass.position.y = -0.15; grass.receiveShadow = true; scene.add(grass);
 
-  // low-poly grandstands set back outside the track at a few spots (broadcast venue feel)
-  const bankGeo = new THREE.BoxGeometry(16, 5, 7); geos.push(bankGeo);
-  const roofGeo = new THREE.BoxGeometry(17, 0.5, 8); geos.push(roofGeo);
-  const standMat = new THREE.MeshStandardMaterial({ color: 0x39414f, roughness: 0.9 }); mats.push(standMat);
-  const roofMat = new THREE.MeshStandardMaterial({ color: 0x20252e, roughness: 0.8 }); mats.push(roofMat);
-  for (const f of [0.0, 0.26, 0.52, 0.74]) {
-    const sp = pointAt(cl, f), st = tangentAt(cl, f);
-    let nx = -st[1], ny = st[0];
-    if ((b.cx - sp[0]) * nx + (b.cy - sp[1]) * ny > 0) { nx = -nx; ny = -ny; }   // outward, away from centroid
-    const o = [sp[0] + nx * HW_N * 2.4, sp[1] + ny * HW_N * 2.4];                 // set back beyond the track edge
-    const g = new THREE.Group();
-    const bank = new THREE.Mesh(bankGeo, standMat); bank.position.set(0, 2.5, 0); bank.castShadow = true; g.add(bank);
-    const roof = new THREE.Mesh(roofGeo, roofMat); roof.position.set(0, 5.3, 1.2); roof.castShadow = true; g.add(roof);   // roof cantilevered toward the track
-    g.position.set(wx(o), 0, wz(o)); g.rotation.y = Math.atan2(-nx, -ny); scene.add(g);
-  }
 
   // --- track ribbon: a triangle strip between the left/right edges ---
   const STEPS = 320;
