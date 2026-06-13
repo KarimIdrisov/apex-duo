@@ -42,3 +42,23 @@ test("paceBonus is faster (more negative) the closer you are", () => {
   assert.ok(paceBonus(1) < paceBonus(0.5), "more closeness = bigger pace gain");
   assert.ok(paceBonus(0) === 0, "zero closeness = no bonus");
 });
+
+import { windowFor, feedbackFor } from "../src/setup.js";
+
+test("windowFor: half-width shrinks with knowledge and centres on the optimum", () => {
+  const lo = windowFor(0.1, 0.5, 1234, 0);
+  const hi = windowFor(0.95, 0.5, 1234, 0);
+  assert.ok(hi.half < lo.half, "more knowledge → tighter window");
+  assert.ok(Math.abs(hi.center - 0.5) < Math.abs(lo.center - 0.5), "centre homes onto the optimum");
+  assert.ok(hi.half >= 0.02 - 1e-9, "respects the floor");
+});
+
+test("feedbackFor: in-window → optimal; off → directional; low knowledge → vague", () => {
+  const opt = 0.5;
+  const vague = feedbackFor(0.5, windowFor(0.1, opt, 1, 0), 0.1, 0.8);
+  assert.equal(vague.state, "vague");
+  const win = windowFor(0.95, opt, 1, 0);
+  assert.equal(feedbackFor(win.center, win, 0.95, 0.8).state, "optimal");
+  const dir = feedbackFor(win.center + 0.25, win, 0.95, 0.8);
+  assert.ok(dir.state === "low" || dir.state === "high", "off-window reads directional");
+});

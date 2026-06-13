@@ -58,3 +58,24 @@ export function feedback(setup, ideal) {
   const ax = AXES[worst];
   return `${ax.name}: ${sign < 0 ? ax.high : ax.low}.`;
 }
+
+// the revealed ideal window for an axis: centre = optimum + jitter (shrinks with knowledge),
+// half-width shrinks from MAX_HALF to MIN_HALF as knowledge → 1.
+export function windowFor(knowledge, opt, seed, i) {
+  const k = Math.max(0, Math.min(1, knowledge));
+  const j = new RNG(((seed >>> 0) ^ (i * 977 + 0x9e3)) >>> 0).unit() * 2 - 1; // stable [-1,1)
+  const center = opt + j * PRAC2.WIN_JITTER * (1 - k);
+  const half = PRAC2.MIN_HALF + (PRAC2.MAX_HALF - PRAC2.MIN_HALF) * Math.pow(1 - k, PRAC2.WIN_P);
+  return { center, half };
+}
+
+// feedback for one axis. clarity (vague→directional) gated by knowledge + race_iq.
+export function feedbackFor(value, win, knowledge, raceIq) {
+  if (knowledge < PRAC2.KNOW_VAGUE) return { state:"vague", text: knowledge < 0.12 ? "почти нет данных" : "мало кругов" };
+  const d = value - win.center;
+  if (Math.abs(d) <= win.half) return { state:"optimal", text:"оптимально" };
+  const big = Math.abs(d) > win.half * 3;
+  const sharp = raceIq >= 0.55;
+  if (d < 0) return { state:"low",  text: sharp ? (big ? "нужно заметно больше →" : "чуть больше →") : "больше →" };
+  return       { state:"high", text: sharp ? (big ? "← нужно заметно меньше" : "← чуть меньше") : "← меньше" };
+}
