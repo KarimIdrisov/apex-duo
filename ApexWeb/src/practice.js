@@ -25,3 +25,22 @@ export function practiceLapBase(drv, car, setup, ideal) {
   s += paceBonus(closeness(setup, ideal));   // <=0, faster when set well
   return s;
 }
+
+// one car's stint of `laps` laps on `compound`: real tyre deg + warm-up + fuel weight. Returns the curve + cliff.
+export function runLong(drv, car, compound, setup, ideal, laps = LONG_RUN_LAPS, seed = 0) {
+  const rng = new RNG(mix32((seed >>> 0) + 0x511));
+  const base = practiceLapBase(drv, car, setup, ideal);
+  const comp = COMPOUNDS[compound];
+  let wear = 0, temp = TYRE.gridTemp, fuel = startFuel(TRACK);
+  const lapTimes = []; let cliffLap = 0;
+  for (let lap = 1; lap <= laps; lap++) {
+    const t = base + comp.pace + tyreTerm(compound, wear, temp) + weightTerm(fuel) + rng.noise(0.05);
+    lapTimes.push(t);
+    if (!cliffLap && wear > comp.cliff) cliffLap = lap;   // first lap past the cliff
+    wear += comp.wear; temp = warmStep(temp, compound); fuel -= burnFor("standard", car.fuel);
+  }
+  // stint length the player would run: to the cliff (or the whole run if the cliff isn't reached)
+  const stintLaps = cliffLap || laps;
+  const recommendedStops = Math.max(1, Math.ceil(TRACK.laps / Math.max(1, stintLaps)) - 1);
+  return { type: "long", compound, lapTimes, cliffLap, stintLaps, recommendedStops };
+}
