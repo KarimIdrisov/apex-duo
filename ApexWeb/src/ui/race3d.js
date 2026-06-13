@@ -54,6 +54,26 @@ export function init(canvas, ctx) {
   const scene = new THREE.Scene();
   const cam = new THREE.PerspectiveCamera(45, 1, 0.1, WORLD * 8);
 
+  // subtle bloom via the post-composer, add-ons loaded lazily from the CDN; on any failure
+  // composer stays null and the frame loop falls back to a plain renderer.render (no bloom).
+  let composer = null, bloomPass = null;
+  const TJ = "https://esm.sh/three@0.160.0/examples/jsm/";
+  Promise.all([
+    import(TJ + "postprocessing/EffectComposer.js"),
+    import(TJ + "postprocessing/RenderPass.js"),
+    import(TJ + "postprocessing/UnrealBloomPass.js"),
+    import(TJ + "postprocessing/OutputPass.js"),
+  ]).then(([ec, rp, ub, op]) => {
+    const w = canvas.clientWidth || 360, h = canvas.clientHeight || 300;
+    const cm = new ec.EffectComposer(renderer);
+    cm.addPass(new rp.RenderPass(scene, cam));
+    bloomPass = new ub.UnrealBloomPass(new THREE.Vector2(w, h), 0.32, 0.6, 0.9);   // strength, radius, threshold (subtle)
+    cm.addPass(bloomPass);
+    cm.addPass(new op.OutputPass());                                               // tone mapping + sRGB at the end of the chain
+    cm.setSize(w, h);
+    if (alive) composer = cm; else { cm.dispose(); bloomPass.dispose(); }          // disposed already? drop it
+  }).catch(() => { composer = null; });
+
   scene.add(new THREE.AmbientLight(0xffffff, 0.6));
   scene.add(new THREE.HemisphereLight(0xaecbff, 0x2a3322, 0.55));   // sky/ground fill for nicer ambient
   const key = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -245,6 +265,7 @@ export function init(canvas, ctx) {
     const w = canvas.clientWidth || 360, h = canvas.clientHeight || 300;
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     renderer.setSize(w, h, false);
+    if (composer) composer.setSize(w, h);
     cam.aspect = w / h; cam.updateProjectionMatrix();
   }
   resize(); window.addEventListener("resize", resize);
@@ -261,6 +282,8 @@ export function init(canvas, ctx) {
     for (const g of geos) g.dispose();
     for (const m of mats) m.dispose();
     for (const t of texs) t.dispose();
+    if (composer) composer.dispose();
+    if (bloomPass) bloomPass.dispose();   // UnrealBloomPass owns internal targets not freed by composer.dispose()
     renderer.dispose();
   }
   function frame() {
@@ -301,7 +324,7 @@ export function init(canvas, ctx) {
     }
     trackMat.color.set(ctx.snapshot && ctx.snapshot.scActive ? ASPHALT_SC : ASPHALT);
     updateCam();
-    renderer.render(scene, cam);
+    if (composer) composer.render(); else renderer.render(scene, cam);
   }
   frame();
 
