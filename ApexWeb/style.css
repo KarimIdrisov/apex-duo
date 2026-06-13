@@ -167,7 +167,8 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;
 /* the slider track carries an absolutely-positioned ideal-window band behind a transparent range input */
 .pw-track{position:relative;height:22px;background:var(--content2);border-radius:999px}
 .pw-band{position:absolute;top:0;bottom:0;border-radius:999px;transition:left .2s var(--ease),width .2s var(--ease),background-color .2s var(--ease)}
-.pw-range{position:absolute;inset:0;width:100%;height:100%;margin:0;background:transparent;border-radius:999px}
+/* compound selector higher specificity to beat the base input[type=range] rule (transparent track so the band shows through, full 22px height, no margin) */
+input[type=range].pw-range{position:absolute;inset:0;width:100%;height:100%;margin:0;background:transparent;border-radius:999px}
 /* feedback chip + thin knowledge bar */
 .pw-fb{text-align:left}
 .pw-chip{font-size:12px;font-weight:700;line-height:1.2;margin-bottom:5px}
