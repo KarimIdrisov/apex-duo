@@ -38,3 +38,32 @@ test("runLong is deterministic for a seed", () => {
   assert.deepEqual(runLong(drv, car, "medium", ideal, ideal, 10, 3),
                    runLong(drv, car, "medium", ideal, ideal, 10, 3));
 });
+
+import { runSetupTest, runQuali } from "../src/practice.js";
+
+test("runSetupTest: signal tracks setup closeness, noise grows as consistency drops", () => {
+  const steady  = { skill: 0.9, attrs: { pace: 0.9, consistency: 0.95, race_iq: 0.9 } };
+  const jittery = { skill: 0.9, attrs: { pace: 0.9, consistency: 0.10, race_iq: 0.9 } };
+  const spread = d => { let lo = 1e9, hi = -1e9; for (let s = 0; s < 40; s++) {
+    const v = runSetupTest(d, car, [0.5, 0.5, 0.5], ideal, s).lapTime; lo = Math.min(lo, v); hi = Math.max(hi, v); } return hi - lo; };
+  assert.ok(spread(jittery) > spread(steady), "a jittery driver's setup signal is noisier");
+  // a better setup still reads faster on average
+  const near = runSetupTest(steady, car, ideal, ideal, 1).lapTime, far = runSetupTest(steady, car, [0,0,0], ideal, 1).lapTime;
+  assert.ok(near < far, "closer setup reads faster");
+});
+
+test("runSetupTest: feedback is clearer for a high race_iq driver", () => {
+  const sharp = { skill: 0.9, attrs: { pace: 0.9, consistency: 0.9, race_iq: 0.95 } };
+  const vague = { skill: 0.9, attrs: { pace: 0.9, consistency: 0.9, race_iq: 0.10 } };
+  const setup = [0.2, 0.5, 0.5];   // axis 0 is clearly off
+  const namesAxis0 = (d) => { let hit = 0; for (let s = 0; s < 40; s++) {
+    if (runSetupTest(d, car, setup, ideal, s).feedback.startsWith("Прижим")) hit++; } return hit; };
+  assert.ok(namesAxis0(sharp) > namesAxis0(vague), "the sharp driver names the right axis more often");
+});
+
+test("runQuali returns a representative pace and is deterministic", () => {
+  const a = runQuali(drv, car, ideal, ideal, 5), b = runQuali(drv, car, ideal, ideal, 5);
+  assert.equal(a.type, "quali");
+  assert.ok(a.qualiPace > 74 && a.qualiPace < 86, `quali pace in range (${a.qualiPace})`);
+  assert.equal(a.qualiPace, b.qualiPace);
+});
