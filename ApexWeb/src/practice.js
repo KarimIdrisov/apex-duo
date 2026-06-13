@@ -80,7 +80,7 @@ export function runQuali(drv, car, setup, ideal, seed = 0) {
 }
 
 export function newPracticeState() {
-  return { budget: PRAC_BUDGET, spent: 0, findings: [], setups: {}, board: analyzeFindings([]) };
+  return { budget: PRAC_BUDGET, spent: 0, findings: [], board: analyzeFindings([]) };
 }
 
 // host reducer: validate budget, run the chosen type (seeded), append the finding, recompute the board.

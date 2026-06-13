@@ -1,6 +1,6 @@
 // ApexWeb/src/ui/practice.js — Practice "run plans": run-picker + setup sliders + a shared findings board.
 // Renders from the host practice snapshot (ctx.snapshot when phase==="practice"); sliders are local.
-import { PRAC_COST } from "../data.js";
+import { PRAC_COST, PRAC_BUDGET } from "../data.js";
 import { AXES } from "../setup.js";
 
 const fmt = t => { const m = Math.floor(t / 60); return `${m}:${(t - m * 60).toFixed(3).padStart(6, "0")}`; };
@@ -10,7 +10,7 @@ export function render(root, ctx) {
   ctx.setup = ctx.setup || [0.5, 0.5, 0.5];
   ctx.pracCompound = ctx.pracCompound || "soft";
   const snap = (ctx.snapshot && ctx.snapshot.phase === "practice") ? ctx.snapshot
-    : { budget: 8, spent: 0, findings: [], board: { degByCompound: {}, quali: null, idealFound: 0, recommendedStops: null } };
+    : { budget: PRAC_BUDGET, spent: 0, findings: [], board: { degByCompound: {}, quali: null, idealFound: 0, recommendedStops: null } };
   const left = snap.budget - snap.spent;
   const dots = Array.from({ length: snap.budget }, (_, i) => i < snap.spent ? "●" : "○").join("");
   const canRun = type => left >= (PRAC_COST[type] || 1);

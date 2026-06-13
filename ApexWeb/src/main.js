@@ -125,11 +125,11 @@ function practiceDrvCar(player) {
   const d = t.drivers[player === "p2" ? 1 : 0];
   return { drv: { skill: d.skill, attrs: driverAttrs(d.abbrev, d.skill) }, car: composeCar(t.car) };
 }
-// broadcast the shared practice state (budget + findings board + setups) to both screens.
+// broadcast the shared practice state (budget + findings board) to both screens.
 function pushPracticeState() {
   const p = ctx.practice;
   const snap = { type: "snapshot", phase: "practice", budget: p.budget, spent: p.spent,
-    findings: p.findings, board: p.board, setups: p.setups };
+    findings: p.findings, board: p.board };
   ctx.snapshot = snap;
   if (ctx.net) ctx.net.send(snap);
   rerender();
