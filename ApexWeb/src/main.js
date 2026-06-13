@@ -61,14 +61,11 @@ function onCommand(cmd) {
       if (ctx.race) pushRaceState();   // reflect new speed on both screens
       break;
     case "set_setup": ctx.setups = ctx.setups || {}; ctx.setups[cmd.player] = cmd.setup; break;
-    case "practice_run": {
-      ctx.practice = ctx.practice || newPracticeState();
-      const { drv, car } = practiceDrvCar(cmd.player);
-      const pIdeal = trackIdeal(TRACK.laps * 1000 + Math.round(TRACK.lt));
-      const r = applyPracticeRun(ctx.practice, cmd, drv, car, pIdeal, mix32((ctx.seed || 1) >>> 0));
-      if (r.accepted) { ctx.practice = r.state; pushPracticeState(); }
-      break;
-    }
+    case "prac_axis":  if (ctx.pracSession) { setAxis(ctx.pracSession, cmd.player, cmd.i, cmd.value); pushPractice(); } break;
+    case "prac_run":   if (ctx.pracSession) { sendRun(ctx.pracSession, cmd.player, cmd.compound || "soft", cmd.laps || 12); pushPractice(); } break;
+    case "prac_speed": if (ctx.pracSession) { setSpeed(ctx.pracSession, cmd.value); pushPractice(); } break;
+    case "prac_pause": if (ctx.pracSession) { setPaused(ctx.pracSession, !ctx.pracSession.paused); pushPractice(); } break;
+    case "prac_auto":  if (ctx.pracSession) { autoSim(ctx.pracSession, cmd.player); pushPractice(); } break;
     case "quali_risk":
       ctx.qrisk = ctx.qrisk || {};
       ctx.qrisk[cmd.player] = cmd.risk;
@@ -106,7 +103,7 @@ function startRaceHost() {
   ctx._acc = 0; ctx._lastTs = 0;        // reset the real-time sim accumulator
   ctx._evtIdx = 0;                      // reset the commentary event cursor
   ctx.speed = ctx.speed || 1;
-  ctx.practiceFindings = ctx.practice ? ctx.practice.board : null;   // info aid for the race HUD (cliff/stops)
+  ctx.practiceFindings = ctx.pracSession ? analyzeStrategy(ctx.pracSession.cars[ctx.myPlayer].strategy) : null;   // race-HUD aid
 }
 // build the full 22-car field: player team's two drivers flagged, rest AI.
 // Reused by quali grid and the race start (Task 15).
@@ -117,16 +114,32 @@ function buildField() {
     const isPlayerTeam = ti === ctx.teamIdx;
     // solo: only p1 is human, the teammate car runs as AI (player null)
     const player = isPlayerTeam ? (di === 0 ? "p1" : (ctx.solo ? null : "p2")) : null;
-    const setup = (player && ctx.setups && ctx.setups[player]) ? ctx.setups[player] : [0.5, 0.5, 0.5];
+    const setup = (player && ctx.setups && ctx.setups[player]) ? ctx.setups[player] : [0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
     return {
       idx: idx++, name: d.name, abbrev: d.abbrev, skill: d.skill,
       car: composeCar(t.car), color: t.color, team: t.name, isPlayer: isPlayerTeam, player,
       attrs: driverAttrs(d.abbrev, d.skill), personnel: genPersonnel(t.facility, ti),
-      setup, setupBonus: paceBonus(closeness(setup, ideal)), startTyre: "medium",
+      setup, setupBonus: player ? pracSetupBonus(player) : paceBonus(closeness(setup, ideal)), startTyre: "medium",
     };
   }));
 }
 
+// race pace bonus for a player car from its confirmed setup satisfaction (replaces closeness).
+function pracSetupBonus(player) {
+  if (!ctx.pracSession) return 0;
+  const sat = ctx.pracSession.cars[player].confirmedSat.reduce((a, b) => a + b, 0) / PRAC2.AXES;
+  return paceBonus(sat);   // sat 1 ⇒ today's best bonus; lower ⇒ less
+}
+// fold the session's accumulated stint data into the race-HUD strategy aid (cliff + recommended stops).
+function analyzeStrategy(strategy) {
+  const degByCompound = (strategy && strategy.degByCompound) || {};
+  let recommendedStops = null;
+  for (const c in degByCompound) {
+    const st = degByCompound[c].stintLaps;
+    if (st > 0) { const n = Math.max(1, Math.ceil(TRACK.laps / st) - 1); recommendedStops = recommendedStops == null ? n : Math.min(recommendedStops, n); }
+  }
+  return { degByCompound, recommendedStops };
+}
 // resolve a practice player's driver+car for the run sims.
 function practiceDrvCar(player) {
   const t = TEAMS[ctx.teamIdx] || TEAMS[0];
