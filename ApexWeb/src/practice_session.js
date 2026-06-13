@@ -25,7 +25,7 @@ function newCar(seed, driverSeed, drvCar) {
 
 export function newSession(seed, cars, session = 1) {
   return {
-    seed: seed >>> 0, session, clock: PRAC2.SESSION_SEC, speed: PRAC2.SPEEDS[2], paused: true,
+    seed: seed >>> 0, session, clock: PRAC2.SESSION_SEC, speed: 1, paused: true,
     cars: { p1: newCar(seed, 0, cars.p1), p2: newCar(seed, 1, cars.p2) },
   };
 }

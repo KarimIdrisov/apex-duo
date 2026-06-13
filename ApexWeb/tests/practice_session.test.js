@@ -12,7 +12,7 @@ function mkCars() {
 
 test("a stint runs laps and banks knowledge (capped at 1)", () => {
   let s = newSession(1234, mkCars());
-  s.paused = false;
+  s.paused = false; s.speed = 8;   // accelerate so the stint completes within the loop
   s = sendRun(s, "p1", "soft", 12);
   for (let i = 0; i < 400; i++) s = step(s, 1.0);   // plenty of game-seconds
   const v = carView(s, "p1");
@@ -22,7 +22,7 @@ test("a stint runs laps and banks knowledge (capped at 1)", () => {
 
 test("satisfaction is only confirmed after CONFIRM_LAPS on a value", () => {
   let s = newSession(1234, mkCars());
-  s.paused = false;
+  s.paused = false; s.speed = 8;
   const ideal = s.cars.p1.ideal.slice();
   for (let i = 0; i < 6; i++) s.cars.p1.setup[i] = ideal[i];
   assert.ok(carView(s, "p1").satisfaction < 0.01, "unconfirmed until run");
@@ -32,7 +32,7 @@ test("satisfaction is only confirmed after CONFIRM_LAPS on a value", () => {
 });
 
 test("determinism: same seed + same commands → identical laps & knowledge", () => {
-  const run = () => { let s = newSession(77, mkCars()); s.paused = false; s = sendRun(s, "p1", "medium", 10);
+  const run = () => { let s = newSession(77, mkCars()); s.paused = false; s.speed = 8; s = sendRun(s, "p1", "medium", 10);
     for (let i = 0; i < 300; i++) s = step(s, 1.0); return carView(s, "p1"); };
   const a = run(), b = run();
   assert.deepEqual(a.knowledge, b.knowledge);
