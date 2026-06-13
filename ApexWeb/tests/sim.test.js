@@ -388,6 +388,15 @@ test("a better car (higher power+aero) laps faster than a worse one, same driver
   assert.ok(lb - la > 0.3, `better car clearly faster on clean pace (${la.toFixed(3)} vs ${lb.toFixed(3)}, gap ${(lb - la).toFixed(3)}s)`);
 });
 
+test("a smoother driver wears tyres slower than a rougher one (same car, same compound; §18.7 r3)", () => {
+  const r = new Race(field(), TRACK, 52);
+  const a = r.cars[0], b = r.cars[1];
+  a.car = b.car;
+  a.attrs = { ...a.attrs, smoothness: 0.9, tyre: 0.5 }; b.attrs = { ...a.attrs, smoothness: 0.2, tyre: 0.5 };
+  for (let i = 0; i < 6000; i++) r.step();
+  if (a.lap === b.lap && !a.retired && !b.retired) assert.ok(a.wear < b.wear, `smoother = less wear (${a.wear.toFixed(2)} < ${b.wear.toFixed(2)})`);
+});
+
 test("a strong-tyre driver wears tyres slower than a weak one (same car, same compound)", () => {
   const r = new Race(field(), TRACK, 52);
   const a = r.cars[0], b = r.cars[1];

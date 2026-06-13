@@ -137,6 +137,7 @@ export const ATTRW = {
   composure:  0.50,  // bog-down + quali-mistake prob ×(1 - composure·(comp-0.5)·2)  → calmer under pressure (§18.7)
   aggression: 0.40,  // pass-credit ×(1 + aggression·(aggr-0.5)·2)                    → braver overtaker (§18.7)
   discipline: 0.40,  // dirty-air wear ×(1 - discipline·(disc-0.5)·2)                 → cleaner in traffic (§18.7)
+  smoothWear: 0.15,  // tyre wear ×(1 - smoothWear·(smoothness-0.5)·2)                → smooth inputs save the tyres (§18.7 r3)
 };
 
 // difficulty: the AI sharpness scalar (Race.difficulty). Lower = the AI is slower, sloppier,
@@ -168,6 +169,11 @@ export const CAR_K     = 1.2;    // s/lap per (power-aero)*(pw-df) track-charact
 export const DNF_BASE  = 0.0075; // per-lap mechanical-failure scale * (1-rel)
 export const STEP      = 0.25;   // sim time-step (seconds)
 export const COMBAT_GAP = 0.8;   // seconds: within this, two cars fight
+// defence roll (§18.7/§18.2-OPEN): at the pass-completion threshold a strong defender can repel the move
+// for the tick (credit is KEPT, so a genuinely faster car still gets by within a few ticks — bounded, no road-block).
+export const DEFEND_ROLL = 0.4;  // s how strongly (defending − overtaking) shifts the per-tick repel chance around 0.5
+export const DEFEND_MAX  = 0.55; // cap on the per-tick repel chance (so the pass is never permanently blocked)
+export const DNF_CONSIST = 0.4;  // jittery driver → more incidents: DNF prob ×(1 + DNF_CONSIST·(0.5−consistency)·2) (§18.7)
 // bold out-of-zone lunge (§18.2): a much-faster, aggressive driver risks a move where you "can't pass".
 // Instantaneous + cooldown-gated + contact risk (no credit banking) so it can't be spammed.
 export const AGGR_PASS_EDGE = 1.0;  // min pace edge (s/lap) to even attempt a bold move

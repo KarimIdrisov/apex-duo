@@ -1,6 +1,6 @@
 // ApexWeb/src/sim.js
 import { RNG, mix32 } from "./rng.js";
-import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, CAR_PACE_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP, TYRE, DIRTY_GAP, EVENT, ATTRW, AI_HANDICAP, AI_NOISE, AI_FORM, RACE_FORM } from "./data.js";
+import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, CAR_PACE_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP, TYRE, DIRTY_GAP, EVENT, ATTRW, AI_HANDICAP, AI_NOISE, AI_FORM, RACE_FORM, DEFEND_ROLL, DEFEND_MAX, DNF_CONSIST } from "./data.js";
 import { startFuel, burnFor, weightTerm, engineTerm, fuelLaps } from "./fuel.js";
 import { tyreTerm, warmStep } from "./tyres.js";
 import { miniSplits, MINI, N_MINI, sampleAt } from "./track.js";
@@ -47,6 +47,9 @@ export class Race {
     // field-mean car performance ((power+aero)/2), fixed for the race — the anchor the
     // absolute car-pace term is measured against, so a better-than-average car is faster (§18.1).
     this.carMean = this.cars.reduce((s, c) => s + (c.car.power + c.car.aero) / 2, 0) / this.cars.length;
+    // field-mean consistency — the DNF modulation is centered on THIS (not 0.5) so it shifts incidents
+    // between drivers without changing the field-wide DNF rate (attrs cluster around each driver's overall, not 0.5).
+    this.consMean = this.cars.reduce((s, c) => s + A(c).consistency, 0) / this.cars.length;
     this.difficulty = difficulty;   // AI sharpness scalar (lobby-selected; default ~Обычная)
     for (const c of this.cars) {
       // per-race "form": a fixed whole-race pace offset, seeded (no rng draw → other streams untouched),
@@ -141,7 +144,8 @@ export class Race {
         const comp = COMPOUNDS[c.tyre], pm = PACE_MODES[c.pace];
         const drvTyre = 1 - ATTRW.wear * (A(c).tyre - 0.5) * 2;          // <1 = kinder driver
         const carTyre = 1.2 - ATTRW.carWear * (c.car.tyre ?? 1);         // car.tyre 1.0 = neutral (1.0)
-        c.wear += (comp.wear * pm.wear * drvTyre * carTyre) + c._dirtyWear;
+        const drvSmooth = 1 - ATTRW.smoothWear * (A(c).smoothness - 0.5) * 2;   // smooth inputs save the tyres a touch (§18.7 r3)
+        c.wear += (comp.wear * pm.wear * drvTyre * carTyre * drvSmooth) + c._dirtyWear;
         c._dirtyWear = 0;
         c.tyreTemp = warmStep(c.tyreTemp, c.tyre);
         const smooth = 1.1 - ATTRW.fuel * A(c).smoothness;              // smoother driver burns a touch less
@@ -262,7 +266,11 @@ export class Race {
         const ease = zone ? zone.ease : 0;   // ease is only read in the in-zone resist below; 0 is a dead-safe fallback
         // outside any zone a pass cannot complete (resist = Infinity): stay pinned, credit keeps building
         const resist = zone ? (1 - ease) * 2.0 * (0.7 + ATTRW.defending * A(ahead).defending) : Infinity;
-        if (me._passCredit < resist) {
+        // defence roll: at the threshold a strong defender can repel the move THIS tick — credit is KEPT,
+        // so a genuinely faster car still gets by within a few ticks (bounded; makes defending/overtaking matter, §18.7).
+        const repelled = me._passCredit >= resist && me.lap >= 1
+          && this.erng.unit() < Math.min(DEFEND_MAX, Math.max(0, 0.5 + DEFEND_ROLL * (A(ahead).defending - A(me).overtaking)));
+        if (me._passCredit < resist || repelled) {
           // pinned behind the car ahead (writes ONLY lapFrac — invariant)
           const target = (ahead.lap + ahead.lapFrac) - (COMBAT_GAP * 0.5) / this.track.lt;
           const desiredFrac = target - me.lap;
@@ -378,7 +386,8 @@ export class Race {
     }
     if (c.fuel <= 0) { c.retired = true; return; }   // ran the tank dry
     const pm = PACE_MODES[c.pace];
-    if (this.erng.unit() < DNF_BASE * (1 - c.car.rel) * pm.risk) c.retired = true;
+    const consist = 1 + DNF_CONSIST * (this.consMean - A(c).consistency) * 2;   // jittery-vs-field driver → more incidents; field-neutral so the DNF rate holds (§18.7 r3)
+    if (this.erng.unit() < DNF_BASE * (1 - c.car.rel) * pm.risk * consist) c.retired = true;
   }
 
   // race position: more laps first, then further along current lap
