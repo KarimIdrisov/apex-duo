@@ -5,7 +5,7 @@
 // they catch the car ahead, so a train fans out instead of stacking on the centerline.
 import * as THREE from "https://esm.sh/three@0.160.0";
 import { TRACK_PATH } from "../data.js";
-import { buildCenterline, pointAt, tangentAt, bounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath } from "../geom3d.js";
+import { buildCenterline, pointAt, tangentAt, bounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath, radiusAt, cornerMask, RIBBON_CLAMP } from "../geom3d.js";
 
 const WORLD = 120;                 // larger track axis spans ~120 world units
 const HALF_W = 3.8;                // track half-width (world units) — wider for a real-track feel
@@ -13,6 +13,8 @@ const CAR_L = 2.8;                  // overall car length (used for the highligh
 const DELAY = 120;                 // render this many ms behind the newest snapshot
 const POS_EASE = 0.35;             // low-pass the rendered car position — kills snapshot-interp micro-judder up close
 const CLOSE_PROG = 0.012;          // gap (lap-fractions) under which a follower side-steps to pass
+const CORNER_R = 0.10;             // centerline radius (normalized) below which a sample counts as a corner (kerbs)
+const CAR_HALF = 0.20;             // car half-width as a fraction of the track half-width (lateral-clamp margin)
 const SECTOR_COL = [0x5aa0ff, 0xffce47, 0x46d08a];
 const ASPHALT = 0x2c2c33, ASPHALT_SC = 0x4a4626, GRASS = 0x1f3a22;
 const KERB_RED = [0.86, 0.16, 0.18], KERB_WHITE = [0.88, 0.88, 0.9];
@@ -131,19 +133,28 @@ export function init(canvas, ctx) {
   const trackMat = new THREE.MeshStandardMaterial({ map: asphaltMap, color: ASPHALT, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }); mats.push(trackMat);
   const trackMesh = new THREE.Mesh(trackGeo, trackMat); trackMesh.receiveShadow = true; scene.add(trackMesh);
 
-  // red/white rumble kerbs along both edges (alternating segment colors via vertex colors)
-  const kerbMat = new THREE.LineBasicMaterial({ vertexColors: true }); mats.push(kerbMat);
-  for (const edge of [left, right]) {
-    const kp = [], kc = [];
-    for (let k = 0; k < edge.length; k++) {
-      const a = edge[k], e = edge[(k + 1) % edge.length], col = (k % 2 === 0) ? KERB_RED : KERB_WHITE;
-      kp.push(wx(a), 0.05, wz(a), wx(e), 0.05, wz(e));
-      kc.push(col[0], col[1], col[2], col[0], col[1], col[2]);
+  // red/white rumble kerbs — only through corners (cornerMask), in chunky alternating blocks,
+  // as thin flat quads stepping inward from each edge. Straights get no kerb.
+  {
+    const mask = cornerMask(cl, STEPS, CORNER_R);
+    const KERB_W = 0.55 / sc, CHUNK = 4, KY = 0.02;        // 0.55 world units inward; ~4-sample colour blocks
+    const inward = (p, c) => { const dx = c[0] - p[0], dy = c[1] - p[1], m = Math.hypot(dx, dy) || 1; return [p[0] + dx / m * KERB_W, p[1] + dy / m * KERB_W]; };
+    const kpos = [], kcol = [];
+    for (const edge of [left, right]) {
+      for (let k = 0; k < STEPS; k++) {
+        if (!mask[k]) continue;
+        const k1 = (k + 1) % STEPS, a = edge[k], bb = edge[k1];
+        const ca = pointAt(cl, k / STEPS), cb = pointAt(cl, k1 / STEPS);
+        const ia = inward(a, ca), ib = inward(bb, cb);
+        const col = (Math.floor(k / CHUNK) % 2) ? KERB_RED : KERB_WHITE;
+        for (const pt of [a, bb, ib, a, ib, ia]) { kpos.push(wx(pt), KY, wz(pt)); kcol.push(col[0], col[1], col[2]); }
+      }
     }
-    const kg = new THREE.BufferGeometry(); geos.push(kg);
-    kg.setAttribute("position", new THREE.Float32BufferAttribute(kp, 3));
-    kg.setAttribute("color", new THREE.Float32BufferAttribute(kc, 3));
-    scene.add(new THREE.LineSegments(kg, kerbMat));
+    const kerbGeo = new THREE.BufferGeometry(); geos.push(kerbGeo);
+    kerbGeo.setAttribute("position", new THREE.Float32BufferAttribute(kpos, 3));
+    kerbGeo.setAttribute("color", new THREE.Float32BufferAttribute(kcol, 3));
+    const kerbMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }); mats.push(kerbMat);
+    scene.add(new THREE.Mesh(kerbGeo, kerbMat));
   }
 
   // sector tint lines just above the asphalt
@@ -297,6 +308,9 @@ export function init(canvas, ctx) {
       }
       const tlat = racingLineOffset(cl, prog, LANE_LAT) + side;
       car.lat += (tlat - car.lat) * 0.12;                        // ease toward target (smooth)
+      const hwLocal = Math.min(HW_N, radiusAt(cl, prog, 1 / STEPS) * RIBBON_CLAMP);   // local road half-width (matches the ribbon clamp)
+      const maxLat = Math.max(0, hwLocal - CAR_HALF * HW_N);     // keep the car body on the asphalt at narrowed hairpins
+      car.lat = Math.max(-maxLat, Math.min(maxLat, car.lat));
       const p = offsetPoint(cl, prog, car.lat), t = tangentAt(cl, prog);
       const txp = wx(p), tzp = wz(p);                            // low-pass the rendered position to smooth micro-judder
       if (car.px == null) { car.px = txp; car.pz = tzp; }
