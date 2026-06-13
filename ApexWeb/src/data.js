@@ -224,3 +224,22 @@ export const DRIVER_INFO = {};
 for (const t of TEAMS) for (const d of t.drivers) {
   DRIVER_INFO[d.abbrev] = { logo: TEAM_LOGO[t.name], color: t.color, team: t.name };
 }
+
+// Real-time practice tuning (spec 2026-06-14). See practice_session.js / setup.js.
+export const PRAC2 = {
+  AXES: 6,
+  KNOW_PER_LAP: 0.06,     // knowledge banked per completed flying lap (per axis)
+  IQ_LEARN: 0.5,          // feedbackMult = 0.75 + IQ_LEARN*race_iq  (sharp driver learns faster)
+  MAX_HALF: 0.45,         // ideal-window half-width at knowledge 0 (≈ whole range)
+  MIN_HALF: 0.02,         // half-width floor at knowledge 1
+  WIN_P: 1.5,             // half = MIN + (MAX-MIN)*(1-knowledge)^WIN_P
+  WIN_JITTER: 0.30,       // window-centre offset at knowledge 0 (shrinks to 0 with knowledge)
+  KNOW_VAGUE: 0.25,       // below this knowledge the axis reads "мало кругов" (no usable window)
+  CONFIRM_LAPS: 2,        // flying laps on a value before its satisfaction is confirmed
+  SAT_TOL: 0.18,          // axisSat = clamp(1-(|v-opt|/SAT_TOL)^2,0,1)
+  SESSION_SEC: 1800,      // 30 game-minutes per session
+  SPEEDS: [1, 2, 4, 8],   // time-acceleration multipliers (over SIM_RATE)
+  AUTOSIM_MULT: 0.8,      // auto-sim banks knowledge at 0.8× (simulating underperforms)
+  TYRE_SETS: 6,           // tyre sets per car across all three sessions
+  ACCL_PER_LAP: 0.01,     // acclimatisation per lap (cap 1) → tiny race buff
+};
