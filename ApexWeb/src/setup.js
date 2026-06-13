@@ -1,29 +1,54 @@
-// ApexWeb/src/setup.js
-import { RNG } from "./rng.js";
+// ApexWeb/src/setup.js — 6-axis setup: hidden ideal (per car/track/driver), per-axis
+// satisfaction, and the knowledge-window + feedback model used by the live practice session.
+import { RNG, mix32 } from "./rng.js";
+import { PRAC2 } from "./data.js";
 
 export const AXES = [
-  { name:"Прижим",   low:"скользит в быстрых поворотах", high:"не хватает прижима в медленных" },
-  { name:"Передачи", low:"упирается в потолок на прямой", high:"проседает на разгоне из поворота" },
-  { name:"Подвеска", low:"нервная на поребриках",         high:"вялый отклик в связках" },
+  { name:"Переднее крыло",     char:"поворачиваемость",        low:"вяло заходит в поворот", high:"остро ныряет, теряет зад" },
+  { name:"Заднее крыло",       char:"прямые / стабильность",   low:"проседает на прямых",   high:"тяжёлый на прямых" },
+  { name:"Подвеска",           char:"тяга на выходе",          low:"буксует на выходе",      high:"глухая на поребриках" },
+  { name:"Развал колёс",       char:"держак в поворотах",      low:"не держит дугу",         high:"жрёт резину" },
+  { name:"Передаточные числа", char:"разгон / торм. зоны",     low:"провал на разгоне",      high:"упирается на прямой" },
+  { name:"Тормозной баланс",   char:"стабильн. в торможении",  low:"блокирует зад",          high:"длинно тормозит" },
 ];
 
+// hidden optimum for the weekend, derived from the track seed
 export function trackIdeal(seed) {
   const r = new RNG(seed ^ 0x5e7);
-  return [r.unit(), r.unit(), r.unit()];
+  return Array.from({ length: PRAC2.AXES }, () => r.unit());
 }
 
+// per-driver optimum: the track ideal nudged a little for each driver (driverSeed 0 / 1)
+export function idealFor(seed, driverSeed) {
+  const base = trackIdeal(seed);
+  return base.map((v, i) => {
+    const j = ((mix32((seed >>> 0) + driverSeed * 7919 + i * 131) % 1000) / 1000) * 2 - 1; // [-1,1]
+    return Math.min(1, Math.max(0, v + j * 0.12));
+  });
+}
+
+// per-axis satisfaction: bell curve around the optimum
+export function axisSat(value, opt) {
+  const d = Math.abs(value - opt) / PRAC2.SAT_TOL;
+  return Math.max(0, Math.min(1, 1 - d * d));
+}
+
+export function satisfaction(confirmedSat) {
+  if (!confirmedSat.length) return 0;
+  return confirmedSat.reduce((a, b) => a + b, 0) / confirmedSat.length;
+}
+
+// legacy closeness/paceBonus/feedback — generalised over AXES.length so existing consumers
+// keep working until the switchover moves them to satisfaction.
 export function closeness(setup, ideal) {
-  let err = 0;
-  for (let i = 0; i < 3; i++) err += Math.abs(setup[i] - ideal[i]);
-  return 1 - err / 3;                      // 1 = perfect, 0 = worst case
+  let err = 0; const n = ideal.length;
+  for (let i = 0; i < n; i++) err += Math.abs(setup[i] - ideal[i]);
+  return 1 - err / n;
 }
-
-// max ~0.15 s/lap gain at perfect setup (negative = faster)
 export function paceBonus(close) { return -0.15 * Math.max(0, close); }
-
 export function feedback(setup, ideal) {
   let worst = 0, worstErr = -1, sign = 0;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < ideal.length; i++) {
     const e = Math.abs(setup[i] - ideal[i]);
     if (e > worstErr) { worstErr = e; worst = i; sign = setup[i] < ideal[i] ? -1 : 1; }
   }

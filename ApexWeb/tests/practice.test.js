@@ -16,7 +16,7 @@ test("carMean is the field mean of (power+aero)/2, ~0.88", () => {
 
 test("practiceLapBase: a perfect setup is faster than a bad one, lap ~78-86s", () => {
   const perfect = practiceLapBase(drv, car, ideal, ideal);            // setup == ideal
-  const bad     = practiceLapBase(drv, car, [0, 0, 0], ideal);
+  const bad     = practiceLapBase(drv, car, [0, 0, 0, 0, 0, 0], ideal);
   assert.ok(perfect < bad, `perfect (${perfect}) faster than bad (${bad})`);
   assert.ok(perfect > 75 && perfect < 88, `lap in range (${perfect})`);
 });
@@ -55,19 +55,20 @@ test("runSetupTest: signal tracks setup closeness, noise grows as consistency dr
   const steady  = { skill: 0.9, attrs: { pace: 0.9, consistency: 0.95, race_iq: 0.9 } };
   const jittery = { skill: 0.9, attrs: { pace: 0.9, consistency: 0.10, race_iq: 0.9 } };
   const spread = d => { let lo = 1e9, hi = -1e9; for (let s = 0; s < 40; s++) {
-    const v = runSetupTest(d, car, [0.5, 0.5, 0.5], ideal, s).lapTime; lo = Math.min(lo, v); hi = Math.max(hi, v); } return hi - lo; };
+    const v = runSetupTest(d, car, [0.5, 0.5, 0.5, 0.5, 0.5, 0.5], ideal, s).lapTime; lo = Math.min(lo, v); hi = Math.max(hi, v); } return hi - lo; };
   assert.ok(spread(jittery) > spread(steady), "a jittery driver's setup signal is noisier");
   // a better setup still reads faster on average
-  const near = runSetupTest(steady, car, ideal, ideal, 1).lapTime, far = runSetupTest(steady, car, [0,0,0], ideal, 1).lapTime;
+  const near = runSetupTest(steady, car, ideal, ideal, 1).lapTime, far = runSetupTest(steady, car, [0,0,0,0,0,0], ideal, 1).lapTime;
   assert.ok(near < far, "closer setup reads faster");
 });
 
 test("runSetupTest: feedback is clearer for a high race_iq driver", () => {
   const sharp = { skill: 0.9, attrs: { pace: 0.9, consistency: 0.9, race_iq: 0.95 } };
   const vague = { skill: 0.9, attrs: { pace: 0.9, consistency: 0.9, race_iq: 0.10 } };
-  const setup = [0.2, 0.5, 0.5];   // axis 0 is clearly off
+  // put axis 0 at 0.0 while all other axes sit at their ideal — axis 0 is unambiguously worst
+  const setup = ideal.map((v, i) => i === 0 ? 0.0 : v);
   const namesAxis0 = (d) => { let hit = 0; for (let s = 0; s < 40; s++) {
-    if (runSetupTest(d, car, setup, ideal, s).feedback.startsWith("Прижим")) hit++; } return hit; };
+    if (runSetupTest(d, car, setup, ideal, s).feedback.startsWith("Переднее крыло")) hit++; } return hit; };
   assert.ok(namesAxis0(sharp) > namesAxis0(vague), "the sharp driver names the right axis more often");
 });
 
