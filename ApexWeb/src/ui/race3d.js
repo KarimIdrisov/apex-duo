@@ -34,14 +34,45 @@ export function init(canvas, ctx) {
   const scene = new THREE.Scene();
   const cam = new THREE.PerspectiveCamera(45, 1, 0.1, WORLD * 8);
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+  scene.add(new THREE.HemisphereLight(0xaecbff, 0x2a3322, 0.55));   // sky/ground fill for nicer ambient
   const key = new THREE.DirectionalLight(0xffffff, 0.8);
   key.position.set(WORLD, WORLD * 1.4, WORLD * 0.5); scene.add(key);
+
+  // gradient sky dome (vertex-coloured, seen from inside) wrapping the whole scene
+  const skyGeo = new THREE.SphereGeometry(WORLD * 5, 24, 12); geos.push(skyGeo);
+  {
+    const sp = skyGeo.attributes.position, col = [], R = WORLD * 5;
+    const top = new THREE.Color(0x14213d), bot = new THREE.Color(0x55657d);
+    for (let i = 0; i < sp.count; i++) {
+      const f = Math.max(0, Math.min(1, sp.getY(i) / R * 0.5 + 0.5)), c = bot.clone().lerp(top, f);
+      col.push(c.r, c.g, c.b);
+    }
+    skyGeo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  }
+  const skyMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide }); mats.push(skyMat);
+  scene.add(new THREE.Mesh(skyGeo, skyMat));
 
   // grass ground plane under everything
   const grassGeo = new THREE.PlaneGeometry(WORLD * 3, WORLD * 3); geos.push(grassGeo);
   const grassMat = new THREE.MeshStandardMaterial({ color: GRASS, roughness: 1, metalness: 0 }); mats.push(grassMat);
   const grass = new THREE.Mesh(grassGeo, grassMat); grass.rotation.x = -Math.PI / 2; grass.position.y = -0.15; scene.add(grass);
+
+  // low-poly grandstands set back outside the track at a few spots (broadcast venue feel)
+  const bankGeo = new THREE.BoxGeometry(16, 5, 7); geos.push(bankGeo);
+  const roofGeo = new THREE.BoxGeometry(17, 0.5, 8); geos.push(roofGeo);
+  const standMat = new THREE.MeshStandardMaterial({ color: 0x39414f, roughness: 0.9 }); mats.push(standMat);
+  const roofMat = new THREE.MeshStandardMaterial({ color: 0x20252e, roughness: 0.8 }); mats.push(roofMat);
+  for (const f of [0.0, 0.26, 0.52, 0.74]) {
+    const sp = pointAt(cl, f), st = tangentAt(cl, f);
+    let nx = -st[1], ny = st[0];
+    if ((b.cx - sp[0]) * nx + (b.cy - sp[1]) * ny > 0) { nx = -nx; ny = -ny; }   // outward, away from centroid
+    const o = [sp[0] + nx * HW_N * 2.4, sp[1] + ny * HW_N * 2.4];                 // set back beyond the track edge
+    const g = new THREE.Group();
+    const bank = new THREE.Mesh(bankGeo, standMat); bank.position.set(0, 2.5, 0); g.add(bank);
+    const roof = new THREE.Mesh(roofGeo, roofMat); roof.position.set(0, 5.3, 1.2); g.add(roof);   // roof cantilevered toward the track
+    g.position.set(wx(o), 0, wz(o)); g.rotation.y = Math.atan2(-nx, -ny); scene.add(g);
+  }
 
   // --- track ribbon: a triangle strip between the left/right edges ---
   const STEPS = 320;
