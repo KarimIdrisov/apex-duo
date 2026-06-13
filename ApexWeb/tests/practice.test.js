@@ -23,15 +23,25 @@ test("practiceLapBase: a perfect setup is faster than a bad one, lap ~78-86s", (
 
 import { runLong } from "../src/practice.js";
 
-test("runLong: deg rises over the stint and reports a cliffLap + recommendedStops", () => {
+test("runLong: deg rises over the run AND projects a sane cliff + recommendedStops", () => {
   const r = runLong(drv, car, "soft", ideal, ideal, 14, 7);
   assert.equal(r.type, "long");
   assert.equal(r.compound, "soft");
   assert.equal(r.lapTimes.length, 14);
   // later laps are slower than the first few (degradation)
   const early = (r.lapTimes[1] + r.lapTimes[2]) / 2, late = (r.lapTimes[12] + r.lapTimes[13]) / 2;
-  assert.ok(late > early + 0.5, `deg over the stint (${early.toFixed(2)} -> ${late.toFixed(2)})`);
-  assert.ok(r.stintLaps >= 1 && r.recommendedStops >= 1, "sane stint/stops");
+  assert.ok(late > early + 0.5, `deg over the run (${early.toFixed(2)} -> ${late.toFixed(2)})`);
+  // the cliff is PROJECTED (a 14-lap run is far shorter than the ~25-lap soft cliff) and the stops are sane
+  assert.ok(r.cliffLap > 10 && r.cliffLap < 40, `projected soft cliff ~25 (${r.cliffLap})`);
+  assert.equal(r.stintLaps, r.cliffLap, "stint = projected cliff");
+  assert.ok(r.recommendedStops >= 1 && r.recommendedStops <= 3, `sane stops (${r.recommendedStops})`);
+});
+
+test("runLong: a harder compound projects a longer stint / fewer stops than a softer one", () => {
+  const soft = runLong(drv, car, "soft", ideal, ideal, 10, 1);
+  const hard = runLong(drv, car, "hard", ideal, ideal, 10, 1);
+  assert.ok(hard.stintLaps > soft.stintLaps, `hard stint longer (${hard.stintLaps} > ${soft.stintLaps})`);
+  assert.ok(hard.recommendedStops <= soft.recommendedStops, "hard needs no more stops than soft");
 });
 
 test("runLong is deterministic for a seed", () => {
