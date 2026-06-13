@@ -10,6 +10,7 @@ import * as race from "./ui/race.js";
 import { buildGrid } from "./quali.js";
 import { paceBonus, closeness, trackIdeal } from "./setup.js";
 import { driverAttrs, composeCar, genPersonnel } from "./team.js";
+import { pickTrack } from "./track_shapes.js";
 import { fuelLaps } from "./fuel.js";
 import { newPracticeState, applyPracticeRun } from "./practice.js";
 import { mix32 } from "./rng.js";
@@ -86,6 +87,7 @@ function startRaceHost() {
   // host picks the race seed once; the sim run stays fully deterministic from it
   if (ctx.seed == null) ctx.seed = 1000 + Math.floor(Math.random() * 100000);
   ctx.race = new Race(field, TRACK, ctx.seed, ctx.difficulty ?? DIFFICULTY.normal.ai);
+  ctx.trackName = pickTrack(ctx.seed);   // visual circuit for this race (3D + minimap); sim races abstract sectors
   // apply the quali grid as the start order (fastest quali -> P1), spread by slot
   const withRisk = field.map(f => ({ ...f, risk: f.player ? (ctx.qrisk?.[f.player] ?? 0.5) : 0.5 }));
   const grid = buildGrid(withRisk, TRACK, 1234);
@@ -150,7 +152,7 @@ function raceSnapshot() {
   const newEvents = ctx.race.events.slice(evIdx);   // only events not yet shipped
   ctx._evtIdx = ctx.race.events.length;
   return {
-    type: "snapshot", phase: "race", paused: ctx.paused, finished: ctx.race.finished,
+    type: "snapshot", phase: "race", trackName: ctx.trackName, paused: ctx.paused, finished: ctx.race.finished,
     speed: ctx.speed || 1, scActive: ctx.race.scActive, vscActive: ctx.race.vscActive, wetness: ctx.race.wetness, events: newEvents,
     practiceFindings: ctx.practiceFindings || null,
     cars: ctx.race.order().map(c => ({

@@ -6,6 +6,7 @@
 import * as THREE from "https://esm.sh/three@0.160.0";
 import { TRACK_PATH } from "../data.js";
 import { buildCenterline, pointAt, tangentAt, bounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath, radiusAt, cornerRuns, RIBBON_CLAMP, elevation } from "../geom3d.js";
+import { TRACK_SHAPES, TRACK_NAMES } from "../track_shapes.js";
 
 const WORLD = 120;                 // larger track axis spans ~120 world units
 const HALF_W = 3.8;                // track half-width (world units) — wider for a real-track feel
@@ -36,7 +37,9 @@ function noiseTex(base, shades, n = 128, density = 0.14) {
 }
 
 export function init(canvas, ctx) {
-  const cl = buildCenterline(splinePath(TRACK_PATH));   // Catmull-Rom-smoothed: soft corners, no per-vertex snapping
+  const trackName = (ctx.snapshot && ctx.snapshot.trackName) || null;   // host picked the circuit from the seed; client reads it from the snapshot
+  const path = (trackName && TRACK_SHAPES[trackName]) || TRACK_PATH;     // selected real circuit, else Barcelona fallback
+  const cl = buildCenterline(splinePath(path));         // Catmull-Rom-smoothed: soft corners, no per-vertex snapping
   const b = bounds(cl);
   const sc = WORLD / b.size;                       // normalized -> world scale
   const wx = (p) => (p[0] - b.cx) * sc;            // center the track at world origin
@@ -47,7 +50,8 @@ export function init(canvas, ctx) {
   const HW_N = HALF_W / sc;                          // half-width in normalized units
   const LANE_LAT = HW_N * 0.45, SIDE_LAT = HW_N * 0.34;   // racing-line + side-step lateral range (kept on asphalt)
   const ELEV_AMP = WORLD * 0.04;                     // elevation amplitude (world units) — subtle rolling terrain
-  const surfaceY = (f) => ELEV_AMP * elevation(f);   // world height of the track surface at lap-frac f (render-only)
+  const elevSeed = trackName ? TRACK_NAMES.indexOf(trackName) + 1 : 1;   // each circuit undulates its own way
+  const surfaceY = (f) => ELEV_AMP * elevation(f, elevSeed);   // world height of the track surface at lap-frac f (render-only)
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setClearColor(0x0a0a0c, 1);

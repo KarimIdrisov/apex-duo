@@ -6,6 +6,7 @@ import { TRACK, TRACK_PATH, DRIVER_INFO } from "../data.js";
 import { describe } from "../commentary.js";
 import { sfx } from "../audio.js";
 import * as screen3d from "./race3d_screen.js";
+import { TRACK_SHAPES } from "../track_shapes.js";
 
 const PACE = ["conserve", "balanced", "push"], ENGINE = ["save", "standard", "push"];
 const PACE_L = { conserve: "Save", balanced: "Norm", push: "Push" };
@@ -15,15 +16,23 @@ const SPEEDS = [1, 2, 4];
 const logo = (a, s = 18) => { const l = DRIVER_INFO[a] && DRIVER_INFO[a].logo; return l ? `<img src="assets/teams/${l}.png" alt="" style="height:${s}px;width:${s}px;object-fit:contain;vertical-align:middle;margin-right:6px">` : ""; };
 const tyreIcon = (t, s = 18) => `<img src="assets/tyres/${t}.png" alt="${t}" style="height:${s}px;width:${s}px;object-fit:contain;vertical-align:middle">`;
 
-// ---- real circuit geometry (fit into a 100x100 viewBox) + arc-length sampler ----
-const RAW = [];
-for (let i = 0; i < TRACK_PATH.length; i += 2) RAW.push([TRACK_PATH[i] * 100, TRACK_PATH[i + 1] * 100]);
-const PATH_D = "M" + RAW.map(p => `${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(" L") + " Z";
-const SEG = []; let TOTAL = 0;
-for (let i = 0; i < RAW.length; i++) {
-  const a = RAW[i], b = RAW[(i + 1) % RAW.length];
-  const d = Math.hypot(b[0] - a[0], b[1] - a[1]);
-  SEG.push({ a, b, d, acc: TOTAL }); TOTAL += d;
+// ---- real circuit geometry (fit into a 100x100 viewBox) + arc-length sampler. Rebindable via
+// setTrack so the minimap matches whichever circuit this race uses; defaults to Barcelona. ----
+const SECTOR_COL = ["#5aa0ff", "#ffce47", "#46d08a"];                 // S1 / S2 / S3 tints
+let RAW = [], PATH_D = "", TOTAL = 0, CENTROID = [50, 50], PIT_A, PIT_B, PIT_STOP;
+const SEG = [];
+function setTrack(path) {                                            // recompute all map geometry for `path` (flat 0..1)
+  RAW = [];
+  for (let i = 0; i < path.length; i += 2) RAW.push([path[i] * 100, path[i + 1] * 100]);
+  PATH_D = "M" + RAW.map(p => `${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(" L") + " Z";
+  SEG.length = 0; TOTAL = 0;
+  for (let i = 0; i < RAW.length; i++) {
+    const a = RAW[i], b = RAW[(i + 1) % RAW.length];
+    const d = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    SEG.push({ a, b, d, acc: TOTAL }); TOTAL += d;
+  }
+  CENTROID = RAW.reduce((a, p) => [a[0] + p[0], a[1] + p[1]], [0, 0]).map(v => v / RAW.length);
+  PIT_A = pitPos(0.95, 6.5); PIT_B = pitPos(0.06, 6.5); PIT_STOP = pitPos(0.0, 6.5);
 }
 function pointAt(frac) {
   let t = (((frac % 1) + 1) % 1) * TOTAL;
@@ -32,8 +41,6 @@ function pointAt(frac) {
 }
 
 // ---- track furniture: sector-coloured arcs, start/finish + sector ticks, pit spur ----
-const SECTOR_COL = ["#5aa0ff", "#ffce47", "#46d08a"];                 // S1 / S2 / S3 tints
-const CENTROID = RAW.reduce((a, p) => [a[0] + p[0], a[1] + p[1]], [0, 0]).map(v => v / RAW.length);
 function sectorPath(s) {                                              // one third of the lap as a poly-line
   const lo = s / 3, hi = (s + 1) / 3, STEPS = 64, pts = [];
   for (let k = 0; k <= STEPS; k++) pts.push(pointAt(lo + (hi - lo) * (k / STEPS)));
@@ -51,7 +58,13 @@ function tickLine(frac, len, stroke, w, dash = "") {                 // perpendi
   return `<line x1="${(px - nx * len).toFixed(2)}" y1="${(py - ny * len).toFixed(2)}" x2="${(px + nx * len).toFixed(2)}" y2="${(py + ny * len).toFixed(2)}" stroke="${stroke}" stroke-width="${w}"${dash ? ` stroke-dasharray="${dash}"` : ""}/>`;
 }
 function pitPos(frac, depth) { const { nx, ny, px, py } = normalAt(frac); return [px + nx * depth, py + ny * depth]; }
-const PIT_A = pitPos(0.95, 6.5), PIT_B = pitPos(0.06, 6.5), PIT_STOP = pitPos(0.0, 6.5);
+let _curTrack = "__none__";
+function ensureTrack(name) {                                         // (re)bind the map geometry when the race's circuit is known
+  if (name === _curTrack) return;
+  _curTrack = name;
+  setTrack((name && TRACK_SHAPES[name]) || TRACK_PATH);
+}
+setTrack(TRACK_PATH);                                                // default until a race snapshot names a circuit
 
 // cars within this on-track gap (seconds, same lap) are "in a battle" -> a connecting line
 const BATTLE_GAP = 1.0;
@@ -131,6 +144,7 @@ function webglOK() {
 export function render(root, ctx) {
   const snap = ctx.snapshot;
   if (!snap || !snap.cars) { root.innerHTML = `<div class="panel">Старт гонки…</div>`; ctx._hudReady = false; ctx._s3dReady = false; return; }
+  ensureTrack(snap.trackName || null);   // bind the minimap to this race's circuit before the skeleton is built
   if (ctx.view3d) { root.className = "full3d"; return screen3d.render(root, ctx, () => { ctx.view3d = false; render(root, ctx); }); }
   root.className = "wide";
   ctx._s3dReady = false;
