@@ -6,7 +6,6 @@
 import { TRACK } from "../data.js";
 import { AXES } from "../setup.js";
 
-const fmt = t => { const m = Math.floor(t / 60); return `${m}:${(t - m * 60).toFixed(3).padStart(6, "0")}`; };
 const COMPOUNDS_RU = { soft: "софт", medium: "медиум", hard: "хард" };
 const COMP_COL = { soft: "#F31260", medium: "#F5A524", hard: "#d4d4d8", inter: "#17C964", wet: "#006FEE" };
 const CLIFF_DROP = 1.4;   // visual "fall off" added at the projected cliff so the curve drops dramatically
@@ -20,7 +19,6 @@ const STATE_INK = { optimal: "var(--good)", low: "var(--warn)", high: "var(--war
 const BAND_COL = { optimal: "rgba(23,201,100,.30)", low: "rgba(245,165,36,.26)", high: "rgba(245,165,36,.26)", vague: "rgba(255,255,255,.07)" };
 
 export function render(root, ctx) {
-  const onPrac = ctx.weekend && /^practice/.test(ctx.weekend.phase);
   const snap = (ctx.snapshot && ctx.snapshot.phase === "practice") ? ctx.snapshot : null;
   if (!snap) { root.innerHTML = `<div class="panel"><p class="label">Загрузка практики…</p></div>`; return; }
 

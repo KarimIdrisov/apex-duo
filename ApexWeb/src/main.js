@@ -12,9 +12,7 @@ import { paceBonus, closeness, trackIdeal } from "./setup.js";
 import { driverAttrs, composeCar, genPersonnel } from "./team.js";
 import { pickTrack } from "./track_shapes.js";
 import { fuelLaps } from "./fuel.js";
-import { newPracticeState, applyPracticeRun } from "./practice.js";
 import { newSession, step as pracStep, sessionSnapshot, setAxis, sendRun, setSpeed, setPaused, autoSim } from "./practice_session.js";
-import { mix32 } from "./rng.js";
 import { sfx } from "./audio.js";
 
 const SCREENS = { lobby, practice1: practice, practice2: practice, practice3: practice, quali, race, result: race };
@@ -140,12 +138,6 @@ function analyzeStrategy(strategy) {
   }
   return { degByCompound, recommendedStops };
 }
-// resolve a practice player's driver+car for the run sims.
-function practiceDrvCar(player) {
-  const t = TEAMS[ctx.teamIdx] || TEAMS[0];
-  const d = t.drivers[player === "p2" ? 1 : 0];
-  return { drv: { skill: d.skill, attrs: driverAttrs(d.abbrev, d.skill) }, car: composeCar(t.car) };
-}
 // driver+car per player for the live practice session (the session carries the hidden ideal).
 function practiceCars() {
   const t = TEAMS[ctx.teamIdx] || TEAMS[0];
@@ -159,16 +151,6 @@ function pushPractice() {
   if (ctx.net) ctx.net.send(snap);
   rerender();
 }
-// broadcast the shared practice state (budget + findings board) to both screens.
-function pushPracticeState() {
-  const p = ctx.practice;
-  const snap = { type: "snapshot", phase: "practice", budget: p.budget, spent: p.spent,
-    findings: p.findings, board: p.board };
-  ctx.snapshot = snap;
-  if (ctx.net) ctx.net.send(snap);
-  rerender();
-}
-
 // run every car's flying lap and broadcast the resulting grid to the client.
 function broadcastQualiGrid() {
   const field = buildField().map(f => ({ ...f, risk: f.player ? (ctx.qrisk?.[f.player] ?? 0.5) : 0.5 }));
