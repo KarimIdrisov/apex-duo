@@ -6,7 +6,8 @@ import { tyreTerm, warmStep } from "./tyres.js";
 import { miniSplits, MINI, N_MINI, sampleAt } from "./track.js";
 import { slipstream, dirtyWear, passAccrual, zoneFor } from "./overtake.js";
 import { PASS_CREDIT_CAP, PASS_CREDIT_DECAY, DIRTY_PACE_K, LAP1_CAUTION,
-  AGGR_PASS_EDGE, AGGR_PASS_ATTR, AGGR_PASS_REF, AGGR_PASS_K, AGGR_PASS_DNF, AGGR_PASS_SCRUB } from "./data.js";
+  AGGR_PASS_EDGE, AGGR_PASS_ATTR, AGGR_PASS_REF, AGGR_PASS_K, AGGR_PASS_DNF, AGGR_PASS_SCRUB,
+  BLUE_GAP, BLUE_PACE, BLUE_COST } from "./data.js";
 import { scheduleSC } from "./events.js";
 import { scheduleWeather, wetnessAt, weatherTerm } from "./weather.js";
 import { planRace, pitDecision, engineMode, paceMode } from "./ai_strategy.js";
@@ -41,7 +42,7 @@ export class Race {
       retired: false, pitPending: null, pos: i + 1, startPos: i + 1,
       pitStops: 0, pitTimer: 0,
       lastMini: [], bestMini: new Array(N_MINI).fill(Infinity), miniColors: [], sectorTimes: [0, 0, 0],
-      _dirtyWear: 0, _dirtyPace: 0, _launch: 0,
+      _dirtyWear: 0, _dirtyPace: 0, _blueDelay: 0, _blueBudget: 0, _blueLast: -1, _launch: 0,
     }));
     // field-mean car performance ((power+aero)/2), fixed for the race — the anchor the
     // absolute car-pace term is measured against, so a better-than-average car is faster (§18.1).
@@ -87,6 +88,7 @@ export class Race {
     s += c.setupBonus;                                           // <=0, faster when set well
     s += this.rng.noise(0.06) * (1.3 - ATTRW.noise * A(c).consistency);      // consistency steadies the lap
     s += c._dirtyPace || 0;                                                   // dirty-air pace loss (set by _resolveCombat, §18.11)
+    s += c._blueDelay || 0;                                                   // time threading past a lapped car (blue flags, set by _resolveBlueFlags)
     s += c._form || 0;                                                        // per-race form (off/on weekend), every car
     if (c.player == null && this.difficulty < 1) {                            // difficulty handicap (AI only)
       s += (1 - this.difficulty) * AI_HANDICAP;                              // easier AI = a touch slower
@@ -146,8 +148,8 @@ export class Race {
         this._serveLapEnd(c); // phase 3: pit + DNF (finishers handled in order())
       }
     }
-    if (!this.scActive) this._resolveCombat();   // no green-flag passing under the safety car
-    else for (const c of this.cars) c._dirtyPace = 0;   // no dirty-air pace penalty while the field crawls behind the SC
+    if (!this.scActive) { this._resolveCombat(); this._resolveBlueFlags(); }   // no green-flag passing/lapping under the safety car
+    else for (const c of this.cars) { c._dirtyPace = 0; c._blueDelay = 0; }    // neutral while the field crawls behind the SC
     this._aiDrive();   // AI engine/pace management (post-combat: pos + pass-credit are fresh)
     // safety-car lifecycle, driven by the leader's lap count
     const leadLap = this.cars.reduce((m, c) => Math.max(m, c.lap), 0);
@@ -274,6 +276,44 @@ export class Race {
         }
       } else {
         me._passCredit = 0;
+      }
+    }
+  }
+
+  // blue flags: a car catching a backmarker (a car a lap+ down, just AHEAD on track) loses a small,
+  // FIXED amount of time threading past it. The backmarker yields, so this is a one-shot cost on the
+  // LAPPING car (BLUE_COST per backmarker, spent down through _blueDelay so the closing-rate can't make it
+  // run away) — not a pin. Writes only scratch scalars (read by _lapTime) — never lap/lapFrac/wear (invariant).
+  _resolveBlueFlags() {
+    let lo = Infinity, hi = -Infinity;
+    for (const c of this.cars) { if (c.retired) continue; if (c.lap < lo) lo = c.lap; if (c.lap > hi) hi = c.lap; }
+    const lapped = hi - lo >= 1;   // someone is a full lap down → lapped traffic exists
+    for (const me of this.cars) {
+      me._blueDelay = 0;
+      if (!lapped || me.retired || me.pitTimer > 0) { me._blueLast = -1; me._blueBudget = 0; continue; }
+      // anti-flicker: while still tangled with the last backmarker (within 3×gap, the penalty itself can push
+      // it just out of the gap and back), keep _blueLast and DON'T re-charge — one charge per lapping episode.
+      let stillLast = false;
+      if (me._blueLast >= 0) {
+        const last = this.cars[me._blueLast];
+        if (last && !last.retired && last.lap < me.lap) {
+          const d = (((last.lapFrac - me.lapFrac) % 1) + 1) % 1;
+          if (Math.min(d, 1 - d) * this.track.lt < BLUE_GAP * 3) stillLast = true;
+        }
+      }
+      if (!stillLast) {
+        let bmIdx = -1;
+        for (const bm of this.cars) {
+          if (bm === me || bm.retired || bm.pitTimer > 0 || bm.lap >= me.lap) continue;   // only cars a lap+ DOWN are backmarkers to me
+          const ahead = (((bm.lapFrac - me.lapFrac) % 1) + 1) % 1;   // forward track distance me→bm, in laps (0..1), wrapped
+          if (ahead * this.track.lt < BLUE_GAP) { bmIdx = bm.idx; break; }   // a backmarker is right ahead on track
+        }
+        if (bmIdx >= 0) { me._blueBudget = (me._blueBudget || 0) + BLUE_COST; me._blueLast = bmIdx; }  // a fresh backmarker → one-shot charge
+        else me._blueLast = -1;   // clear of all backmarkers → a future re-lap can charge again
+      }
+      if ((me._blueBudget || 0) > 0) {     // spend the budget down at BLUE_PACE (read by _lapTime as a pace loss)
+        me._blueDelay = BLUE_PACE;
+        me._blueBudget = Math.max(0, me._blueBudget - BLUE_PACE * STEP / this.track.lt);
       }
     }
   }

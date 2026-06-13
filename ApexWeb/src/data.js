@@ -91,6 +91,10 @@ export const EDGE_REF   = 0.35;  // s/lap pace edge at which the tow converts in
                                  // scaled down so the draft AMPLIFIES a real edge, never builds a pass from nothing (§18.13)
 export const PASS_CREDIT_CAP   = 2.5;   // max bankable pass-credit — a whole straight of tow can't be cashed in one tick (§18.13)
 export const PASS_CREDIT_DECAY = 0.97;  // per-tick credit bleed (recency) — stale draft from laps ago doesn't carry (§18.13)
+export const BLUE_GAP   = 0.5;   // seconds: a car a lap+ down within this far AHEAD on track triggers a lapping (blue flags)
+export const BLUE_PACE  = 0.5;   // s/lap rate the lapping car loses while spending its blue-flag budget
+export const BLUE_COST  = 0.12;  // total s lost PER backmarker cleared — a fixed one-shot cost (no closing-rate runaway);
+                                 // ~1.5 s/race for a leader threading the backmarkers it laps (realistic)
 export const DIRTY_GAP  = 1.5;   // seconds: within this behind a car you are in dirty air
 export const DIRTY_WEAR = 0.006; // extra tyre wear/tick in dirty air, × (1 - straightness)
 export const DIRTY_PACE_K = 1.1; // s/lap the follower LOSES in dirty air at ZERO gap, × (1 - straightness) × (1 - gap/DIRTY_GAP):

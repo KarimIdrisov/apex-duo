@@ -236,6 +236,19 @@ test("a disciplined driver wears tyres slower in dirty air than an undisciplined
   assert.ok(wear(0.9) < wear(0.2), "discipline reduces dirty-air wear");
 });
 
+test("a car lapping a backmarker is held by blue-flag traffic; a car in clear air isn't (lapped traffic)", () => {
+  const r = new Race(field(), TRACK, 9);
+  for (const c of r.cars) { c.lap = 1; c.lapFrac = 0.0; }   // park the field at the line, lap 1
+  const lead = r.cars[0], back = r.cars[1], clear = r.cars[2];
+  lead.lap = 3; lead.lapFrac = 0.50;     // leader on lap 3...
+  back.lap = 2; back.lapFrac = 0.505;    // ...catching a backmarker a lap down, ~0.4s ahead on track
+  clear.lap = 3; clear.lapFrac = 0.80;   // a same-lap car in clear air (no backmarker just ahead)
+  r._resolveBlueFlags();
+  assert.ok(lead._blueDelay > 0, "leader catching a lapped car is held up");
+  assert.equal(back._blueDelay || 0, 0, "the backmarker itself isn't blue-flagged");
+  assert.equal(clear._blueDelay || 0, 0, "a car in clear air loses no time to blue flags");
+});
+
 import { EVENT } from "../src/data.js";
 
 test("a safety car occurs at roughly track.sc across seeds", () => {
