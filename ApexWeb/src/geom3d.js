@@ -56,6 +56,8 @@ export function cameraFromBounds(b, { elevDeg = 42, azimDeg = -35, fill = 1.5 } 
 // Local turn radius of the centerline at frac, measured over a small symmetric window `w`
 // (the arc through three samples). Returns Infinity on a straight. Used to keep the road
 // ribbon from self-intersecting at corners tighter than its own half-width.
+// Keep `w` small enough that the per-window turn stays well under 90°: beyond that the asin
+// saturates and the radius is over-estimated (the unsafe direction for fold prevention).
 export function radiusAt(cl, frac, w = 1 / 240) {
   const a = pointAt(cl, frac - w), b = pointAt(cl, frac), c = pointAt(cl, frac + w);
   const v1x = b[0] - a[0], v1y = b[1] - a[1], v2x = c[0] - b[0], v2y = c[1] - b[1];
@@ -73,6 +75,12 @@ export function cornerMask(cl, steps, maxR) {
   return m;
 }
 
+// Fraction of the local corner radius the road half-width is clamped to, so the inner ribbon
+// edge can never reach the centreline (no self-intersection). Empirical: 0.8 clears the real
+// tracks at STEPS=320 with margin (the fold threshold sits ~0.85); smaller = safer but
+// narrower road. race3d reuses this for the car-position clamp so cars track the same road.
+export const RIBBON_CLAMP = 0.8;
+
 // Resample the centerline into `steps` points and offset by ±halfW along the
 // local normal -> left/right edge arrays ([x,y] each). Builds the road ribbon.
 export function ribbonEdges(cl, halfW, steps = 240) {
@@ -82,7 +90,7 @@ export function ribbonEdges(cl, halfW, steps = 240) {
     const [px, py] = pointAt(cl, f);
     const [tx, ty] = tangentAt(cl, f);
     const nx = -ty, ny = tx;                                   // unit normal (left of travel)
-    const hw = Math.min(halfW, radiusAt(cl, f, 1 / steps) * 0.8);   // clamp: inner edge can't reach the centre -> no fold
+    const hw = Math.min(halfW, radiusAt(cl, f, 1 / steps) * RIBBON_CLAMP);   // clamp: inner edge can't reach the centre -> no fold
     left.push([px + nx * hw, py + ny * hw]);
     right.push([px - nx * hw, py - ny * hw]);
   }
