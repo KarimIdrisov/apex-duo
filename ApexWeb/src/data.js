@@ -193,6 +193,13 @@ export const AGGR_PASS_SCRUB = 0.15;// tyre-temp scrubbed off on a SUCCESSFUL lu
 export const GRID_GAP  = 0.25;   // starting time spread per grid slot (seconds) — widened from 0.20 so a launch delta causes fewer swaps (§18.3)
 export const LAP1_CAUTION = 0.4; // pass-credit multiplier on the opening lap (lap 0): the field settles the launch/grid order through T1, racing opens from lap 1 (§18.3)
 
+// Practice "run plans" (§ practice redesign). A shared team track-time budget spent across run types.
+export const PRAC_BUDGET = 8;                                   // total track-time units the two co-directors share
+export const PRAC_COST   = { setup: 1, long: 3, quali: 1 };     // cost per run type
+export const LONG_RUN_LAPS = 10;                                // laps simulated in a long run
+export const PRAC_SIGNAL_K = 0.8;                               // setup closeness -> lap-time swing (the readable "feel" gauge)
+export const PRAC_SETUP_NOISE = 0.18;                           // s/lap setup-test noise at consistency 0 (scaled by 1-consistency)
+
 // engine modes: pace offset (s/lap), fuel burn multiplier. Replaces ERS_MODES.
 export const ENGINE_MODES = {
   save:     { pace:  0.35, burn: 0.85 },
