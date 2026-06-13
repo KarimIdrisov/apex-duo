@@ -89,6 +89,7 @@ function startMapLoop(root, ctx) {
   const DELAY = 120;   // render this many ms behind the newest snapshot so motion interpolates smoothly
   const step = () => {
     ctx._mapRAF = requestAnimationFrame(step);
+    if (ctx._view === "3d") return;
     const phase = ctx.weekend && ctx.weekend.phase;
     if (!ctx._buf || (phase !== "race" && phase !== "result")) return;
     const now = nowMs(), renderT = now - DELAY, xy = {};
@@ -121,6 +122,11 @@ function fmtLap(t) { if (!t) return "—"; const m = Math.floor(t / 60); return 
 function fmtGap(dp) { if (dp <= 0.0001) return "—"; const laps = Math.floor(dp); return laps >= 1 ? `+${laps} LAP` : "+" + (dp * TRACK.lt).toFixed(1); }
 const me_of = (cars, ctx) => cars.find(c => c.player && c.player === ctx.myPlayer) || cars.find(c => c.isPlayer) || cars[0];
 
+function webglOK() {
+  try { const c = document.createElement("canvas"); return !!(window.WebGLRenderingContext && (c.getContext("webgl") || c.getContext("experimental-webgl"))); }
+  catch { return false; }
+}
+
 export function render(root, ctx) {
   const snap = ctx.snapshot;
   if (!snap || !snap.cars) { root.innerHTML = `<div class="panel">Старт гонки…</div>`; ctx._hudReady = false; return; }
@@ -143,7 +149,7 @@ function buildHud(root, ctx) {
         <div style="display:flex;align-items:center;gap:8px">
           <div style="text-align:right"><div class="label" style="margin:0">КРУГ</div>
             <div style="font-weight:700"><span id="d-lap">0</span>/${TRACK.laps}</div></div>
-          <button class="btn" id="d-speed">1x</button><button class="btn" id="d-pause">⏸</button>
+          <button class="btn" id="d-view">3D</button><button class="btn" id="d-speed">1x</button><button class="btn" id="d-pause">⏸</button>
         </div>
       </div>
       <div class="dash-side">
@@ -161,6 +167,7 @@ function buildHud(root, ctx) {
           ${dots}
           ${labels}
         </svg>
+          <canvas id="d-3d" style="display:none;width:100%;height:300px;border-radius:8px"></canvas>
       </div>
       <div class="panel" id="feed-panel" style="padding:8px 10px">
         <div class="label" style="margin:0 0 4px">📻 Радио</div>
@@ -214,8 +221,22 @@ function buildHud(root, ctx) {
   };
   ctx._hudReady = true;
   ctx._boardTick = 0;
-  ctx._buf = {}; ctx._meta = {}; ctx._pit = {}; ctx._flash = {}; ctx._prevPos = {}; ctx._feed = [];
+  ctx._buf = {}; ctx._meta = {}; ctx._pit = {}; ctx._flash = {}; ctx._prevPos = {}; ctx._feed = []; ctx._r3d = null;
   startMapLoop(root, ctx);
+  const svgEl = root.querySelector("#dash svg");
+  const cv = root.querySelector("#d-3d");
+  const viewBtn = root.querySelector("#d-view");
+  if (ctx._view == null) ctx._view = webglOK() ? "3d" : "2d";
+  function applyView() {
+    const on3d = ctx._view === "3d";
+    cv.style.display = on3d ? "block" : "none";
+    if (svgEl) svgEl.style.display = on3d ? "none" : "block";
+    viewBtn.textContent = on3d ? "3D" : "2D";
+    if (on3d && !ctx._r3d) import("./race3d.js").then(m => { if (ctx._view === "3d" && !ctx._r3d) ctx._r3d = m.init(cv, ctx); });
+    if (!on3d && ctx._r3d) { ctx._r3d.dispose(); ctx._r3d = null; }
+  }
+  viewBtn.onclick = () => { ctx._view = ctx._view === "3d" ? "2d" : "3d"; applyView(); };
+  applyView();
   sfx.lightsOut();
 }
 
