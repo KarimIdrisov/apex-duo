@@ -5,7 +5,7 @@ import { PRAC2, TRACK, COMPOUNDS, TYRE } from "./data.js";
 import { practiceLapBase } from "./practice.js";
 import { tyreTerm, warmStep } from "./tyres.js";
 import { startFuel, weightTerm, burnFor } from "./fuel.js";
-import { idealFor, axisSat } from "./setup.js";
+import { idealFor, axisSat, windowFor, feedbackFor } from "./setup.js";
 
 const PLAYERS = ["p1", "p2"];
 
@@ -90,4 +90,40 @@ export function carView(s, player) {
     totalLaps: car.totalLaps, accl: car.accl, strategy: car.strategy,
     satisfaction: car.confirmedSat.reduce((a, b) => a + b, 0) / PRAC2.AXES,
   };
+}
+
+export function setSpeed(s, v) { s.speed = PRAC2.SPEEDS.includes(v) ? v : s.speed; return s; }
+export function setPaused(s, p) { s.paused = !!p; return s; }
+
+// fast-forward a car's remaining clock running the current setup, at reduced knowledge rate.
+export function autoSim(s, player) {
+  const car = s.cars[player];
+  const laps = Math.floor(s.clock / LAP_SEC());
+  car.onTrack = true; car.stintLeft = Math.max(car.stintLeft, laps);
+  for (let n = 0; n < laps; n++) {
+    const fm = (0.75 + PRAC2.IQ_LEARN * (car.drv.attrs?.race_iq ?? 0.7)) * PRAC2.AUTOSIM_MULT;
+    for (let i = 0; i < PRAC2.AXES; i++) {
+      car.knowledge[i] = Math.min(1, car.knowledge[i] + PRAC2.KNOW_PER_LAP * fm);
+      car.lapsOnVal[i] += 1;
+      if (car.lapsOnVal[i] >= PRAC2.CONFIRM_LAPS) car.confirmedSat[i] = axisSat(car.setup[i], car.ideal[i]);
+    }
+    car.totalLaps += 1; car.accl = Math.min(1, car.accl + PRAC2.ACCL_PER_LAP);
+  }
+  car.onTrack = false; car.stintLeft = 0; s.clock = 0;
+  return s;
+}
+
+export function sessionSnapshot(s) {
+  const proj = (car, dseedIdx) => ({
+    onTrack: car.onTrack, compound: car.compound, stintLeft: car.stintLeft, totalLaps: car.totalLaps,
+    satisfaction: car.confirmedSat.reduce((a, b) => a + b, 0) / PRAC2.AXES, accl: car.accl,
+    strategy: car.strategy,
+    axes: car.setup.map((v, i) => {
+      const win = windowFor(car.knowledge[i], car.ideal[i], s.seed + dseedIdx * 101, i);
+      return { value: v, knowledge: car.knowledge[i], confirmedSat: car.confirmedSat[i],
+        window: win, feedback: feedbackFor(v, win, car.knowledge[i], car.drv.attrs?.race_iq ?? 0.7) };
+    }),
+  });
+  return { type: "snapshot", phase: "practice", session: s.session, clock: s.clock, speed: s.speed, paused: s.paused,
+    cars: { p1: proj(s.cars.p1, 0), p2: proj(s.cars.p2, 1) } };
 }
