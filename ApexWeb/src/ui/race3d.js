@@ -159,6 +159,34 @@ export function init(canvas, ctx) {
     scene.add(new THREE.Mesh(kerbGeo, kerbMat));
   }
 
+  // run-off verge: an apron just outside each edge — gravel through corners (cornerRuns), grass
+  // on the straights — for real-circuit breathing room. Inner rail sits just under the track,
+  // outer rail drops to the grass plane (this becomes the embankment once elevation is on).
+  {
+    const isCorner = new Array(STEPS).fill(false);
+    for (const run of cornerRuns(cl, STEPS, CORNER_R)) for (let s = 0; s < run.len; s++) isCorner[(run.start + s) % STEPS] = true;
+    const VERGE_W = HW_N * 1.5, VY = -0.04, GROUND = -0.15;       // outward width; apron just under the track, dropping to the grass
+    const GRAVEL = [0.55, 0.49, 0.35], GREEN = [0.12, 0.25, 0.15];
+    const outward = (f, sgn) => { const [tx, ty] = tangentAt(cl, f); return [-ty * sgn, tx * sgn]; };   // outward normal (sgn +1 left edge, -1 right)
+    const vpos = [], vcol = [];
+    for (const sgn of [1, -1]) {
+      const edge = sgn > 0 ? left : right;
+      for (let k = 0; k < STEPS; k++) {
+        const k1 = (k + 1) % STEPS, a = edge[k], bb = edge[k1];
+        const oa = outward(k / STEPS, sgn), ob = outward(k1 / STEPS, sgn);
+        const va = [a[0] + oa[0] * VERGE_W, a[1] + oa[1] * VERGE_W], vb = [bb[0] + ob[0] * VERGE_W, bb[1] + ob[1] * VERGE_W];
+        const col = isCorner[k] ? GRAVEL : GREEN;
+        for (const [pt, y] of [[a, VY], [bb, VY], [vb, GROUND], [a, VY], [vb, GROUND], [va, GROUND]]) { vpos.push(wx(pt), y, wz(pt)); vcol.push(col[0], col[1], col[2]); }
+      }
+    }
+    const vgeo = new THREE.BufferGeometry(); geos.push(vgeo);
+    vgeo.setAttribute("position", new THREE.Float32BufferAttribute(vpos, 3));
+    vgeo.setAttribute("color", new THREE.Float32BufferAttribute(vcol, 3));
+    vgeo.computeVertexNormals();
+    const vmat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, side: THREE.DoubleSide }); mats.push(vmat);
+    const vmesh = new THREE.Mesh(vgeo, vmat); vmesh.receiveShadow = true; scene.add(vmesh);
+  }
+
   // sector tint lines just above the asphalt
   for (let s = 0; s < 3; s++) {
     const v = [], lo = s / 3, hi = (s + 1) / 3;
