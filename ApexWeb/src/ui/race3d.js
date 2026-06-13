@@ -31,6 +31,10 @@ export function init(canvas, ctx) {
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setClearColor(0x0a0a0c, 1);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;   // filmic colour grading — less flat/washed
+  renderer.toneMappingExposure = 1.15;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   const scene = new THREE.Scene();
   const cam = new THREE.PerspectiveCamera(45, 1, 0.1, WORLD * 8);
 
@@ -38,6 +42,13 @@ export function init(canvas, ctx) {
   scene.add(new THREE.HemisphereLight(0xaecbff, 0x2a3322, 0.55));   // sky/ground fill for nicer ambient
   const key = new THREE.DirectionalLight(0xffffff, 0.8);
   key.position.set(WORLD, WORLD * 1.4, WORLD * 0.5); scene.add(key);
+  key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048);
+  const shCam = key.shadow.camera;                       // ortho frustum sized to cover the whole track
+  shCam.near = WORLD * 0.4; shCam.far = WORLD * 3.5;
+  shCam.left = -WORLD; shCam.right = WORLD; shCam.top = WORLD; shCam.bottom = -WORLD;
+  shCam.updateProjectionMatrix();
+  key.shadow.bias = -0.0002; key.shadow.normalBias = 0.02;   // keep thin cars attached to their contact shadow
 
   // gradient sky dome (vertex-coloured, seen from inside) wrapping the whole scene
   const skyGeo = new THREE.SphereGeometry(WORLD * 5, 24, 12); geos.push(skyGeo);
@@ -56,7 +67,7 @@ export function init(canvas, ctx) {
   // grass ground plane under everything
   const grassGeo = new THREE.PlaneGeometry(WORLD * 3, WORLD * 3); geos.push(grassGeo);
   const grassMat = new THREE.MeshStandardMaterial({ color: GRASS, roughness: 1, metalness: 0 }); mats.push(grassMat);
-  const grass = new THREE.Mesh(grassGeo, grassMat); grass.rotation.x = -Math.PI / 2; grass.position.y = -0.15; scene.add(grass);
+  const grass = new THREE.Mesh(grassGeo, grassMat); grass.rotation.x = -Math.PI / 2; grass.position.y = -0.15; grass.receiveShadow = true; scene.add(grass);
 
   // low-poly grandstands set back outside the track at a few spots (broadcast venue feel)
   const bankGeo = new THREE.BoxGeometry(16, 5, 7); geos.push(bankGeo);
@@ -69,8 +80,8 @@ export function init(canvas, ctx) {
     if ((b.cx - sp[0]) * nx + (b.cy - sp[1]) * ny > 0) { nx = -nx; ny = -ny; }   // outward, away from centroid
     const o = [sp[0] + nx * HW_N * 2.4, sp[1] + ny * HW_N * 2.4];                 // set back beyond the track edge
     const g = new THREE.Group();
-    const bank = new THREE.Mesh(bankGeo, standMat); bank.position.set(0, 2.5, 0); g.add(bank);
-    const roof = new THREE.Mesh(roofGeo, roofMat); roof.position.set(0, 5.3, 1.2); g.add(roof);   // roof cantilevered toward the track
+    const bank = new THREE.Mesh(bankGeo, standMat); bank.position.set(0, 2.5, 0); bank.castShadow = true; g.add(bank);
+    const roof = new THREE.Mesh(roofGeo, roofMat); roof.position.set(0, 5.3, 1.2); roof.castShadow = true; g.add(roof);   // roof cantilevered toward the track
     g.position.set(wx(o), 0, wz(o)); g.rotation.y = Math.atan2(-nx, -ny); scene.add(g);
   }
 
@@ -92,7 +103,7 @@ export function init(canvas, ctx) {
   trackGeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
   trackGeo.setIndex(index); trackGeo.computeVertexNormals();
   const trackMat = new THREE.MeshStandardMaterial({ color: ASPHALT, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }); mats.push(trackMat);
-  scene.add(new THREE.Mesh(trackGeo, trackMat));
+  const trackMesh = new THREE.Mesh(trackGeo, trackMat); trackMesh.receiveShadow = true; scene.add(trackMesh);
 
   // red/white rumble kerbs along both edges (alternating segment colors via vertex colors)
   const kerbMat = new THREE.LineBasicMaterial({ vertexColors: true }); mats.push(kerbMat);
@@ -143,7 +154,7 @@ export function init(canvas, ctx) {
   const darkMat = new THREE.MeshStandardMaterial({ color: 0x14141a, roughness: 0.6 }); mats.push(darkMat);   // wings/wheels/cockpit, shared
   function makeCar(bodyMat) {
     const g = new THREE.Group();
-    const add = (geo, mat, x, y, z, rz) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); if (rz) m.rotation.z = rz; g.add(m); };
+    const add = (geo, mat, x, y, z, rz) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); if (rz) m.rotation.z = rz; m.castShadow = true; g.add(m); };
     add(tubGeo, bodyMat, 0, 0.25, 0);                    // monocoque
     add(noseGeo, bodyMat, 0, 0.22, 0.95);                // nose
     add(engGeo, bodyMat, 0, 0.35, -0.5);                 // engine cover
