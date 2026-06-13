@@ -25,6 +25,7 @@ body{margin:0;color:var(--ink);
   background-attachment:fixed;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 #app{max-width:720px;margin:0 auto;padding:18px;transition:max-width .2s var(--ease)}
 #app.wide{max-width:1160px}
+#app.full3d{max-width:none;margin:0;padding:0}
 
 /* race dashboard: leaderboard left, minimap + controls right, header on top */
 #dash{display:grid;grid-template-columns:minmax(0,1fr) 372px;
