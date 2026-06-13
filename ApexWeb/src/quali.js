@@ -5,7 +5,8 @@ import { RNG } from "./rng.js";
 // one flying lap on softs. risk in [0,1]: faster mean, bigger spread, mistake chance.
 // carMean = field-mean (power+aero)/2, so the absolute car-pace term (§18.1) shapes the grid too
 // (a better car qualifies better, consistent with the race).
-// setupBonus = precomputed paceBonus(closeness(setup,ideal)) — caller supplies it (≤0, faster when set well).
+// setupBonus = precomputed pace delta from practice (player: confirmed satisfaction; AI: setup closeness),
+// supplied by buildField on the field entry (≤0, faster when set well).
 export function qualiLap(drv, car, track, setupBonus, risk, rng, carMean = 0) {
   let s = track.lt + COMPOUNDS.soft.pace;
   s -= SKILL_K * ((drv.attrs ? drv.attrs.quali : drv.skill) - 0.5);   // one-lap pace
