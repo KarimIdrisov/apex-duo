@@ -31,10 +31,11 @@
 
 - [ ] **Step 1: Extend the test import**
 
-In `tests/geom3d.test.js` line 3, add `radiusAt` and `cornerMask` to the import:
+In `tests/geom3d.test.js` line 3, add `radiusAt` to the import (NOT `cornerMask` yet — it
+does not exist until Task 3, and importing a missing export throws and breaks the whole file):
 
 ```js
-import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath, radiusAt, cornerMask } from "../src/geom3d.js";
+import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath, radiusAt } from "../src/geom3d.js";
 ```
 
 - [ ] **Step 2: Write the failing test**
@@ -186,9 +187,15 @@ git commit -m "fix(apexweb): geom3d ribbonEdges clamps half-width by local radiu
 - Modify: `src/geom3d.js` (add after `radiusAt`)
 - Modify: `tests/geom3d.test.js` (new test)
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Extend the import, then write the failing test**
 
-Append to `tests/geom3d.test.js`:
+First add `cornerMask` to the import in `tests/geom3d.test.js` line 3 (it already has `radiusAt` from Task 1):
+
+```js
+import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath, radiusAt, cornerMask } from "../src/geom3d.js";
+```
+
+Then append the test to `tests/geom3d.test.js`:
 
 ```js
 test("cornerMask: all-true on a tight circle, mixed on a square (corners vs straights)", () => {
