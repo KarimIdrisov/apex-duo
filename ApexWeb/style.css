@@ -141,3 +141,42 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;
 .feed-chip{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;
   border-radius:999px;padding:2px 8px;color:#0a0a0c;white-space:nowrap;min-width:64px;text-align:center}
 .feed-pl{font-size:10px;color:var(--muted);font-weight:700;margin-left:auto}
+
+/* ===== Live practice session (.pw-) ===== */
+/* header: title + big clock, then speed/pause + state chip + auto-sim */
+.pw-head-top{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px}
+.pw-title{font-size:18px;font-weight:600;letter-spacing:-.01em}
+.pw-clock{font-size:26px;font-weight:800;letter-spacing:.01em;font-variant-numeric:tabular-nums;color:var(--ink)}
+.pw-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pw-speeds{display:flex;gap:4px}
+.pw-speed{padding:7px 11px;min-width:38px}
+.pw-speed.on{background:var(--accent);color:#fff}
+.pw-pause{padding:7px 13px;font-size:14px}
+.pw-state{font-size:12px;color:var(--muted);font-weight:600;padding:6px 10px;background:var(--content2);border-radius:var(--r-sm);white-space:nowrap}
+.pw-state.live{color:var(--good)}
+.pw-auto{margin-left:auto;font-size:13px}
+
+/* section heads with a right-aligned value (satisfaction) */
+.pw-sec-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px}
+.pw-sat{font-size:22px;font-weight:800;letter-spacing:-.02em;color:var(--good)}
+
+/* axis row: name+char | track+slider | feedback+knowledge */
+.pw-row{display:grid;grid-template-columns:150px 1fr 150px;gap:12px;align-items:center;
+  padding:8px 0;border-top:1px solid var(--border)}
+.pw-row:first-of-type{border-top:0}
+/* the slider track carries an absolutely-positioned ideal-window band behind a transparent range input */
+.pw-track{position:relative;height:22px;background:var(--content2);border-radius:999px}
+.pw-band{position:absolute;top:0;bottom:0;border-radius:999px;transition:left .2s var(--ease),width .2s var(--ease),background-color .2s var(--ease)}
+.pw-range{position:absolute;inset:0;width:100%;height:100%;margin:0;background:transparent;border-radius:999px}
+/* feedback chip + thin knowledge bar */
+.pw-fb{text-align:left}
+.pw-chip{font-size:12px;font-weight:700;line-height:1.2;margin-bottom:5px}
+.pw-know{height:6px}
+
+/* laps chooser */
+.pw-laps{display:flex;gap:6px}
+.pw-lap{flex:1;text-align:center}
+.pw-lap.on{background:var(--accent);color:#fff}
+
+/* partner peek */
+.pw-partner{margin:0 0 10px;text-align:center}

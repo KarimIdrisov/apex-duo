@@ -1,6 +1,9 @@
-// ApexWeb/src/ui/practice.js — Practice "run plans": hero run-picker + setup sliders + a shared findings board.
-// Renders from the host practice snapshot (ctx.snapshot when phase==="practice"); sliders/compound are local.
-import { PRAC_COST, PRAC_BUDGET, TRACK } from "../data.js";
+// ApexWeb/src/ui/practice.js — live real-time practice SESSION screen.
+// Renders the host snapshot (ctx.snapshot when phase==="practice"): a running clock + speed/pause
+// controls, a 6-axis setup widget with per-axis knowledge windows + driver feedback, a stint launcher,
+// and the shared degradation-curve strategy panel. Compound/laps are local (ctx.pracCompound/pracLaps);
+// every actual change is sent to the host (prac_axis / prac_run / prac_speed / prac_pause / prac_auto).
+import { TRACK } from "../data.js";
 import { AXES } from "../setup.js";
 
 const fmt = t => { const m = Math.floor(t / 60); return `${m}:${(t - m * 60).toFixed(3).padStart(6, "0")}`; };
@@ -8,103 +11,134 @@ const COMPOUNDS_RU = { soft: "софт", medium: "медиум", hard: "хард
 const COMP_COL = { soft: "#F31260", medium: "#F5A524", hard: "#d4d4d8", inter: "#17C964", wet: "#006FEE" };
 const CLIFF_DROP = 1.4;   // visual "fall off" added at the projected cliff so the curve drops dramatically
 
+// mm:ss clock for the session countdown (game-seconds).
+const fmt2 = sec => { const s = Math.max(0, Math.floor(sec)); const m = Math.floor(s / 60); return `${m}:${(s - m * 60).toString().padStart(2, "0")}`; };
+
+// per-axis feedback colour: optimal→good, low/high→warn, vague→muted
+const STATE_INK = { optimal: "var(--good)", low: "var(--warn)", high: "var(--warn)", vague: "var(--muted)" };
+// the ideal-window band tint behind the slider, by feedback state
+const BAND_COL = { optimal: "rgba(23,201,100,.30)", low: "rgba(245,165,36,.26)", high: "rgba(245,165,36,.26)", vague: "rgba(255,255,255,.07)" };
+
 export function render(root, ctx) {
-  ctx.setup = ctx.setup || [0.5, 0.5, 0.5];
+  const onPrac = ctx.weekend && /^practice/.test(ctx.weekend.phase);
+  const snap = (ctx.snapshot && ctx.snapshot.phase === "practice") ? ctx.snapshot : null;
+  if (!snap) { root.innerHTML = `<div class="panel"><p class="label">Загрузка практики…</p></div>`; return; }
+
+  // local, persisted across re-renders
   ctx.pracCompound = ctx.pracCompound || "soft";
-  const snap = (ctx.snapshot && ctx.snapshot.phase === "practice") ? ctx.snapshot
-    : { budget: PRAC_BUDGET, spent: 0, findings: [], board: { degByCompound: {}, quali: null, idealFound: 0, recommendedStops: null } };
-  const left = snap.budget - snap.spent;
-  const canRun = type => left >= (PRAC_COST[type] || 1);
-  const b = snap.board;
+  ctx.pracLaps = ctx.pracLaps || 10;
 
-  // shared trek-time budget meter (spent cells dim, remaining cells glow)
-  const budget = Array.from({ length: snap.budget }, (_, i) =>
-    `<i class="${i < snap.spent ? "spent" : "left"}"></i>`).join("");
+  const me = snap.cars[ctx.myPlayer];
+  const otherKey = ctx.myPlayer === "p1" ? "p2" : "p1";
+  const other = snap.cars[otherKey];
 
-  // run-plan picker cards
-  const RUNS = [
-    { type: "setup", ico: "🎯", nm: "Setup-тест", ds: "сигнал + фидбэк пилота" },
-    { type: "long",  ico: "📉", nm: "Long-run",   ds: "износ + проекция клиффа" },
-    { type: "quali", ico: "⏱️", nm: "Quali-sim",  ds: "темп одного круга" },
-  ];
-  const runCards = RUNS.map(r => `
-    <button class="run-card" id="run-${r.type}" ${canRun(r.type) ? "" : "disabled"}>
-      <span class="cost">·${PRAC_COST[r.type]}</span>
-      <span class="ico">${r.ico}</span><span class="nm">${r.nm}</span><span class="ds">${r.ds}</span>
-    </button>`).join("");
-
-  const compSeg = ["soft", "medium", "hard"].map(c =>
-    `<button data-c="${c}" class="${c === ctx.pracCompound ? "on" : ""}">${COMPOUNDS_RU[c]}</button>`).join("");
-
-  const sliders = AXES.map((ax, i) => `
-    <div style="display:flex;align-items:center;gap:10px;margin:6px 0">
-      <span class="label" style="width:90px;margin:0">${ax.name}</span>
-      <input type="range" min="0" max="1" step="0.01" value="${ctx.setup[i]}" data-ax="${i}" style="flex:1">
-      <span style="width:36px;text-align:right">${(+ctx.setup[i]).toFixed(2)}</span>
-    </div>`).join("");
-
-  // strategy stat tiles
-  const stats = `
-    <div class="stat-row">
-      <div class="stat"><div class="label" style="margin:0 0 4px">Идеал сетапа</div>
-        <div class="v">${Math.round(b.idealFound * 100)}%</div>
-        <div class="bar" style="margin-top:6px"><i style="width:${Math.round(b.idealFound * 100)}%;background:linear-gradient(90deg,var(--accent),var(--good))"></i></div></div>
-      <div class="stat"><div class="label" style="margin:0 0 4px">Квали-темп</div>
-        <div class="v ${b.quali ? "sm" : ""}">${b.quali ? fmt(b.quali) : "—"}</div></div>
-      <div class="stat"><div class="label" style="margin:0 0 4px">Стратегия</div>
-        <div class="v">${b.recommendedStops != null ? b.recommendedStops : "—"}<span style="font-size:13px;font-weight:600;color:var(--muted)">${b.recommendedStops != null ? " стоп" : ""}</span></div>
-        <div class="label" style="margin:4px 0 0;text-transform:none;letter-spacing:0">по long-run</div></div>
+  // ---- 1. header: title + clock + speed/pause + state chip + auto-sim ----
+  const speedPills = [1, 2, 4, 8].map(v =>
+    `<button class="btn pw-speed${v === snap.speed ? " on" : ""}" data-v="${v}">${v}×</button>`).join("");
+  const stateChip = me.onTrack
+    ? `на трассе · круг ${me.totalLaps} · ${COMPOUNDS_RU[me.compound] || me.compound}`
+    : "в боксах";
+  const header = `
+    <div class="panel pw-head">
+      <div class="pw-head-top">
+        <div class="pw-title">Практика P${snap.session}</div>
+        <div class="pw-clock">${fmt2(snap.clock)}</div>
+      </div>
+      <div class="pw-controls">
+        <div class="pw-speeds">${speedPills}</div>
+        <button class="btn pw-pause" id="pw-pause">${snap.paused ? "▶" : "⏸"}</button>
+        <span class="pw-state ${me.onTrack ? "live" : ""}">${stateChip}</span>
+        <button class="btn pw-auto" id="pw-auto" ${snap.clock <= 0 ? "disabled" : ""}>Просимулировать остаток</button>
+      </div>
     </div>`;
 
-  const feed = snap.findings.slice(-6).reverse().map(f => feedRow(f)).join("")
-    || "<div class='feed-row'><span class='label' style='margin:0'>пока нет прогонов — выбери прогон выше</span></div>";
-
-  root.innerHTML = `
+  // ---- 2. setup widget: 6 axis rows (name | track+band+slider | feedback+knowledge) ----
+  const axisRows = me.axes.map((ax, i) => {
+    const st = ax.feedback.state;
+    const bandLeft = Math.max(0, (ax.window.center - ax.window.half)) * 100;
+    const bandW = Math.min(100, ax.window.half * 2 * 100);
+    const ink = STATE_INK[st] || "var(--muted)";
+    return `
+      <div class="pw-row">
+        <div>
+          <div>${AXES[i].name}</div>
+          <div class="label" style="margin:0">${AXES[i].char}</div>
+        </div>
+        <div class="pw-track">
+          <div class="pw-band" style="left:${bandLeft.toFixed(1)}%;width:${bandW.toFixed(1)}%;background:${BAND_COL[st] || BAND_COL.vague}"></div>
+          <input type="range" min="0" max="1" step="0.01" value="${ax.value}" data-ax="${i}" class="pw-range">
+        </div>
+        <div class="pw-fb">
+          <div class="pw-chip" style="color:${ink}">${ax.feedback.text}</div>
+          <div class="bar pw-know"><i style="width:${Math.round(ax.knowledge * 100)}%;background:linear-gradient(90deg,var(--accent),var(--good))"></i></div>
+          <div class="label" style="margin:2px 0 0">знание ${Math.round(ax.knowledge * 100)}%</div>
+        </div>
+      </div>`;
+  }).join("");
+  const setupPanel = `
     <div class="panel">
-      <h2>Практика — настройка и разведка</h2>
-      <p class="label" style="margin:0">Трек-тайм команды · осталось <b style="color:var(--ink)">${left}</b> из ${snap.budget}</p>
-      <div class="prac-budget">${budget}</div>
-      <div class="run-grid">${runCards}</div>
-      <p class="label" style="margin:2px 0 4px">Компаунд long-run</p>
-      <div class="seg comp-seg" id="prac-compound">${compSeg}</div>
-      <p class="label" style="margin:14px 0 2px">Сетап машины <span style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--muted)">— крути перед setup-тестом</span></p>
-      ${sliders}
-    </div>
-    <div class="panel">
-      <h3 style="margin:0 0 10px">Общая доска находок</h3>
-      ${stats}
-      <p class="label" style="margin:0 0 4px">Кривая износа · проекция клиффа</p>
-      ${degChartSVG(b.degByCompound)}
-      ${feed}
-    </div>
-    <button class="ready" id="ready" style="margin-top:8px">Готов → Квала</button>`;
+      <div class="pw-sec-head">
+        <h3 style="margin:0">Сетап машины</h3>
+        <div class="pw-sat">${Math.round(me.satisfaction * 100)}%</div>
+      </div>
+      ${axisRows}
+    </div>`;
 
-  root.querySelectorAll("input[type=range]").forEach(el => {
-    el.oninput = e => { ctx.setup[+e.target.dataset.ax] = +e.target.value;
-      e.target.nextElementSibling.textContent = (+e.target.value).toFixed(2); };
+  // ---- 3. stint launcher: compound + laps + "go" ----
+  const compSeg = ["soft", "medium", "hard"].map(c =>
+    `<button data-c="${c}" class="${c === ctx.pracCompound ? "on" : ""}">${COMPOUNDS_RU[c]}</button>`).join("");
+  const lapBtns = [5, 10, 15].map(n =>
+    `<button class="btn pw-lap${n === ctx.pracLaps ? " on" : ""}" data-laps="${n}">${n}</button>`).join("");
+  const stintPanel = `
+    <div class="panel">
+      <h3 style="margin:0 0 10px">Выпустить на трассу</h3>
+      <p class="label" style="margin:0 0 4px">Компаунд</p>
+      <div class="seg comp-seg" id="pw-compound">${compSeg}</div>
+      <p class="label" style="margin:12px 0 4px">Кругов в стинте</p>
+      <div class="pw-laps" id="pw-laps">${lapBtns}</div>
+      <button class="primary" id="pw-run" style="margin-top:12px" ${me.onTrack ? "disabled" : ""}>Выпустить болид</button>
+    </div>`;
+
+  // ---- 4. strategy: shared deg curve (reuse preserved chart) ----
+  const stratPanel = `
+    <div class="panel">
+      <h3 style="margin:0 0 10px">Данные стинтов</h3>
+      ${degChartSVG(me.strategy && me.strategy.degByCompound || {})}
+    </div>`;
+
+  // ---- 5. partner peek + 6. ready ----
+  const partner = `<p class="label pw-partner">Напарник: ${Math.round(other.satisfaction * 100)}% удовлетворённости</p>`;
+  const ready = `<button class="ready" id="pw-ready">Готов → ${snap.session < 3 ? "след. сессия" : "Квала"}</button>`;
+
+  root.innerHTML = header + setupPanel + stintPanel + stratPanel + partner + ready;
+
+  // ---- wire handlers ----
+  // axis sliders: input = let the native thumb move (no rerender mid-drag); change = commit to host.
+  root.querySelectorAll("input.pw-range").forEach(el => {
+    el.addEventListener("change", e =>
+      ctx.send({ cmd: "prac_axis", player: ctx.myPlayer, i: +e.target.dataset.ax, value: +e.target.value }));
   });
-  root.querySelector("#prac-compound").onclick = e => {
+  // speed pills
+  root.querySelectorAll(".pw-speed").forEach(el =>
+    el.onclick = () => ctx.send({ cmd: "prac_speed", value: +el.dataset.v }));
+  // pause / resume
+  root.querySelector("#pw-pause").onclick = () => ctx.send({ cmd: "prac_pause" });
+  // fast-forward the remaining clock
+  root.querySelector("#pw-auto").onclick = () => { if (snap.clock > 0) ctx.send({ cmd: "prac_auto", player: ctx.myPlayer }); };
+  // compound picker (local state → repaint)
+  root.querySelector("#pw-compound").onclick = e => {
     const btn = e.target.closest("button"); if (!btn || !btn.dataset.c) return;
-    ctx.pracCompound = btn.dataset.c; render(root, ctx);    // repaint to reflect the active pill
+    ctx.pracCompound = btn.dataset.c; render(root, ctx);
   };
-  const run = type => ctx.send({ cmd: "practice_run", player: ctx.myPlayer, type, compound: ctx.pracCompound, setup: ctx.setup.slice() });
-  for (const r of RUNS) root.querySelector(`#run-${r.type}`).onclick = () => canRun(r.type) && run(r.type);
-  root.querySelector("#ready").onclick = () => {
-    ctx.send({ cmd: "set_setup", player: ctx.myPlayer, setup: ctx.setup });
-    ctx.send({ cmd: "ready", player: ctx.myPlayer });
+  // laps picker (local state → repaint)
+  root.querySelector("#pw-laps").onclick = e => {
+    const btn = e.target.closest("button"); if (!btn || !btn.dataset.laps) return;
+    ctx.pracLaps = +btn.dataset.laps; render(root, ctx);
   };
-}
-
-// one findings-feed row: a coloured type/compound chip + the run summary + the player tag.
-function feedRow(f) {
-  let chip, col, ink = "#0a0a0c", text;
-  if (f.type === "long") { chip = COMPOUNDS_RU[f.compound]; col = COMP_COL[f.compound] || "#aaa";
-    if (f.compound === "hard") ink = "#18181b";
-    text = `Long-run → клифф ${f.cliffLap || "—"} · стинт ~${f.stintLaps} кр`; }
-  else if (f.type === "quali") { chip = "квали"; col = "var(--warn)"; ink = "#1a1205"; text = `Quali-sim → ${fmt(f.qualiPace)}`; }
-  else { chip = "сетап"; col = "var(--accent)"; ink = "#fff"; text = `Setup-тест → «${f.feedback}»`; }
-  return `<div class="feed-row"><span class="feed-chip" style="background:${col};color:${ink}">${chip}</span>
-    <span>${text}</span><span class="feed-pl">${f.player || ""}</span></div>`;
+  // launch a stint with the chosen compound + laps
+  root.querySelector("#pw-run").onclick = () => { if (!me.onTrack) ctx.send({ cmd: "prac_run", player: ctx.myPlayer, compound: ctx.pracCompound, laps: ctx.pracLaps }); };
+  // ready up for the next session / quali
+  root.querySelector("#pw-ready").onclick = () => ctx.send({ cmd: "ready", player: ctx.myPlayer });
 }
 
 // SVG degradation-curve chart: per-compound solid measured line + dashed projection to the cliff + a cliff marker.
