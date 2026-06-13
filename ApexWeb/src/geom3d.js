@@ -104,10 +104,11 @@ export function cornerRuns(cl, steps, maxR, { w = 1 / 200, gap = 3, minLen = 5 }
 }
 
 // Fraction of the local corner radius the road half-width is clamped to, so the inner ribbon
-// edge can never reach the centreline (no self-intersection). Empirical: 0.8 clears the real
-// tracks at STEPS=320 with margin (the fold threshold sits ~0.85); smaller = safer but
-// narrower road. race3d reuses this for the car-position clamp so cars track the same road.
-export const RIBBON_CLAMP = 0.8;
+// edge can never reach the centreline (no self-intersection). Empirical: 0.6 clears ALL 25 real
+// circuits fold-free at the render resolution (STEPS=800) — tight street circuits (Monaco, Baku)
+// need it lower than Barcelona alone did; smaller = safer but narrower at the sharpest corners.
+// race3d reuses this for the car-position clamp so cars track the same narrowed road.
+export const RIBBON_CLAMP = 0.6;
 
 // Resample the centerline into `steps` points and offset by ±halfW along the
 // local normal -> left/right edge arrays ([x,y] each). Builds the road ribbon.
