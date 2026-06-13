@@ -67,3 +67,27 @@ test("runQuali returns a representative pace and is deterministic", () => {
   assert.ok(a.qualiPace > 74 && a.qualiPace < 86, `quali pace in range (${a.qualiPace})`);
   assert.equal(a.qualiPace, b.qualiPace);
 });
+
+import { newPracticeState, applyPracticeRun } from "../src/practice.js";
+
+test("applyPracticeRun spends the budget, appends a finding, and recomputes the board", () => {
+  let st = newPracticeState();
+  assert.equal(st.spent, 0);
+  const r1 = applyPracticeRun(st, { player: "p1", type: "long", compound: "soft", setup: ideal }, drv, car, ideal, 1);
+  assert.ok(r1.accepted);
+  st = r1.state;
+  assert.equal(st.spent, 3);                          // long costs 3
+  assert.equal(st.findings.length, 1);
+  assert.ok(st.board.degByCompound.soft, "deg recorded for soft");
+  assert.ok(st.board.recommendedStops >= 1, "board has recommended stops");
+});
+
+test("applyPracticeRun rejects a run that exceeds the budget", () => {
+  let st = newPracticeState();
+  // spend 8 with quali runs (cost 1) then the 9th is rejected
+  for (let i = 0; i < 8; i++) st = applyPracticeRun(st, { player: "p1", type: "quali", setup: ideal }, drv, car, ideal, i).state;
+  assert.equal(st.spent, 8);
+  const over = applyPracticeRun(st, { player: "p1", type: "quali", setup: ideal }, drv, car, ideal, 99);
+  assert.equal(over.accepted, false);
+  assert.equal(over.state.spent, 8);                  // unchanged
+});

@@ -78,3 +78,32 @@ export function runQuali(drv, car, setup, ideal, seed = 0) {
   const qualiPace = practiceLapBase(drv, car, setup, ideal) + COMPOUNDS.soft.pace + rng.noise(0.06);
   return { type: "quali", qualiPace };
 }
+
+export function newPracticeState() {
+  return { budget: PRAC_BUDGET, spent: 0, findings: [], setups: {}, board: analyzeFindings([]) };
+}
+
+// host reducer: validate budget, run the chosen type (seeded), append the finding, recompute the board.
+export function applyPracticeRun(state, req, drv, car, ideal, seed) {
+  const cost = PRAC_COST[req.type] || 1;
+  if (state.spent + cost > state.budget) return { accepted: false, state };
+  const runId = state.findings.length;
+  let result;
+  if (req.type === "long")  result = runLong(drv, car, req.compound || "medium", req.setup, ideal, undefined, seed + runId);
+  else if (req.type === "quali") result = runQuali(drv, car, req.setup, ideal, seed + runId);
+  else result = runSetupTest(drv, car, req.setup, ideal, seed + runId);
+  const findings = [...state.findings, { runId, player: req.player, ...result }];
+  return { accepted: true, state: { ...state, spent: state.spent + cost, findings, board: analyzeFindings(findings) } };
+}
+
+// fold the run log into the board summary the UI shows.
+export function analyzeFindings(findings) {
+  const degByCompound = {}; let quali = null, idealFound = 0, recommendedStops = null;
+  for (const f of findings) {
+    if (f.type === "long") { degByCompound[f.compound] = { lapTimes: f.lapTimes, cliffLap: f.cliffLap, stintLaps: f.stintLaps };
+      recommendedStops = recommendedStops == null ? f.recommendedStops : Math.min(recommendedStops, f.recommendedStops); }
+    else if (f.type === "quali") quali = quali == null ? f.qualiPace : Math.min(quali, f.qualiPace);
+    else if (f.type === "setup") idealFound = Math.max(idealFound, f.closeness);
+  }
+  return { degByCompound, quali, idealFound, recommendedStops };
+}
