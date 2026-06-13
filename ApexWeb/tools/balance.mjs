@@ -195,3 +195,50 @@ console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0
   console.log(`difficulty hard(1.00): ${hard.uniqueWinners} winners, top ${hard.topWin}/40, DNF ${hard.dnf}, spread ${hard.spread}`);
   console.log(`  -> expect easy has >= hard unique winners (more variety) and each DNF ~1-2.5`);
 }
+
+// practice convergence corridor: a hands-on tuning policy (run stints, move sliders to the
+// revealed window centre) should reach >=75% satisfaction after 3 sessions, and should
+// clearly beat an auto-sim policy that never touches the sliders (hands-on rewarded).
+{
+  const { newSession, sendRun, step: pracStep, setAxis, autoSim, carView, sessionSnapshot } = await import("../src/practice_session.js");
+  const { PRAC2 } = await import("../src/data.js");
+  const { driverAttrs, composeCar } = await import("../src/team.js");
+
+  function pracCars() {
+    const t = TEAMS[0];
+    const mk = di => ({ drv:{ skill:t.drivers[di].skill, attrs:driverAttrs(t.drivers[di].abbrev, t.drivers[di].skill) }, car:composeCar(t.car) });
+    return { p1: mk(0), p2: mk(1) };
+  }
+
+  // honest player: each round, run a stint to bank knowledge, then move every slider to the
+  // REVEALED window centre (from the snapshot — NOT the hidden ideal). Repeat across 3 sessions.
+  function goodPolicy(seed) {
+    let s = newSession(seed, pracCars()); s.paused = false; s.speed = 8;
+    for (let sess = 1; sess <= 3; sess++) {
+      for (let round = 0; round < 4 && s.clock > 0; round++) {
+        s = sendRun(s, "p1", "soft", 10);
+        let g = 0; while (s.cars.p1.onTrack && s.clock > 0 && g++ < 3000) s = pracStep(s, 1.0);
+        const snap = sessionSnapshot(s);
+        for (let i = 0; i < PRAC2.AXES; i++) setAxis(s, "p1", i, snap.cars.p1.axes[i].window.center);
+      }
+      s.session = sess + 1; s.clock = PRAC2.SESSION_SEC; s.cars.p1.onTrack = false;  // next session: reset clock, keep knowledge
+    }
+    // confirm the final setup with one short run
+    s = sendRun(s, "p1", "soft", PRAC2.CONFIRM_LAPS + 1); let g = 0;
+    while (s.cars.p1.onTrack && g++ < 500) s = pracStep(s, 1.0);
+    return carView(s, "p1").satisfaction;
+  }
+
+  // lazy: never tune, just auto-sim all three sessions on the default 0.5 setup.
+  function autoPolicy(seed) {
+    let s = newSession(seed, pracCars());
+    for (let sess = 1; sess <= 3; sess++) { s.clock = PRAC2.SESSION_SEC; s = autoSim(s, "p1"); }
+    return carView(s, "p1").satisfaction;
+  }
+
+  let good = 0, auto = 0; const NP = 6;
+  for (let k = 0; k < NP; k++) { good += goodPolicy(1000 + k); auto += autoPolicy(1000 + k); }
+  good = good / NP; auto = auto / NP;
+  console.log(`practice: good-policy satisfaction after 3 sessions = ${(good*100).toFixed(0)}%  (target >=75%, achievable)`);
+  console.log(`practice: no-tune auto-sim satisfaction      = ${(auto*100).toFixed(0)}%  (target < good-policy: hands-on rewarded)`);
+}
