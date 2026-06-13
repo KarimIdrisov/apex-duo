@@ -5,6 +5,7 @@
 import { TRACK, TRACK_PATH, DRIVER_INFO } from "../data.js";
 import { describe } from "../commentary.js";
 import { sfx } from "../audio.js";
+import * as screen3d from "./race3d_screen.js";
 
 const PACE = ["conserve", "balanced", "push"], ENGINE = ["save", "standard", "push"];
 const PACE_L = { conserve: "Save", balanced: "Norm", push: "Push" };
@@ -89,7 +90,7 @@ function startMapLoop(root, ctx) {
   const DELAY = 120;   // render this many ms behind the newest snapshot so motion interpolates smoothly
   const step = () => {
     ctx._mapRAF = requestAnimationFrame(step);
-    if (ctx._view === "3d") return;
+    if (ctx.view3d) return;
     const phase = ctx.weekend && ctx.weekend.phase;
     if (!ctx._buf || (phase !== "race" && phase !== "result")) return;
     const now = nowMs(), renderT = now - DELAY, xy = {};
@@ -129,9 +130,33 @@ function webglOK() {
 
 export function render(root, ctx) {
   const snap = ctx.snapshot;
-  if (!snap || !snap.cars) { root.innerHTML = `<div class="panel">Старт гонки…</div>`; ctx._hudReady = false; return; }
+  if (!snap || !snap.cars) { root.innerHTML = `<div class="panel">Старт гонки…</div>`; ctx._hudReady = false; ctx._s3dReady = false; return; }
+  if (ctx.view3d) { root.className = "full3d"; return screen3d.render(root, ctx, () => { ctx.view3d = false; render(root, ctx); }); }
+  root.className = "wide";
+  ctx._s3dReady = false;
   if (!ctx._hudReady || !root.querySelector("#dash")) buildHud(root, ctx);
   updateHud(root, ctx, snap);
+}
+
+// Maintain the per-car interpolation buffers + meta from a snapshot. Shared by the 2D
+// dashboard and the standalone 3D screen so cars move in either view.
+export function pumpBuffers(ctx, snap) {
+  const cars = snap.cars, now = nowMs();
+  ctx._buf = ctx._buf || {}; ctx._pit = ctx._pit || {}; ctx._flash = ctx._flash || {};
+  const prevPos = ctx._prevPos || {}, prevMeta = ctx._meta || {};
+  const leadIdx = cars[0] && cars[0].idx;
+  for (const c of cars) {
+    const buf = ctx._buf[c.idx] || (ctx._buf[c.idx] = []);
+    buf.push({ prog: c.lap + c.lapFrac, t: now });
+    if (buf.length > 6) buf.shift();
+    const pm = prevMeta[c.idx];
+    if (pm && c.pitStops > pm.pitStops) ctx._pit[c.idx] = now + 1500;
+    if (prevPos[c.idx] != null && c.pos < prevPos[c.idx]) ctx._flash[c.idx] = now + 650;
+  }
+  ctx._meta = Object.fromEntries(cars.map(c => [c.idx,
+    { pitStops: c.pitStops, retired: c.retired, inPit: c.inPit, isLeader: c.idx === leadIdx, player: c.player, isPlayer: c.isPlayer }]));
+  ctx._prevPos = Object.fromEntries(cars.map(c => [c.idx, c.pos]));
+  ctx._battlePairs = computeBattles(cars);
 }
 
 function buildHud(root, ctx) {
@@ -167,7 +192,6 @@ function buildHud(root, ctx) {
           ${dots}
           ${labels}
         </svg>
-          <canvas id="d-3d" style="display:none;width:100%;height:300px;border-radius:8px"></canvas>
       </div>
       <div class="panel" id="feed-panel" style="padding:8px 10px">
         <div class="label" style="margin:0 0 4px">📻 Радио</div>
@@ -223,20 +247,9 @@ function buildHud(root, ctx) {
   ctx._boardTick = 0;
   ctx._buf = {}; ctx._meta = {}; ctx._pit = {}; ctx._flash = {}; ctx._prevPos = {}; ctx._feed = []; ctx._r3d = null;
   startMapLoop(root, ctx);
-  const svgEl = root.querySelector("#dash svg");
-  const cv = root.querySelector("#d-3d");
   const viewBtn = root.querySelector("#d-view");
-  if (ctx._view == null) ctx._view = webglOK() ? "3d" : "2d";
-  function applyView() {
-    const on3d = ctx._view === "3d";
-    cv.style.display = on3d ? "block" : "none";
-    if (svgEl) svgEl.style.display = on3d ? "none" : "block";
-    viewBtn.textContent = on3d ? "3D" : "2D";
-    if (on3d && !ctx._r3d) import("./race3d.js").then(m => { if (ctx._view === "3d" && !ctx._r3d) ctx._r3d = m.init(cv, ctx); });
-    if (!on3d && ctx._r3d) { ctx._r3d.dispose(); ctx._r3d = null; }
-  }
-  viewBtn.onclick = () => { ctx._view = ctx._view === "3d" ? "2d" : "3d"; applyView(); };
-  applyView();
+  if (!webglOK()) viewBtn.style.display = "none";
+  viewBtn.onclick = () => { ctx.view3d = true; render(root, ctx); };
   sfx.lightsOut();
 }
 
@@ -247,26 +260,10 @@ function updateHud(root, ctx, snap) {
   const $ = id => root.querySelector(id);
   // header
   $("#d-lap").textContent = me.lap;
-  $("#d-chip").textContent = snap.finished ? "ФИНИШ" : (snap.scActive ? "🟡 SAFETY CAR" : (snap.paused ? "ПАУЗА" : "ГОНКА"));
+  $("#d-chip").textContent = snap.finished ? "ФИНИШ" : (snap.scActive ? "🟡 SAFETY CAR" : (snap.vscActive ? "🟡 VSC" : (snap.paused ? "ПАУЗА" : "ГОНКА")));
   $("#d-pause").textContent = snap.paused ? "▶" : "⏸";
   $("#d-speed").textContent = (snap.speed || 1) + "x";
-  // map: push the latest snapshot into a per-car time buffer; the rAF loop interpolates between them
-  const now = nowMs();
-  ctx._buf = ctx._buf || {}; ctx._pit = ctx._pit || {}; ctx._flash = ctx._flash || {};
-  const prevPos = ctx._prevPos || {}, prevMeta = ctx._meta || {};
-  const leadIdx = cars[0] && cars[0].idx;
-  for (const c of cars) {
-    const buf = ctx._buf[c.idx] || (ctx._buf[c.idx] = []);
-    buf.push({ prog: c.lap + c.lapFrac, t: now });
-    if (buf.length > 6) buf.shift();
-    const pm = prevMeta[c.idx];
-    if (pm && c.pitStops > pm.pitStops) ctx._pit[c.idx] = now + 1500;                  // just pitted -> park briefly
-    if (prevPos[c.idx] != null && c.pos < prevPos[c.idx]) ctx._flash[c.idx] = now + 650; // gained a place -> flash
-  }
-  ctx._meta = Object.fromEntries(cars.map(c => [c.idx,
-    { pitStops: c.pitStops, retired: c.retired, inPit: c.inPit, isLeader: c.idx === leadIdx, player: c.player, isPlayer: c.isPlayer }]));
-  ctx._prevPos = Object.fromEntries(cars.map(c => [c.idx, c.pos]));
-  ctx._battlePairs = computeBattles(cars);
+  pumpBuffers(ctx, snap);
   const scOv = $("#trk-sc"); if (scOv) scOv.setAttribute("opacity", snap.scActive ? "0.95" : "0");
   // commentary feed: append new events, keep the last ~24, render newest-first (fading)
   ctx._feed = ctx._feed || [];

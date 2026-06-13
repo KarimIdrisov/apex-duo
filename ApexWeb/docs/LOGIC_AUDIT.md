@@ -154,9 +154,11 @@ Measured against the **field mean** so only the spread shuffles positions. Lap-1
 
 ---
 
-## 11. Safety car (`events.js` + `_resolveSC`)
+## 11. Safety car & VSC (`events.js` + `_resolveSC`)
 
-`scheduleSC(erng, track.sc 0.25, laps)` picks a deploy leader-lap (or none) — ~23% of races. While active: every `lapTime ×= scPaceMult 1.40`; combat suspended; `_resolveSC` bunches same-lap cars into a train `scTrainGap 0.6 s` apart (writes only `lapFrac`, forward-only); pits are cheaper (`scPitMult 0.55`). Retracts after `scMinLaps 3` leader-laps.
+`scheduleSC(erng, track.sc 0.25, laps, vscShare 0.6)` picks a deploy leader-lap + a **caution type** (or none) — ~23% of races; `vscShare 0.6` of those are a **Virtual SC**, the rest a full SC.
+- **Full SC** (`scActive`): every `lapTime ×= scPaceMult 1.40`; combat suspended; `_resolveSC` bunches same-lap cars into a train `scTrainGap 0.6 s` apart (writes only `lapFrac`, forward-only); pits cheaper (`scPitMult 0.55`); retracts after `scMinLaps 3` leader-laps.
+- **Virtual SC** (`vscActive`, §21 r3): a **milder, uniform delta** `lapTime ×= vscPaceMult 1.22` with **NO bunching** (`_resolveSC` is full-SC only); combat suspended; pits `vscPitMult 0.78` (cheaper than green's 1.0, pricier than the full SC's 0.55) — so a VSC pit is a real but weaker strategic opportunity; clears faster (`vscMinLaps 2`). The two are mutually exclusive; emits `vsc_on`/`vsc_off` events + a "🟡 VSC" HUD chip. The AI treats either caution as a pit opportunity (`scActive || vscActive`).
 
 ---
 
@@ -200,17 +202,17 @@ Two players co-direct one team and each engineer one car (pace/engine/pit). Week
 ## 17. Current balance corridors (`tools/balance.mjs`, 40-race samples, default difficulty)
 
 ```
-DNF/race            1.68   (target ~1-2)   ← incl. ~0.1 from the §18.2 bold-lunge contact risk
-pace spread         2.26 s/lap best→worst finisher (target ~1.5-2.5)   ← wider since the car-pace term (§18.1) added a real car axis
+DNF/race            ~1.35 (target ~1-2)   ← consistency→DNF (§18.7 r3, field-centered) trimmed it from ~1.7
+pace spread         ~2.3-2.5 s/lap best→worst finisher (target ~1.5-2.5)   ← car-pace term (§18.1); the VSC erng-draw reshuffles the sample near the top edge
 winners             3 distinct drivers (NOR/PIA/RUS over 40); top TEAM McLaren ~95%  ← grid-data dominance (best car + both top drivers); see §18.1
 fuel run-outs       push-all-race ~171 dry / standard 0
 tyre deg            1.66 s/lap @20 laps medium
 sectors             power car −0.88 s in the straight sector, +0.65 s in the twisty one
-overtaking          ~2.75 grid→finish places/car; ~27 passes/race (incl. ~0.95 bold out-of-zone, §18.2; up from ~26 after §18.11 graded dirty-air); rest in-zone
-safety car          ~0.23 of races (track.sc 0.25)
+overtaking          ~2.7 grid→finish places/car; ~24-27 passes/race (incl. ~0.95 bold out-of-zone §18.2, defence-roll trims a few §18.7 r3); rest in-zone
+safety car          ~0.23 of races (track.sc 0.25), split ~60% VSC / 40% full SC (§11)
 weather             ~0.37 of races rain; dry slick adv 2.7 s; wet adv in rain 6.0 s
 start               2.15 |grid→lap1| places/car   ← calmer since the tow-gate also throttles lap-1 draft swaps (§18.13/§18.3)
-strategy            AI 1.48 stops/race, mean stop lap ~35/66, 0 fuel run-outs
+strategy            AI ~1.5-1.7 stops/race, mean stop lap ~36/66, 0 fuel run-outs   ← VSC pit opportunism nudged it up (§11)
 difficulty          easy 3 winners / DNF ~1.9 ; hard 2 winners / DNF ~1.8 (easy ≥ hard variety holds; high-variance over 40 races)
 ```
 *(Updated 2026-06-13 after the §18 priority pass: §18.1 (car-pace `CAR_PACE_K 9.0`, `SKILL_K 4.5`, `RACE_FORM 0.15`), §18.13 (tow-gate + credit cap/decay), §18.11 (dirty-air pace `DIRTY_PACE_K 0.8`), §18.3 (lap-1 caution + `GRID_GAP 0.25`), §18.7 (composure/aggression/discipline wired), §18.2 (bold out-of-zone lunge). 110 node tests green; DNF ~1.7, bold ~0.95/race.)*
@@ -311,7 +313,8 @@ Independent reviews repeatedly flagged these as the model's load-bearing strengt
 | `ENGINE_MODES pace/burn` | save +0.35/0.85 · standard 0/1 · push −0.30/1.20 | |
 | `EVENT.startReact/Launch/Cap` | 0.30 / 2.0 / 0.9 | launch reaction spread / skill weight / ± cap (s) |
 | `EVENT.startP/Loss/Dnf` | 0.02 / 1.8 / 0.12 | bog-down chance / s lost / DNF chance |
-| `EVENT.scPaceMult/MinLaps/TrainGap/PitMult` | 1.40 / 3 / 0.6 / 0.55 | SC pace, min laps, train gap, cheap-pit mult |
+| `EVENT.scPaceMult/MinLaps/TrainGap/PitMult` | 1.40 / 3 / 0.6 / 0.55 | full SC pace, min laps, train gap, cheap-pit mult |
+| `EVENT.vscShare/vscPaceMult/vscMinLaps/vscPitMult` | 0.6 / 1.22 / 2 / 0.78 | VSC share of cautions, milder delta, shorter, mid-cost pit (§21 r3) |
 | `WET.mismatch/slick` | 3.0 / 8.0 | s/lap per wetness-mismatch / aquaplaning a slick |
 | `ATTRW` (wear/overtaking/defending/wet/noise/starts/fuel/carWear/composure/aggression/discipline/smoothWear) | 0.30/0.60/0.60/0.60/0.60/1.0/0.20/0.20/0.50/0.40/0.40/0.15 | centered attribute-effect weights |
 | `DIFFICULTY ai` | easy 0.55 · normal 0.80 · hard 1.0 | AI sharpness scalar |
@@ -337,10 +340,15 @@ Four independent agents audited the live engine, each from one angle, each verif
 - **RPC car-index** — `setPace`/`setEngine`/`requestPit` bounds-check the index + validate the mode/compound.
 - **Dead code** — removed `PASS_K`, `wearMod`, `startIncidentHit`; killed the dead `ease` fallback; commented the inert `car.energy`/`track.{abr,harv,dep,el}`. **Correction:** `_pin` is NOT dead (the balance harness + fuel tests force `setEngine` on AI cars and rely on it) — kept.
 
-**🟢 REMAINING — larger items, deliberately NOT rushed into this pass (their own focused task):** a **VSC caution variant** + variable SC duration (a genuinely new mechanic with its own strategy economics + corridor); a tyre **"switch-on" plateau** before the cliff; the realism agent's substantive **deg-magnitude / 1-vs-2-stop economics** revisit (tangled with the now-fixed passing — re-measure first); plus true polish (weather drying-line / soften the slick hinge at wetness 0.4; bold-lunge DNF scaling with defender). These are realism *upgrades*, not bugs — flagged for a dedicated pass rather than tacked onto a balance-touching session.
+**✅ DONE (deferred pass, 2026-06-13):** the **VSC caution variant** (§11) — `vscShare 0.6` of cautions are now a Virtual SC: a uniform `vscPaceMult 1.22` delta with **no bunching**, a mid-cost pit (`vscPitMult 0.78`, between green and full SC), shorter duration, `vsc_on`/`vsc_off` events + a "🟡 VSC" HUD chip, and the AI taking VSC pit opportunities. Adds a real second caution-strategy axis (a VSC pit is cheaper than green but not the bargain a full SC is). Tests: VSC occurs + is SC-exclusive + slows the field; both caution types occur. Corridors held.
+
+**🟢 REMAINING — investigated / lower-priority (with rationale):**
+- **deg-magnitude / 1-vs-2-stop economics** (realism agent) — **left as-is.** The balance agent's evidence wins: the 1-stop dominance is *correct emergent behaviour* for Barcelona (a forced 2-stop loses to traffic on rejoin), and a clean undercut already works (24/24 in clear air). Changing deg risks flipping a healthy, realistic strategy character — not worth it without a multi-track reason.
+- True polish, **deliberately not tacked onto this balance-touching session:** a tyre **"switch-on" plateau** before the cliff; **weather** drying-line / softening the slick hinge at wetness 0.4 (risks the calibrated weather corridor for an imperceptible knee); **bold-lunge DNF** scaling with the defender (the bold-DNF contribution is ~0.1/race — marginal); **start bog-down DNF** 0.12→0.04 (would push the already-low DNF further down). Each is a realism *upgrade*, not a bug.
+- **Perf** (code agent N4): `order()` runs ~2–3×/tick; computing it once would ~halve the combat sort cost (the sim is now ~1.45 s/race → harness ~7 min), BUT reusing a single pre-combat order would *shift_results* (`_aiDrive` would see the pre-combat order), so it's a behaviour change, not a free optimisation — deferred to avoid re-tuning the corridors.
 
 **Verdict across all four:** the engine is **correct (invariants empirically intact), well-structured, and balanced on the macro corridors**; the headline game-feel issue (processional racing) was a real interaction bug and is now fixed. **Post-audit pass landed:** the passing fix + all the queued hardening (dt, credit-key, RPC), the dead-code sweep, and the attribute wiring (defence-roll, consistency→DNF, smoothness→wear) are done; the undercut was verified healthy (the "failure" was the passing bug). Final corridors: **DNF 1.32, spread 2.27, passes 25.5, strategy 1.47, easy 4 ≥ hard 3 winners** — all in band. Remaining: the larger realism *upgrades* (VSC, tyre switch-on plateau, deg-economics revisit) flagged for a dedicated pass.
 
 ---
 
-*Generated 2026-06-12, stances added 2026-06-13, self-audit (4 agents) folded + actioned 2026-06-13. From the live code. Constants live in `ApexWeb/src/data.js`; the core loop in `ApexWeb/src/sim.js`. Run `node --test` (121 tests) and `node tools/balance.mjs` (corridors) from `ApexWeb/`.*
+*Generated 2026-06-12, stances added 2026-06-13, self-audit (4 agents) folded + actioned 2026-06-13. From the live code. Constants live in `ApexWeb/src/data.js`; the core loop in `ApexWeb/src/sim.js`. Run `node --test` (123 tests) and `node tools/balance.mjs` (corridors) from `ApexWeb/`.*

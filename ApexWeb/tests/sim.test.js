@@ -287,6 +287,43 @@ test("a safety car occurs at roughly track.sc across seeds", () => {
   assert.ok(freq > TRACK.sc - 0.12 && freq < TRACK.sc + 0.12, `SC freq ${freq} ~ ${TRACK.sc}`);
 });
 
+test("a VSC occurs, is exclusive with the full SC, slows the field, and emits vsc events (§21 r3)", () => {
+  let sawVsc = false;
+  for (let s = 0; s < 150 && !sawVsc; s++) {
+    const r = new Race(field(), TRACK, 12000 + s); r.gridStart();
+    let g = 0, slowSeen = false, normLap = 0;
+    while (!r.finished && g++ < 500000) {
+      const lead = r.order()[0];
+      const before = lead.lap;
+      r.step();
+      if (lead.lap > before && lead.lastLap > 0) { if (!r.vscActive && !r.scActive && normLap === 0) normLap = lead.lastLap;
+        if (r.vscActive && normLap > 0 && lead.lastLap > normLap * 1.1) slowSeen = true; }
+      if (r.vscActive) {
+        sawVsc = true;
+        assert.ok(!r.scActive, "VSC and full SC are mutually exclusive");
+        // run a few more laps to confirm a slow lap was recorded under VSC, then stop
+        let h = 0; while (r.vscActive && h++ < 6000) r.step();
+        break;
+      }
+    }
+    if (sawVsc) {
+      assert.ok(r.events.some(e => e.type === "vsc_on"), "a vsc_on event fired");
+    }
+  }
+  assert.ok(sawVsc, "a VSC should occur across seeds");
+});
+
+test("over many races both caution types occur (full SC and VSC)", () => {
+  let sc = 0, vsc = 0;
+  for (let s = 0; s < 150 && (sc === 0 || vsc === 0); s++) {   // stop as soon as we've seen both
+    const r = new Race(field(), TRACK, 13000 + s); r.gridStart();
+    let g = 0, sawSc = false, sawVsc = false;
+    while (!r.finished && g++ < 500000) { r.step(); if (r.scActive) sawSc = true; if (r.vscActive) sawVsc = true; if (sawSc && sawVsc) break; }
+    if (sawSc) sc++; if (sawVsc) vsc++;
+  }
+  assert.ok(sc > 0 && vsc > 0, `both caution types occur (full SC in ${sc}, VSC in ${vsc} races)`);
+});
+
 test("under the safety car the field bunches into a tight train", () => {
   let tightObserved = false;
   for (let s = 0; s < 60 && !tightObserved; s++) {

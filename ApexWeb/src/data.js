@@ -115,6 +115,11 @@ export const EVENT = {
   scMinLaps:  3,     // the SC stays out this many leader-laps
   scTrainGap: 0.6,   // seconds between cars in the bunched SC train
   scPitMult:  0.55,  // pit time-loss multiplier under SC (a cheap stop)
+  // Virtual Safety Car (§21 r3): a uniform speed delta with NO bunching — the more common modern caution.
+  vscShare:    0.6,   // fraction of cautions that are a VSC (vs a full SC)
+  vscPaceMult: 1.22,  // everyone laps at 122% under the VSC (milder than the full SC's 140%)
+  vscMinLaps:  2,     // a VSC clears faster than a full SC (2 vs 3 leader-laps)
+  vscPitMult:  0.78,  // pit-loss under VSC: cheaper than green (1.0) but pricier than a full SC (0.55)
 };
 
 // weather (Phase 6): wet pace penalty for using a compound off its optimal wetness.

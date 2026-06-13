@@ -25,8 +25,10 @@ export class Race {
     this.time = 0;
     this.finished = false;
     this.sessionBestMini = new Array(N_MINI).fill(Infinity);
-    this.scLap = scheduleSC(this.erng, track.sc, track.laps);  // leader-lap it deploys on, or null
-    this.scActive = false; this.scEverActive = false; this.scStartLap = 0; this._started = false;
+    const caution = scheduleSC(this.erng, track.sc, track.laps, EVENT.vscShare);  // { lap, vsc } or null
+    this.scLap = caution ? caution.lap : null; this.scIsVsc = caution ? caution.vsc : false;  // VSC = uniform delta, no bunching
+    this.scActive = false; this.vscActive = false; this.scEverActive = false; this.scStartLap = 0; this._started = false;
+    this._vscWas = false;
     this.weather = scheduleWeather(this.erng, track.wet, track.laps);
     this.wetness = 0;
     this.cars = field.map((f, i) => ({
@@ -101,7 +103,8 @@ export class Race {
       s += this.rng.noise((1 - this.difficulty) * AI_NOISE);                 // ...and less consistent lap-to-lap
     }
     if (c.lap === 0) s += c._launch || 0;       // standing-start launch (graded: good launch = faster opening lap)
-    if (this.scActive) s *= EVENT.scPaceMult;   // everyone crawls behind the safety car
+    if (this.scActive) s *= EVENT.scPaceMult;        // everyone crawls behind the safety car
+    else if (this.vscActive) s *= EVENT.vscPaceMult; // a milder, uniform delta under the virtual SC
     return s;
   }
 
@@ -154,19 +157,23 @@ export class Race {
         this._serveLapEnd(c); // phase 3: pit + DNF (finishers handled in order())
       }
     }
-    if (!this.scActive) { this._resolveCombat(); this._resolveBlueFlags(dt); }   // no green-flag passing/lapping under the safety car
-    else for (const c of this.cars) { c._dirtyPace = 0; c._blueDelay = 0; }      // neutral while the field crawls behind the SC
+    if (!this.scActive && !this.vscActive) { this._resolveCombat(); this._resolveBlueFlags(dt); }   // no green-flag passing/lapping under any caution
+    else for (const c of this.cars) { c._dirtyPace = 0; c._blueDelay = 0; }                          // neutral while a caution is out
     this._aiDrive();   // AI engine/pace management (post-combat: pos + pass-credit are fresh)
     // safety-car lifecycle, driven by the leader's lap count
     const leadLap = this.cars.reduce((m, c) => Math.max(m, c.lap), 0);
-    if (this.scLap != null && !this.scActive && !this.scEverActive && leadLap >= this.scLap) {
-      this.scActive = true; this.scEverActive = true; this.scStartLap = leadLap;
+    if (this.scLap != null && !this.scEverActive && leadLap >= this.scLap) {   // deploy the scheduled caution (full SC or VSC)
+      this.scEverActive = true; this.scStartLap = leadLap;
+      if (this.scIsVsc) this.vscActive = true; else this.scActive = true;
     }
-    if (this.scActive && leadLap >= this.scStartLap + EVENT.scMinLaps) this.scActive = false;
+    if (this.scActive && leadLap >= this.scStartLap + EVENT.scMinLaps) this.scActive = false;       // full SC retracts after scMinLaps
+    if (this.vscActive && leadLap >= this.scStartLap + EVENT.vscMinLaps) this.vscActive = false;    // VSC clears faster
     if (this.scActive && !this._scWas) this._emit({ type: "sc_on", lap: leadLap });
     if (!this.scActive && this._scWas) this._emit({ type: "sc_off", lap: leadLap });
-    this._scWas = this.scActive;
-    this._resolveSC();
+    if (this.vscActive && !this._vscWas) this._emit({ type: "vsc_on", lap: leadLap });
+    if (!this.vscActive && this._vscWas) this._emit({ type: "vsc_off", lap: leadLap });
+    this._scWas = this.scActive; this._vscWas = this.vscActive;
+    this._resolveSC();   // bunching is full-SC only (it checks this.scActive)
     for (const c of this.cars) {
       if (c.retired && !this._retiredSeen.has(c.idx)) { this._retiredSeen.add(c.idx); this._emit({ type: "dnf", lap: c.lap, a: c.idx, abbr: c.abbrev }); }
     }
@@ -371,7 +378,7 @@ export class Race {
     // AI weather reaction: get onto the right tyre for the conditions (not blocked by stop count)
     // AI strategy: planned stops, SC opportunism, weather changes, emergency cliff (ai_strategy.js)
     if (c.player == null && !c.pitPending && c.tyreAge > 1) {
-      const want = pitDecision(c, { wetness: this.wetness, scActive: this.scActive, laps: this.track.laps });
+      const want = pitDecision(c, { wetness: this.wetness, scActive: this.scActive || this.vscActive, laps: this.track.laps });
       if (want) {
         c.pitPending = want.compound;
         if (want.reason !== "weather") c.aiStopsDone = (c.aiStopsDone || 0) + 1;  // consume a dry plan stop
@@ -379,7 +386,8 @@ export class Race {
     }
     if (c.pitPending) {
       c.tyre = c.pitPending; c.pitPending = null; c.wear = 0; c.tyreAge = 0; c.tyreTemp = TYRE.pitTemp;
-      const pitLoss = this.track.pit * (this.scActive ? EVENT.scPitMult : 1) * (c.personnel ? c.personnel.pitMult : 1);
+      const cautionPit = this.scActive ? EVENT.scPitMult : (this.vscActive ? EVENT.vscPitMult : 1);   // full SC cheapest, VSC mid, green full
+      const pitLoss = this.track.pit * cautionPit * (c.personnel ? c.personnel.pitMult : 1);
       c.pitStops += 1;
       c.pitTimer = pitLoss;   // sit stationary in the box for pitLoss s — drained in step() (race time passes, rivals gain, the out-lap shows it). Replaces the old lapFrac subtraction that got clamped to ~0.
       this._emit({ type: "pit", lap: c.lap, a: c.idx, abbr: c.abbrev, compound: c.tyre });
