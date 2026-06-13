@@ -8,6 +8,20 @@ import { TRACK } from "../data.js";
 const me_of = (cars, ctx) => cars.find(c => c.player && c.player === ctx.myPlayer) || cars.find(c => c.isPlayer) || cars[0];
 const tyreIcon = (t, s = 16) => `<img src="assets/tyres/${t}.png" alt="${t}" style="height:${s}px;width:${s}px;object-fit:contain;vertical-align:middle">`;
 
+// camera modes cycled by the overlay button; race3d.js reads ctx._cam3d each frame
+const CAM_STATES = [
+  { mode: "orbit", label: "обзор" },
+  { mode: "chase", target: "player", label: "погоня: моя" },
+  { mode: "chase", target: "leader", label: "погоня: лидер" },
+];
+function cycleCam(ctx, root) {
+  const next = ((typeof ctx._cam3dIdx === "number" ? ctx._cam3dIdx : 0) + 1) % CAM_STATES.length;
+  const s = CAM_STATES[next];
+  ctx._cam3dIdx = next;
+  ctx._cam3d = { mode: s.mode, target: s.target };
+  const btn = root.querySelector("#s3d-cam"); if (btn) btn.textContent = "Камера: " + s.label;
+}
+
 export function render(root, ctx, onExit) {
   const snap = ctx.snapshot;
   if (!snap || !snap.cars) return;
@@ -22,6 +36,7 @@ function build(root, ctx, onExit) {
       <canvas id="s3d-canvas" style="display:block;width:100%;height:100%"></canvas>
       <div style="position:absolute;top:14px;left:14px;display:flex;align-items:center;gap:10px">
         <button class="btn" id="s3d-back">← 2D</button>
+        <button class="btn" id="s3d-cam">Камера: обзор</button>
         <div style="background:rgba(10,10,12,.62);border-radius:10px;padding:6px 12px;font-weight:700">
           ${TRACK.gp} · круг <span id="s3d-lap">0</span>/${TRACK.laps} <span id="s3d-chip" style="margin-left:6px;font-weight:500"></span>
         </div>
@@ -30,6 +45,8 @@ function build(root, ctx, onExit) {
       <div id="s3d-me" style="position:absolute;left:14px;bottom:14px;background:rgba(10,10,12,.62);border-radius:12px;padding:8px 12px;font-size:13px"></div>
     </div>`;
   root.querySelector("#s3d-back").onclick = () => onExit();
+  root.querySelector("#s3d-cam").onclick = () => cycleCam(ctx, root);
+  ctx._cam3dIdx = 0; ctx._cam3d = { mode: "orbit" };
   ctx._s3dReady = true;
   ctx._r3d = null;
   const cv = root.querySelector("#s3d-canvas");

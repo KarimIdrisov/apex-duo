@@ -141,13 +141,26 @@ export function init(canvas, ctx) {
   const pitN = tangentAt(cl, 0), pitP = pointAt(cl, 0);
   const PIT = [pitP[0] + (-pitN[1]) * (2.4 * HW_N), pitP[1] + pitN[0] * (2.4 * HW_N)];
 
-  // --- orbital camera (track centered at origin) + drag-to-orbit ---
-  let azim = -35 * Math.PI / 180, elev = 42 * Math.PI / 180, dist = b.size * 1.6 * sc;
-  const target = new THREE.Vector3(0, 0, 0);
-  function placeCam() {
-    const horiz = Math.cos(elev) * dist;
-    cam.position.set(target.x + Math.sin(azim) * horiz, Math.sin(elev) * dist, target.z + Math.cos(azim) * horiz);
-    cam.lookAt(target);
+  // --- camera: orbit the whole track, or chase a car (ctx._cam3d.mode/target).
+  // Drag adjusts the angle; the frame loop repositions every frame (smooth pan/zoom). ---
+  let azim = -35 * Math.PI / 180, elev = 42 * Math.PI / 180;
+  const ORBIT_DIST = b.size * 1.6 * sc, CHASE_DIST = 14;   // camera distance (world units)
+  const ORIGIN0 = new THREE.Vector3(0, 0, 0);
+  const camTarget = new THREE.Vector3(0, 0, 0);            // smoothed look-at point
+  let curDist = ORBIT_DIST;
+  function chaseGroup() {
+    const cam3d = ctx._cam3d || {}, snap = (ctx.snapshot && ctx.snapshot.cars) || [];
+    const live = (c) => (c && !c.retired && cars[c.idx]) ? cars[c.idx].group : null;
+    if (cam3d.target === "leader") return live(snap[0]);
+    return live(snap.find((x) => x.player)) || live(snap[0]);   // default: your car, else leader
+  }
+  function updateCam() {
+    const chase = (ctx._cam3d && ctx._cam3d.mode === "chase") ? chaseGroup() : null;
+    camTarget.lerp(chase ? chase.position : ORIGIN0, 0.12);
+    curDist += ((chase ? CHASE_DIST : ORBIT_DIST) - curDist) * 0.12;
+    const horiz = Math.cos(elev) * curDist;
+    cam.position.set(camTarget.x + Math.sin(azim) * horiz, camTarget.y + Math.sin(elev) * curDist, camTarget.z + Math.cos(azim) * horiz);
+    cam.lookAt(camTarget);
   }
   let drag = null;
   const onDown = (e) => { drag = { x: e.clientX, y: e.clientY }; };
@@ -156,7 +169,7 @@ export function init(canvas, ctx) {
     if (!drag) return;
     azim -= (e.clientX - drag.x) * 0.01;
     elev = Math.min(1.45, Math.max(0.2, elev - (e.clientY - drag.y) * 0.01));
-    drag = { x: e.clientX, y: e.clientY }; placeCam();
+    drag = { x: e.clientX, y: e.clientY };
   };
   canvas.addEventListener("mousedown", onDown);
   window.addEventListener("mouseup", onUp);
@@ -168,7 +181,7 @@ export function init(canvas, ctx) {
     renderer.setSize(w, h, false);
     cam.aspect = w / h; cam.updateProjectionMatrix();
   }
-  resize(); window.addEventListener("resize", resize); placeCam();
+  resize(); window.addEventListener("resize", resize);
 
   let raf = 0, alive = true;
   function dispose() {
@@ -216,6 +229,7 @@ export function init(canvas, ctx) {
       car.ring.material.color.set(leader ? 0xffd000 : 0xffffff);
     }
     trackMat.color.set(ctx.snapshot && ctx.snapshot.scActive ? ASPHALT_SC : ASPHALT);
+    updateCam();
     renderer.render(scene, cam);
   }
   frame();
