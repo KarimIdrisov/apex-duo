@@ -18,6 +18,21 @@ const ASPHALT = 0x2c2c33, ASPHALT_SC = 0x4a4626, GRASS = 0x1f3a22;
 const KERB_RED = [0.86, 0.16, 0.18], KERB_WHITE = [0.88, 0.88, 0.9];
 const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
+// procedural CanvasTexture: a `base` fill peppered with `shades` speckles -> tileable surface grain
+function noiseTex(base, shades, n = 128, density = 0.14) {
+  const c = document.createElement("canvas"); c.width = c.height = n;
+  const x = c.getContext("2d");
+  x.fillStyle = base; x.fillRect(0, 0, n, n);
+  for (let i = 0; i < n * n * density; i++) {
+    x.fillStyle = shades[(Math.random() * shades.length) | 0];
+    x.fillRect((Math.random() * n) | 0, (Math.random() * n) | 0, 1, 1);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;   // colour map: decode from sRGB so lighting + tone-mapping are correct
+  return t;
+}
+
 export function init(canvas, ctx) {
   const cl = buildCenterline(splinePath(TRACK_PATH));   // Catmull-Rom-smoothed: soft corners, no per-vertex snapping
   const b = bounds(cl);
@@ -26,6 +41,7 @@ export function init(canvas, ctx) {
   const wz = (p) => (p[1] - b.cy) * sc;
   const mats = [];                                 // every runtime material, freed in dispose()
   const geos = [];                                 // every runtime geometry, freed in dispose()
+  const texs = [];                                 // every runtime texture, freed in dispose()
   const HW_N = HALF_W / sc;                          // half-width in normalized units
   const LANE_LAT = HW_N * 0.45, SIDE_LAT = HW_N * 0.34;   // racing-line + side-step lateral range (kept on asphalt)
 
@@ -66,7 +82,8 @@ export function init(canvas, ctx) {
 
   // grass ground plane under everything
   const grassGeo = new THREE.PlaneGeometry(WORLD * 3, WORLD * 3); geos.push(grassGeo);
-  const grassMat = new THREE.MeshStandardMaterial({ color: GRASS, roughness: 1, metalness: 0 }); mats.push(grassMat);
+  const grassMap = noiseTex("#23402a", ["#1b3320", "#284a30", "#192f1d", "#2d5236"], 128, 0.16); grassMap.repeat.set(10, 10); texs.push(grassMap);
+  const grassMat = new THREE.MeshStandardMaterial({ map: grassMap, roughness: 1, metalness: 0 }); mats.push(grassMat);
   const grass = new THREE.Mesh(grassGeo, grassMat); grass.rotation.x = -Math.PI / 2; grass.position.y = -0.15; grass.receiveShadow = true; scene.add(grass);
 
   // low-poly grandstands set back outside the track at a few spots (broadcast venue feel)
@@ -102,7 +119,11 @@ export function init(canvas, ctx) {
   const trackGeo = new THREE.BufferGeometry(); geos.push(trackGeo);
   trackGeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
   trackGeo.setIndex(index); trackGeo.computeVertexNormals();
-  const trackMat = new THREE.MeshStandardMaterial({ color: ASPHALT, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }); mats.push(trackMat);
+  const uv = new Float32Array(STEPS * 2 * 2);                          // u along the lap, v across the width
+  for (let k = 0; k < STEPS; k++) { uv[k * 4] = k / STEPS; uv[k * 4 + 1] = 0; uv[k * 4 + 2] = k / STEPS; uv[k * 4 + 3] = 1; }
+  trackGeo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+  const asphaltMap = noiseTex("#e8e8e8", ["#d6d6d6", "#f2f2f2", "#dedede"], 128, 0.14); asphaltMap.repeat.set(50, 4); texs.push(asphaltMap);
+  const trackMat = new THREE.MeshStandardMaterial({ map: asphaltMap, color: ASPHALT, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }); mats.push(trackMat);
   const trackMesh = new THREE.Mesh(trackGeo, trackMat); trackMesh.receiveShadow = true; scene.add(trackMesh);
 
   // red/white rumble kerbs along both edges (alternating segment colors via vertex colors)
@@ -239,6 +260,7 @@ export function init(canvas, ctx) {
     window.removeEventListener("resize", resize);
     for (const g of geos) g.dispose();
     for (const m of mats) m.dispose();
+    for (const t of texs) t.dispose();
     renderer.dispose();
   }
   function frame() {
