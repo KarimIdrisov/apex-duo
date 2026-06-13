@@ -8,9 +8,10 @@ import { TRACK_PATH } from "../data.js";
 import { buildCenterline, pointAt, tangentAt, bounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath } from "../geom3d.js";
 
 const WORLD = 120;                 // larger track axis spans ~120 world units
-const HALF_W = 3.0;                // track half-width (world units) — wider for a real-track feel
+const HALF_W = 3.8;                // track half-width (world units) — wider for a real-track feel
 const CAR_L = 2.8;                  // overall car length (used for the highlight ring radius)
 const DELAY = 120;                 // render this many ms behind the newest snapshot
+const POS_EASE = 0.35;             // low-pass the rendered car position — kills snapshot-interp micro-judder up close
 const CLOSE_PROG = 0.012;          // gap (lap-fractions) under which a follower side-steps to pass
 const SECTOR_COL = [0x5aa0ff, 0xffce47, 0x46d08a];
 const ASPHALT = 0x2c2c33, ASPHALT_SC = 0x4a4626, GRASS = 0x1f3a22;
@@ -143,7 +144,7 @@ export function init(canvas, ctx) {
 
   // --- camera: orbit the whole track, or chase a car (ctx._cam3d.mode/target).
   // Drag adjusts the angle; the frame loop repositions every frame (smooth pan/zoom). ---
-  let azim = -35 * Math.PI / 180, elev = 42 * Math.PI / 180;
+  let azim = -35 * Math.PI / 180, elev = 42 * Math.PI / 180, zoom = 1;   // zoom = wheel-controlled distance multiplier
   const ORBIT_DIST = b.size * 1.6 * sc, CHASE_DIST = 14;   // camera distance (world units)
   const ORIGIN0 = new THREE.Vector3(0, 0, 0);
   const camTarget = new THREE.Vector3(0, 0, 0);            // smoothed look-at point
@@ -157,7 +158,7 @@ export function init(canvas, ctx) {
   function updateCam() {
     const chase = (ctx._cam3d && ctx._cam3d.mode === "chase") ? chaseGroup() : null;
     camTarget.lerp(chase ? chase.position : ORIGIN0, 0.12);
-    curDist += ((chase ? CHASE_DIST : ORBIT_DIST) - curDist) * 0.12;
+    curDist += ((chase ? CHASE_DIST : ORBIT_DIST) * zoom - curDist) * 0.12;
     const horiz = Math.cos(elev) * curDist;
     cam.position.set(camTarget.x + Math.sin(azim) * horiz, camTarget.y + Math.sin(elev) * curDist, camTarget.z + Math.cos(azim) * horiz);
     cam.lookAt(camTarget);
@@ -171,7 +172,9 @@ export function init(canvas, ctx) {
     elev = Math.min(1.45, Math.max(0.2, elev - (e.clientY - drag.y) * 0.01));
     drag = { x: e.clientX, y: e.clientY };
   };
+  const onWheel = (e) => { e.preventDefault(); zoom = Math.min(2.5, Math.max(0.35, zoom * (e.deltaY > 0 ? 1.12 : 0.89))); };
   canvas.addEventListener("mousedown", onDown);
+  canvas.addEventListener("wheel", onWheel, { passive: false });
   window.addEventListener("mouseup", onUp);
   window.addEventListener("mousemove", onMove);
 
@@ -188,6 +191,7 @@ export function init(canvas, ctx) {
     if (!alive) return; alive = false;
     cancelAnimationFrame(raf);
     canvas.removeEventListener("mousedown", onDown);
+    canvas.removeEventListener("wheel", onWheel);
     window.removeEventListener("mouseup", onUp);
     window.removeEventListener("mousemove", onMove);
     window.removeEventListener("resize", resize);
@@ -208,7 +212,7 @@ export function init(canvas, ctx) {
       car.group.visible = true;
       if (c.inPit) {
         car.group.position.set(wx(PIT), 0, wz(PIT));
-        car.ring.material.opacity = 0; car.lat = 0;
+        car.ring.material.opacity = 0; car.lat = 0; car.px = null;   // re-snap when it rejoins the track
         continue;
       }
       const prog = sampleProg(buf[c.idx], rt);
@@ -222,7 +226,10 @@ export function init(canvas, ctx) {
       const tlat = racingLineOffset(cl, prog, LANE_LAT) + side;
       car.lat += (tlat - car.lat) * 0.12;                        // ease toward target (smooth)
       const p = offsetPoint(cl, prog, car.lat), t = tangentAt(cl, prog);
-      car.group.position.set(wx(p), 0, wz(p));
+      const txp = wx(p), tzp = wz(p);                            // low-pass the rendered position to smooth micro-judder
+      if (car.px == null) { car.px = txp; car.pz = tzp; }
+      else { car.px += (txp - car.px) * POS_EASE; car.pz += (tzp - car.pz) * POS_EASE; }
+      car.group.position.set(car.px, 0, car.pz);
       car.group.rotation.y = Math.atan2(t[0], t[1]);             // local +Z faces the tangent
       const leader = i === 0;
       car.ring.material.opacity = (c.player || leader) ? 1 : 0;
