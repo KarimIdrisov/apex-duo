@@ -1,6 +1,6 @@
 // ApexWeb/src/setup.js — 6-axis setup: hidden ideal (per car/track/driver), per-axis
 // satisfaction, and the knowledge-window + feedback model used by the live practice session.
-import { RNG, mix32 } from "./rng.js";
+import { RNG } from "./rng.js";
 import { PRAC2 } from "./data.js";
 
 export const AXES = [
@@ -18,11 +18,13 @@ export function trackIdeal(seed) {
   return Array.from({ length: PRAC2.AXES }, () => r.unit());
 }
 
-// per-driver optimum: the track ideal nudged a little for each driver (driverSeed 0 / 1)
+// per-driver optimum: the track ideal nudged a little for each driver (driverSeed 0 / 1).
+// salt a fresh RNG per (driver, axis) — the LCG avalanche removes the cross-seed collisions a
+// plain additive hash would have (two seeds spaced by 131 would otherwise share a jitter pattern).
 export function idealFor(seed, driverSeed) {
   const base = trackIdeal(seed);
   return base.map((v, i) => {
-    const j = ((mix32((seed >>> 0) + driverSeed * 7919 + i * 131) % 1000) / 1000) * 2 - 1; // [-1,1]
+    const j = new RNG(((seed >>> 0) ^ (driverSeed * 7919 + i * 131 + 1)) >>> 0).unit() * 2 - 1; // [-1,1)
     return Math.min(1, Math.max(0, v + j * 0.12));
   });
 }

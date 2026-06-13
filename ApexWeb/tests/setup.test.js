@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AXES, trackIdeal, idealFor, axisSat, satisfaction, closeness } from "../src/setup.js";
+import { AXES, trackIdeal, idealFor, axisSat, satisfaction, closeness, paceBonus } from "../src/setup.js";
 
 test("6 setup axes, each with a name + characteristic", () => {
   assert.equal(AXES.length, 6);
@@ -32,7 +32,13 @@ test("satisfaction is the mean of per-axis sats (0..1)", () => {
   assert.ok(Math.abs(satisfaction([1,0,1,0,1,0]) - 0.5) < 1e-9);
 });
 
-test("closeness still works (generalised over 6 axes)", () => {
+test("closeness still works (generalised over 6 axes) and reads the setup values", () => {
   const ideal = trackIdeal(7);
-  assert.ok(closeness(ideal, ideal) > 0.999);
+  assert.ok(closeness(ideal, ideal) > 0.999, "perfect setup ~1");
+  assert.ok(closeness([0,0,0,0,0,0], ideal) < closeness(ideal, ideal), "a worse setup is less close");
+});
+
+test("paceBonus is faster (more negative) the closer you are", () => {
+  assert.ok(paceBonus(1) < paceBonus(0.5), "more closeness = bigger pace gain");
+  assert.ok(paceBonus(0) === 0, "zero closeness = no bonus");
 });

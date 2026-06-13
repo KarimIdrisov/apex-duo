@@ -66,6 +66,7 @@ test("runSetupTest: feedback is clearer for a high race_iq driver", () => {
   const sharp = { skill: 0.9, attrs: { pace: 0.9, consistency: 0.9, race_iq: 0.95 } };
   const vague = { skill: 0.9, attrs: { pace: 0.9, consistency: 0.9, race_iq: 0.10 } };
   // put axis 0 at 0.0 while all other axes sit at their ideal — axis 0 is unambiguously worst
+  assert.ok(ideal[0] > 0.1, "precondition: axis-0 ideal is far enough from 0 to be the clear worst");
   const setup = ideal.map((v, i) => i === 0 ? 0.0 : v);
   const namesAxis0 = (d) => { let hit = 0; for (let s = 0; s < 40; s++) {
     if (runSetupTest(d, car, setup, ideal, s).feedback.startsWith("Переднее крыло")) hit++; } return hit; };
