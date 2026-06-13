@@ -2,7 +2,7 @@
 import { Weekend } from "./weekend.js";
 import { LocalNet, P2PNet } from "./net.js";
 import { Race } from "./sim.js";
-import { TEAMS, TRACK, STEP, GRID_GAP, DIFFICULTY } from "./data.js";
+import { TEAMS, TRACK, STEP, GRID_GAP, DIFFICULTY, PRAC2 } from "./data.js";
 import * as lobby from "./ui/lobby.js";
 import * as practice from "./ui/practice.js";
 import * as quali from "./ui/quali.js";
@@ -13,6 +13,7 @@ import { driverAttrs, composeCar, genPersonnel } from "./team.js";
 import { pickTrack } from "./track_shapes.js";
 import { fuelLaps } from "./fuel.js";
 import { newPracticeState, applyPracticeRun } from "./practice.js";
+import { newSession, step as pracStep, sessionSnapshot, setAxis, sendRun, setSpeed, setPaused, autoSim } from "./practice_session.js";
 import { mix32 } from "./rng.js";
 import { sfx } from "./audio.js";
 
@@ -76,10 +77,14 @@ function onCommand(cmd) {
   }
 }
 function onPhaseHost() {
-  if (ctx.weekend.phase === "practice") {
-    if (ctx.seed == null) ctx.seed = 1000 + Math.floor(Math.random() * 100000);  // shared weekend seed (race reuses it)
-    ctx.practice = newPracticeState();
-    pushPracticeState();
+  if (isPractice(ctx.weekend.phase)) {
+    if (ctx.seed == null) ctx.seed = 1000 + Math.floor(Math.random() * 100000);  // shared weekend seed
+    const n = Number(ctx.weekend.phase.slice(-1));                                // 1 | 2 | 3
+    if (!ctx.pracSession) ctx.pracSession = newSession(ctx.seed, practiceCars());
+    else { ctx.pracSession.session = n; ctx.pracSession.clock = PRAC2.SESSION_SEC; ctx.pracSession.paused = true;
+           ctx.pracSession.cars.p1.onTrack = false; ctx.pracSession.cars.p2.onTrack = false; }   // new session: reset clock, keep knowledge
+    ctx._pracFrame = 0; ctx._pracLastTs = 0;
+    pushPractice();
   }
   if (ctx.weekend.phase === "race") startRaceHost();
 }
@@ -127,6 +132,19 @@ function practiceDrvCar(player) {
   const t = TEAMS[ctx.teamIdx] || TEAMS[0];
   const d = t.drivers[player === "p2" ? 1 : 0];
   return { drv: { skill: d.skill, attrs: driverAttrs(d.abbrev, d.skill) }, car: composeCar(t.car) };
+}
+// driver+car per player for the live practice session (the session carries the hidden ideal).
+function practiceCars() {
+  const t = TEAMS[ctx.teamIdx] || TEAMS[0];
+  const mk = di => ({ drv: { skill: t.drivers[di].skill, attrs: driverAttrs(t.drivers[di].abbrev, t.drivers[di].skill) }, car: composeCar(t.car) });
+  return { p1: mk(0), p2: mk(1) };
+}
+// broadcast the live practice-session snapshot (clock + per-car setup/knowledge) to both screens.
+function pushPractice() {
+  const snap = sessionSnapshot(ctx.pracSession);
+  ctx.snapshot = snap;
+  if (ctx.net) ctx.net.send(snap);
+  rerender();
 }
 // broadcast the shared practice state (budget + findings board) to both screens.
 function pushPracticeState() {
@@ -188,6 +206,12 @@ function hostLoop(ts) {
       ctx.weekend.setReady("p1"); ctx.weekend.setReady("p2");  // race -> result (onPhase broadcasts)
     }
   }
+  if (ctx.role === "host" && isPractice(ctx.weekend.phase) && ctx.pracSession && !ctx.pracSession.paused) {
+    const dt = Math.min(0.1, ctx._pracLastTs ? (ts - ctx._pracLastTs) / 1000 : 0);
+    pracStep(ctx.pracSession, dt * SIM_RATE);
+    if ((++ctx._pracFrame % 4) === 0) pushPractice();
+  }
+  ctx._pracLastTs = ts;
   ctx._lastTs = ts;
   requestAnimationFrame(hostLoop);
 }
