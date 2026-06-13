@@ -5,7 +5,7 @@
 // they catch the car ahead, so a train fans out instead of stacking on the centerline.
 import * as THREE from "https://esm.sh/three@0.160.0";
 import { TRACK_PATH } from "../data.js";
-import { buildCenterline, pointAt, tangentAt, bounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath, radiusAt, cornerRuns, RIBBON_CLAMP } from "../geom3d.js";
+import { buildCenterline, pointAt, tangentAt, bounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath, radiusAt, cornerRuns, RIBBON_CLAMP, elevation } from "../geom3d.js";
 
 const WORLD = 120;                 // larger track axis spans ~120 world units
 const HALF_W = 3.8;                // track half-width (world units) — wider for a real-track feel
@@ -46,6 +46,8 @@ export function init(canvas, ctx) {
   const texs = [];                                 // every runtime texture, freed in dispose()
   const HW_N = HALF_W / sc;                          // half-width in normalized units
   const LANE_LAT = HW_N * 0.45, SIDE_LAT = HW_N * 0.34;   // racing-line + side-step lateral range (kept on asphalt)
+  const ELEV_AMP = WORLD * 0.04;                     // elevation amplitude (world units) — subtle rolling terrain
+  const surfaceY = (f) => ELEV_AMP * elevation(f);   // world height of the track surface at lap-frac f (render-only)
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setClearColor(0x0a0a0c, 1);
@@ -114,9 +116,9 @@ export function init(canvas, ctx) {
   const { left, right } = ribbonEdges(cl, HW_N, STEPS);   // edges in normalized space
   const pos = new Float32Array(STEPS * 2 * 3);
   for (let k = 0; k < STEPS; k++) {
-    const l = left[k], r = right[k];
-    pos[k * 6 + 0] = wx(l); pos[k * 6 + 1] = 0; pos[k * 6 + 2] = wz(l);
-    pos[k * 6 + 3] = wx(r); pos[k * 6 + 4] = 0; pos[k * 6 + 5] = wz(r);
+    const l = left[k], r = right[k], y = surfaceY(k / STEPS);
+    pos[k * 6 + 0] = wx(l); pos[k * 6 + 1] = y; pos[k * 6 + 2] = wz(l);
+    pos[k * 6 + 3] = wx(r); pos[k * 6 + 4] = y; pos[k * 6 + 5] = wz(r);
   }
   const index = [];
   for (let k = 0; k < STEPS; k++) {
@@ -147,8 +149,9 @@ export function init(canvas, ctx) {
           const k = (run.start + s) % STEPS, k1 = (k + 1) % STEPS, a = edge[k], bb = edge[k1];
           const ca = pointAt(cl, k / STEPS), cb = pointAt(cl, k1 / STEPS);
           const ia = inward(a, ca), ib = inward(bb, cb);
+          const ya = surfaceY(k / STEPS) + KY, yb = surfaceY(k1 / STEPS) + KY;
           const col = (Math.floor(s / BLOCK) % 2) ? KERB_RED : KERB_WHITE;   // counted WITHIN the run -> uniform, gap-free blocks
-          for (const pt of [a, bb, ib, a, ib, ia]) { kpos.push(wx(pt), KY, wz(pt)); kcol.push(col[0], col[1], col[2]); }
+          for (const [pt, yy] of [[a, ya], [bb, yb], [ib, yb], [a, ya], [ib, yb], [ia, ya]]) { kpos.push(wx(pt), yy, wz(pt)); kcol.push(col[0], col[1], col[2]); }
         }
       }
     }
@@ -176,7 +179,8 @@ export function init(canvas, ctx) {
         const oa = outward(k / STEPS, sgn), ob = outward(k1 / STEPS, sgn);
         const va = [a[0] + oa[0] * VERGE_W, a[1] + oa[1] * VERGE_W], vb = [bb[0] + ob[0] * VERGE_W, bb[1] + ob[1] * VERGE_W];
         const col = isCorner[k] ? GRAVEL : GREEN;
-        for (const [pt, y] of [[a, VY], [bb, VY], [vb, GROUND], [a, VY], [vb, GROUND], [va, GROUND]]) { vpos.push(wx(pt), y, wz(pt)); vcol.push(col[0], col[1], col[2]); }
+        const ya = surfaceY(k / STEPS) + VY, yb = surfaceY(k1 / STEPS) + VY;     // inner rail rides the track; outer drops to GROUND -> embankment slope
+        for (const [pt, y] of [[a, ya], [bb, yb], [vb, GROUND], [a, ya], [vb, GROUND], [va, GROUND]]) { vpos.push(wx(pt), y, wz(pt)); vcol.push(col[0], col[1], col[2]); }
       }
     }
     const vgeo = new THREE.BufferGeometry(); geos.push(vgeo);
@@ -190,7 +194,7 @@ export function init(canvas, ctx) {
   // sector tint lines just above the asphalt
   for (let s = 0; s < 3; s++) {
     const v = [], lo = s / 3, hi = (s + 1) / 3;
-    for (let k = 0; k <= 48; k++) { const p = pointAt(cl, lo + (hi - lo) * (k / 48)); v.push(new THREE.Vector3(wx(p), 0.07, wz(p))); }
+    for (let k = 0; k <= 48; k++) { const f = lo + (hi - lo) * (k / 48), p = pointAt(cl, f); v.push(new THREE.Vector3(wx(p), surfaceY(f) + 0.07, wz(p))); }
     const lg = new THREE.BufferGeometry().setFromPoints(v); geos.push(lg);
     const lm = new THREE.LineBasicMaterial({ color: SECTOR_COL[s] }); mats.push(lm);
     scene.add(new THREE.Line(lg, lm));
@@ -199,7 +203,7 @@ export function init(canvas, ctx) {
   {
     const p = pointAt(cl, 0), t = tangentAt(cl, 0), nx = -t[1], ny = t[0];
     const a = [p[0] + nx * HW_N, p[1] + ny * HW_N], c = [p[0] - nx * HW_N, p[1] - ny * HW_N];
-    const sg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(wx(a), 0.08, wz(a)), new THREE.Vector3(wx(c), 0.08, wz(c))]); geos.push(sg);
+    const sg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(wx(a), surfaceY(0) + 0.08, wz(a)), new THREE.Vector3(wx(c), surfaceY(0) + 0.08, wz(c))]); geos.push(sg);
     const sm = new THREE.LineBasicMaterial({ color: 0xffffff }); mats.push(sm);
     scene.add(new THREE.Line(sg, sm));
   }
@@ -324,7 +328,7 @@ export function init(canvas, ctx) {
       if (c.retired) { car.group.visible = false; continue; }
       car.group.visible = true;
       if (c.inPit) {
-        car.group.position.set(wx(PIT), 0, wz(PIT));
+        car.group.position.set(wx(PIT), surfaceY(0), wz(PIT));
         car.ring.material.opacity = 0; car.lat = 0; car.px = null;   // re-snap when it rejoins the track
         continue;
       }
@@ -345,7 +349,7 @@ export function init(canvas, ctx) {
       const txp = wx(p), tzp = wz(p);                            // low-pass the rendered position to smooth micro-judder
       if (car.px == null) { car.px = txp; car.pz = tzp; }
       else { car.px += (txp - car.px) * POS_EASE; car.pz += (tzp - car.pz) * POS_EASE; }
-      car.group.position.set(car.px, 0, car.pz);
+      car.group.position.set(car.px, surfaceY(prog), car.pz);   // ride the rolling surface
       car.group.rotation.y = Math.atan2(t[0], t[1]);             // local +Z faces the tangent
       const leader = i === 0;
       car.ring.material.opacity = (c.player || leader) ? 1 : 0;

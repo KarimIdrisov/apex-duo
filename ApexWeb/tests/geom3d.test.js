@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath, radiusAt, cornerMask, cornerRuns } from "../src/geom3d.js";
+import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath, radiusAt, cornerMask, cornerRuns, elevation } from "../src/geom3d.js";
 
 const SQUARE = [0, 0, 1, 0, 1, 1, 0, 1];   // unit-square loop, perimeter 4
 
@@ -145,4 +145,11 @@ test("cornerRuns: one full run on a tight circle, two runs on an ellipse (the en
   const runs = cornerRuns(buildCenterline(ep), 200, 0.5);     // maxR between end- and side-radius -> ends are corners
   assert.equal(runs.length, 2, "two corner runs = the two ellipse ends, split by the straight sides");
   for (const r of runs) assert.ok(r.len >= 5 && r.len < 200, "each run is a bounded span, not the whole lap");
+});
+
+test("elevation: periodic [0,1], loop-continuous, deterministic from seed", () => {
+  assert.ok(Math.abs(elevation(0) - elevation(1)) < 1e-9, "no step at start/finish (loop-continuous)");
+  for (const f of [0, 0.13, 0.5, 0.77, 0.99]) { const v = elevation(f); assert.ok(v >= 0 && v <= 1, `in [0,1]: ${v}`); }
+  assert.equal(elevation(0.37, 7), elevation(0.37, 7), "deterministic for a given seed");
+  assert.notEqual(elevation(0.37, 1), elevation(0.37, 2), "different seeds -> different profile");
 });

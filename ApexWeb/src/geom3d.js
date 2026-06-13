@@ -193,3 +193,17 @@ export function splinePath(path, sub = 8) {
   }
   return out;
 }
+
+// Smooth periodic elevation profile in [0,1] along the lap (frac wraps 0..1). Integer harmonics
+// keep it exactly loop-continuous (no step at start/finish). Deterministic from `seed` so a track
+// always undulates the same way. The render scales this to world height; the sim never sees it.
+export function elevation(frac, seed = 1) {
+  let s = (seed >>> 0) || 1;
+  const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+  let v = 0, amp = 0;
+  for (const h of [1, 2, 3]) {                          // one big hill + two finer undulations
+    const a = (h === 1 ? 1.0 : 0.5 / h) * (0.6 + 0.4 * rnd()), p = rnd() * Math.PI * 2;
+    v += a * Math.sin(2 * Math.PI * h * frac + p); amp += a;
+  }
+  return 0.5 + 0.5 * v / (amp || 1);                    // [0,1]; sin period 1 for integer h -> elevation(0)==elevation(1)
+}
