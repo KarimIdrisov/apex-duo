@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges } from "../src/geom3d.js";
+import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges, sampleProg } from "../src/geom3d.js";
 
 const SQUARE = [0, 0, 1, 0, 1, 1, 0, 1];   // unit-square loop, perimeter 4
 
@@ -49,4 +49,13 @@ test("ribbonEdges: left/right edges are exactly halfW from the centerline", () =
     assert.ok(Math.abs(Math.hypot(left[k][0] - c[0], left[k][1] - c[1]) - halfW) < 1e-6);
     assert.ok(Math.abs(Math.hypot(right[k][0] - c[0], right[k][1] - c[1]) - halfW) < 1e-6);
   }
+});
+
+test("sampleProg: interpolate, clamp-before-first, clamp extrapolation", () => {
+  const buf = [{ prog: 1, t: 0 }, { prog: 2, t: 100 }];
+  assert.ok(Math.abs(sampleProg(buf, 50) - 1.5) < 1e-9);     // halfway between samples
+  assert.equal(sampleProg(buf, -10), 1);                      // before first sample -> first prog
+  assert.equal(sampleProg([], 0), 0);                         // empty buffer -> 0
+  const far = sampleProg(buf, 100 + 9999);                    // far future -> extrapolation capped at 140 ms
+  assert.ok(far <= 2 + (1 / 100) * 140 + 1e-9);
 });

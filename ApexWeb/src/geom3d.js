@@ -67,3 +67,19 @@ export function ribbonEdges(cl, halfW, steps = 240) {
   }
   return { left, right };
 }
+
+// Smooth cumulative progress (lap+lapFrac) between ~12 Hz snapshots.
+// buf: array of {prog, t(ms)} oldest..newest; rt: render time (ms).
+export function sampleProg(buf, rt) {
+  if (!buf || !buf.length) return 0;
+  if (buf.length === 1 || rt <= buf[0].t) return buf[0].prog;
+  for (let i = buf.length - 1; i > 0; i--) {
+    const a = buf[i - 1], b = buf[i];
+    if (rt >= a.t) {
+      const span = b.t - a.t || 1, v = (b.prog - a.prog) / span;
+      return rt <= b.t ? a.prog + (b.prog - a.prog) * ((rt - a.t) / span)
+                       : b.prog + v * Math.min(rt - b.t, 140);
+    }
+  }
+  return buf[buf.length - 1].prog;
+}
