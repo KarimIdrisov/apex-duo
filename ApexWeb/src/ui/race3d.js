@@ -1,16 +1,20 @@
 // ApexWeb/src/ui/race3d.js — 3D orbital race view. Pure render layer over the sim:
-// reads the SAME ctx._buf / ctx._meta snapshot buffers race.js maintains. No sim/netcode
-// coupling. WebGL -> owner-playtest verified. Self-disposes when its canvas leaves the DOM.
+// reads the SAME ctx._buf snapshot buffers + ctx.snapshot.cars that race.js maintains.
+// No sim/netcode coupling. WebGL -> owner-playtest verified. Self-disposes when its
+// canvas leaves the DOM. Cars ride a racing line (inside-hugging) and side-step when
+// they catch the car ahead, so a train fans out instead of stacking on the centerline.
 import * as THREE from "https://esm.sh/three@0.160.0";
 import { TRACK_PATH } from "../data.js";
-import { buildCenterline, pointAt, tangentAt, bounds, ribbonEdges, sampleProg } from "../geom3d.js";
+import { buildCenterline, pointAt, tangentAt, bounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint } from "../geom3d.js";
 
 const WORLD = 120;                 // larger track axis spans ~120 world units
-const HALF_W = 2.0;                // track half-width (world units)
+const HALF_W = 3.0;                // track half-width (world units) — wider for a real-track feel
 const CAR_L = 2.8, CAR_W = 1.2, CAR_H = 0.7;
 const DELAY = 120;                 // render this many ms behind the newest snapshot
+const CLOSE_PROG = 0.012;          // gap (lap-fractions) under which a follower side-steps to pass
 const SECTOR_COL = [0x5aa0ff, 0xffce47, 0x46d08a];
-const ASPHALT = 0x2c2c33, ASPHALT_SC = 0x4a4626;
+const ASPHALT = 0x2c2c33, ASPHALT_SC = 0x4a4626, GRASS = 0x1f3a22;
+const KERB_RED = [0.86, 0.16, 0.18], KERB_WHITE = [0.88, 0.88, 0.9];
 const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
 export function init(canvas, ctx) {
@@ -20,6 +24,9 @@ export function init(canvas, ctx) {
   const wx = (p) => (p[0] - b.cx) * sc;            // center the track at world origin
   const wz = (p) => (p[1] - b.cy) * sc;
   const mats = [];                                 // every runtime material, freed in dispose()
+  const geos = [];                                 // every runtime geometry, freed in dispose()
+  const HW_N = HALF_W / sc;                          // half-width in normalized units
+  const LANE_LAT = HW_N * 0.45, SIDE_LAT = HW_N * 0.34;   // racing-line + side-step lateral range (kept on asphalt)
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setClearColor(0x0a0a0c, 1);
@@ -30,9 +37,14 @@ export function init(canvas, ctx) {
   const key = new THREE.DirectionalLight(0xffffff, 0.8);
   key.position.set(WORLD, WORLD * 1.4, WORLD * 0.5); scene.add(key);
 
+  // grass ground plane under everything
+  const grassGeo = new THREE.PlaneGeometry(WORLD * 3, WORLD * 3); geos.push(grassGeo);
+  const grassMat = new THREE.MeshStandardMaterial({ color: GRASS, roughness: 1, metalness: 0 }); mats.push(grassMat);
+  const grass = new THREE.Mesh(grassGeo, grassMat); grass.rotation.x = -Math.PI / 2; grass.position.y = -0.15; scene.add(grass);
+
   // --- track ribbon: a triangle strip between the left/right edges ---
   const STEPS = 320;
-  const { left, right } = ribbonEdges(cl, HALF_W / sc, STEPS);   // edges in normalized space
+  const { left, right } = ribbonEdges(cl, HW_N, STEPS);   // edges in normalized space
   const pos = new Float32Array(STEPS * 2 * 3);
   for (let k = 0; k < STEPS; k++) {
     const l = left[k], r = right[k];
@@ -44,37 +56,49 @@ export function init(canvas, ctx) {
     const a = k * 2, bb = k * 2 + 1, c = ((k + 1) % STEPS) * 2, d = ((k + 1) % STEPS) * 2 + 1;
     index.push(a, bb, c, bb, d, c);
   }
-  const trackGeo = new THREE.BufferGeometry();
+  const trackGeo = new THREE.BufferGeometry(); geos.push(trackGeo);
   trackGeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
   trackGeo.setIndex(index); trackGeo.computeVertexNormals();
-  const trackMat = new THREE.MeshStandardMaterial({ color: ASPHALT, roughness: 0.95, metalness: 0, side: THREE.DoubleSide });
-  mats.push(trackMat);
+  const trackMat = new THREE.MeshStandardMaterial({ color: ASPHALT, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }); mats.push(trackMat);
   scene.add(new THREE.Mesh(trackGeo, trackMat));
 
+  // red/white rumble kerbs along both edges (alternating segment colors via vertex colors)
+  const kerbMat = new THREE.LineBasicMaterial({ vertexColors: true }); mats.push(kerbMat);
+  for (const edge of [left, right]) {
+    const kp = [], kc = [];
+    for (let k = 0; k < edge.length; k++) {
+      const a = edge[k], e = edge[(k + 1) % edge.length], col = (k % 2 === 0) ? KERB_RED : KERB_WHITE;
+      kp.push(wx(a), 0.05, wz(a), wx(e), 0.05, wz(e));
+      kc.push(col[0], col[1], col[2], col[0], col[1], col[2]);
+    }
+    const kg = new THREE.BufferGeometry(); geos.push(kg);
+    kg.setAttribute("position", new THREE.Float32BufferAttribute(kp, 3));
+    kg.setAttribute("color", new THREE.Float32BufferAttribute(kc, 3));
+    scene.add(new THREE.LineSegments(kg, kerbMat));
+  }
+
   // sector tint lines just above the asphalt
-  const lineGeos = [];
   for (let s = 0; s < 3; s++) {
     const v = [], lo = s / 3, hi = (s + 1) / 3;
-    for (let k = 0; k <= 48; k++) { const p = pointAt(cl, lo + (hi - lo) * (k / 48)); v.push(new THREE.Vector3(wx(p), 0.05, wz(p))); }
-    const lg = new THREE.BufferGeometry().setFromPoints(v); lineGeos.push(lg);
+    for (let k = 0; k <= 48; k++) { const p = pointAt(cl, lo + (hi - lo) * (k / 48)); v.push(new THREE.Vector3(wx(p), 0.07, wz(p))); }
+    const lg = new THREE.BufferGeometry().setFromPoints(v); geos.push(lg);
     const lm = new THREE.LineBasicMaterial({ color: SECTOR_COL[s] }); mats.push(lm);
     scene.add(new THREE.Line(lg, lm));
   }
   // start/finish line across the track at frac 0
   {
-    const p = pointAt(cl, 0), t = tangentAt(cl, 0), nx = -t[1], ny = t[0], hw = HALF_W / sc;
-    const a = [p[0] + nx * hw, p[1] + ny * hw], c = [p[0] - nx * hw, p[1] - ny * hw];
-    const sg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(wx(a), 0.06, wz(a)), new THREE.Vector3(wx(c), 0.06, wz(c))]);
-    lineGeos.push(sg);
+    const p = pointAt(cl, 0), t = tangentAt(cl, 0), nx = -t[1], ny = t[0];
+    const a = [p[0] + nx * HW_N, p[1] + ny * HW_N], c = [p[0] - nx * HW_N, p[1] - ny * HW_N];
+    const sg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(wx(a), 0.08, wz(a)), new THREE.Vector3(wx(c), 0.08, wz(c))]); geos.push(sg);
     const sm = new THREE.LineBasicMaterial({ color: 0xffffff }); mats.push(sm);
     scene.add(new THREE.Line(sg, sm));
   }
 
   // --- cars: one Group per snapshot car, colored by team ---
-  const carGeo = new THREE.BoxGeometry(CAR_W, CAR_H, CAR_L);
-  const cockGeo = new THREE.BoxGeometry(CAR_W * 0.6, CAR_H * 0.7, CAR_L * 0.4);
-  const ringGeo = new THREE.RingGeometry(CAR_L * 0.85, CAR_L * 1.05, 24);
-  const cars = {};   // idx -> { group, ring }
+  const carGeo = new THREE.BoxGeometry(CAR_W, CAR_H, CAR_L); geos.push(carGeo);
+  const cockGeo = new THREE.BoxGeometry(CAR_W * 0.6, CAR_H * 0.7, CAR_L * 0.4); geos.push(cockGeo);
+  const ringGeo = new THREE.RingGeometry(CAR_L * 0.85, CAR_L * 1.05, 24); geos.push(ringGeo);
+  const cars = {};   // idx -> { group, ring, lat }
   for (const c of ((ctx.snapshot && ctx.snapshot.cars) || [])) {
     const g = new THREE.Group();
     const bodyMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(c.color || "#888888"), roughness: 0.5 }); mats.push(bodyMat);
@@ -83,11 +107,11 @@ export function init(canvas, ctx) {
     const cock = new THREE.Mesh(cockGeo, cockMat); cock.position.set(0, CAR_H * 0.95, -CAR_L * 0.05); g.add(cock);
     const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, side: THREE.DoubleSide }); mats.push(ringMat);
     const ring = new THREE.Mesh(ringGeo, ringMat); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.09; g.add(ring);
-    cars[c.idx] = { group: g, ring }; scene.add(g);
+    cars[c.idx] = { group: g, ring, lat: 0 }; scene.add(g);
   }
   // pit-lane parking spot: start/finish, offset outward by ~2.4 half-widths
   const pitN = tangentAt(cl, 0), pitP = pointAt(cl, 0);
-  const PIT = [pitP[0] + (-pitN[1]) * (2.4 * HALF_W / sc), pitP[1] + pitN[0] * (2.4 * HALF_W / sc)];
+  const PIT = [pitP[0] + (-pitN[1]) * (2.4 * HW_N), pitP[1] + pitN[0] * (2.4 * HW_N)];
 
   // --- orbital camera (track centered at origin) + drag-to-orbit ---
   let azim = -35 * Math.PI / 180, elev = 42 * Math.PI / 180, dist = b.size * 1.6 * sc;
@@ -126,8 +150,7 @@ export function init(canvas, ctx) {
     window.removeEventListener("mouseup", onUp);
     window.removeEventListener("mousemove", onMove);
     window.removeEventListener("resize", resize);
-    trackGeo.dispose(); for (const g of lineGeos) g.dispose();
-    carGeo.dispose(); cockGeo.dispose(); ringGeo.dispose();
+    for (const g of geos) g.dispose();
     for (const m of mats) m.dispose();
     renderer.dispose();
   }
@@ -135,24 +158,34 @@ export function init(canvas, ctx) {
     if (!canvas.isConnected) return dispose();   // screen changed -> self-teardown
     raf = requestAnimationFrame(frame);
     const rt = nowMs() - DELAY;
-    const meta = ctx._meta || {}, buf = ctx._buf || {};
-    for (const id in cars) {
-      const car = cars[id], m = meta[id];
-      if (!m) { car.group.visible = false; continue; }
-      if (m.retired) { car.group.visible = false; continue; }
+    const buf = ctx._buf || {};
+    const snapCars = (ctx.snapshot && ctx.snapshot.cars) || [];   // position order (P1..)
+    for (let i = 0; i < snapCars.length; i++) {
+      const c = snapCars[i], car = cars[c.idx];
+      if (!car) continue;
+      if (c.retired) { car.group.visible = false; continue; }
       car.group.visible = true;
-      if (m.inPit) {
+      if (c.inPit) {
         car.group.position.set(wx(PIT), 0, wz(PIT));
-        car.ring.material.opacity = 0;
+        car.ring.material.opacity = 0; car.lat = 0;
         continue;
       }
-      const prog = sampleProg(buf[id], rt);
-      const p = pointAt(cl, prog), t = tangentAt(cl, prog);
+      const prog = sampleProg(buf[c.idx], rt);
+      // lateral target = racing line, + a side-step when right behind the car ahead (fan a train out)
+      let side = 0;
+      const ahead = snapCars[i - 1];
+      if (ahead && !ahead.retired && ahead.lap === c.lap) {
+        const gapProg = (ahead.lap + ahead.lapFrac) - (c.lap + c.lapFrac);
+        if (gapProg > 0 && gapProg < CLOSE_PROG) side = ((c.idx % 2) ? 1 : -1) * SIDE_LAT;
+      }
+      const tlat = racingLineOffset(cl, prog, LANE_LAT) + side;
+      car.lat += (tlat - car.lat) * 0.12;                        // ease toward target (smooth)
+      const p = offsetPoint(cl, prog, car.lat), t = tangentAt(cl, prog);
       car.group.position.set(wx(p), 0, wz(p));
-      car.group.rotation.y = Math.atan2(t[0], t[1]);     // local +Z faces the tangent
-      const hi = m.player || m.isLeader;
-      car.ring.material.opacity = hi ? 1 : 0;
-      car.ring.material.color.set(m.isLeader ? 0xffd000 : 0xffffff);
+      car.group.rotation.y = Math.atan2(t[0], t[1]);             // local +Z faces the tangent
+      const leader = i === 0;
+      car.ring.material.opacity = (c.player || leader) ? 1 : 0;
+      car.ring.material.color.set(leader ? 0xffd000 : 0xffffff);
     }
     trackMat.color.set(ctx.snapshot && ctx.snapshot.scActive ? ASPHALT_SC : ASPHALT);
     renderer.render(scene, cam);
