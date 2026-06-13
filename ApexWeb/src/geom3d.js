@@ -32,3 +32,23 @@ export function tangentAt(cl, frac) {
   const dx = b[0] - a[0], dy = b[1] - a[1], m = Math.hypot(dx, dy) || 1;
   return [dx / m, dy / m];
 }
+
+// Axis-aligned bounds + centroid of the centerline (normalized space).
+export function bounds(cl) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const [x, y] of cl.pts) {
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+  }
+  return { minX, minY, maxX, maxY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, size: Math.max(maxX - minX, maxY - minY) || 1 };
+}
+
+// Orbital camera that frames the whole track. Returns world-space pos + target
+// (ground plane = XZ, y up). Pure: caller scales to world units.
+export function cameraFromBounds(b, { elevDeg = 42, azimDeg = -35, fill = 1.5 } = {}) {
+  const target = [b.cx, 0, b.cy];
+  const dist = b.size * fill;
+  const el = elevDeg * Math.PI / 180, az = azimDeg * Math.PI / 180;
+  const horiz = Math.cos(el) * dist;
+  return { target, dist, pos: [target[0] + Math.sin(az) * horiz, dist * Math.sin(el), target[2] + Math.cos(az) * horiz] };
+}
