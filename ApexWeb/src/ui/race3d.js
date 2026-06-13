@@ -9,7 +9,7 @@ import { buildCenterline, pointAt, tangentAt, bounds, ribbonEdges, sampleProg, r
 
 const WORLD = 120;                 // larger track axis spans ~120 world units
 const HALF_W = 3.0;                // track half-width (world units) — wider for a real-track feel
-const CAR_L = 2.8, CAR_W = 1.2, CAR_H = 0.7;
+const CAR_L = 2.8;                  // overall car length (used for the highlight ring radius)
 const DELAY = 120;                 // render this many ms behind the newest snapshot
 const CLOSE_PROG = 0.012;          // gap (lap-fractions) under which a follower side-steps to pass
 const SECTOR_COL = [0x5aa0ff, 0xffce47, 0x46d08a];
@@ -94,17 +94,45 @@ export function init(canvas, ctx) {
     scene.add(new THREE.Line(sg, sm));
   }
 
-  // --- cars: one Group per snapshot car, colored by team ---
-  const carGeo = new THREE.BoxGeometry(CAR_W, CAR_H, CAR_L); geos.push(carGeo);
-  const cockGeo = new THREE.BoxGeometry(CAR_W * 0.6, CAR_H * 0.7, CAR_L * 0.4); geos.push(cockGeo);
+  // --- cars: a stylized low-poly F1 silhouette. Geometry is shared across all 22 cars
+  // (nose points +Z = direction of travel); only the body material is per-team colour. ---
+  const tubGeo = new THREE.BoxGeometry(0.5, 0.35, 1.6); geos.push(tubGeo);
+  const noseGeo = new THREE.BoxGeometry(0.36, 0.24, 0.85); geos.push(noseGeo);
+  const engGeo = new THREE.BoxGeometry(0.4, 0.42, 0.7); geos.push(engGeo);
+  const airboxGeo = new THREE.BoxGeometry(0.26, 0.3, 0.32); geos.push(airboxGeo);
+  const sidepodGeo = new THREE.BoxGeometry(0.3, 0.3, 0.8); geos.push(sidepodGeo);
+  const wingFGeo = new THREE.BoxGeometry(1.3, 0.07, 0.35); geos.push(wingFGeo);
+  const wingRGeo = new THREE.BoxGeometry(1.1, 0.07, 0.3); geos.push(wingRGeo);
+  const wingSupGeo = new THREE.BoxGeometry(0.06, 0.42, 0.1); geos.push(wingSupGeo);
+  const cockGeo = new THREE.BoxGeometry(0.24, 0.2, 0.36); geos.push(cockGeo);
+  const wheelFGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.22, 12); geos.push(wheelFGeo);
+  const wheelRGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.24, 12); geos.push(wheelRGeo);
   const ringGeo = new THREE.RingGeometry(CAR_L * 0.85, CAR_L * 1.05, 24); geos.push(ringGeo);
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x14141a, roughness: 0.6 }); mats.push(darkMat);   // wings/wheels/cockpit, shared
+  function makeCar(bodyMat) {
+    const g = new THREE.Group();
+    const add = (geo, mat, x, y, z, rz) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); if (rz) m.rotation.z = rz; g.add(m); };
+    add(tubGeo, bodyMat, 0, 0.25, 0);                    // monocoque
+    add(noseGeo, bodyMat, 0, 0.22, 0.95);                // nose
+    add(engGeo, bodyMat, 0, 0.35, -0.5);                 // engine cover
+    add(airboxGeo, bodyMat, 0, 0.55, -0.2);              // airbox intake
+    add(sidepodGeo, bodyMat, 0.45, 0.25, -0.1);          // sidepods
+    add(sidepodGeo, bodyMat, -0.45, 0.25, -0.1);
+    add(wingFGeo, darkMat, 0, 0.12, 1.45);               // front wing
+    add(wingRGeo, darkMat, 0, 0.55, -1.35);              // rear wing
+    add(wingSupGeo, darkMat, 0.3, 0.35, -1.3);           // rear-wing endplates
+    add(wingSupGeo, darkMat, -0.3, 0.35, -1.3);
+    add(cockGeo, darkMat, 0, 0.42, 0.12);                // cockpit opening
+    add(wheelFGeo, darkMat, 0.6, 0.28, 0.85, Math.PI / 2);   // open wheels (cylinder axis -> X)
+    add(wheelFGeo, darkMat, -0.6, 0.28, 0.85, Math.PI / 2);
+    add(wheelRGeo, darkMat, 0.62, 0.3, -0.85, Math.PI / 2);
+    add(wheelRGeo, darkMat, -0.62, 0.3, -0.85, Math.PI / 2);
+    return g;
+  }
   const cars = {};   // idx -> { group, ring, lat }
   for (const c of ((ctx.snapshot && ctx.snapshot.cars) || [])) {
-    const g = new THREE.Group();
     const bodyMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(c.color || "#888888"), roughness: 0.5 }); mats.push(bodyMat);
-    const body = new THREE.Mesh(carGeo, bodyMat); body.position.y = CAR_H / 2; g.add(body);
-    const cockMat = new THREE.MeshStandardMaterial({ color: 0x101014 }); mats.push(cockMat);
-    const cock = new THREE.Mesh(cockGeo, cockMat); cock.position.set(0, CAR_H * 0.95, -CAR_L * 0.05); g.add(cock);
+    const g = makeCar(bodyMat);
     const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, side: THREE.DoubleSide }); mats.push(ringMat);
     const ring = new THREE.Mesh(ringGeo, ringMat); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.09; g.add(ring);
     cars[c.idx] = { group: g, ring, lat: 0 }; scene.add(g);
