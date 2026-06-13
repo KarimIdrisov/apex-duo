@@ -68,11 +68,39 @@ export function radiusAt(cl, frac, w = 1 / 240) {
 }
 
 // Per-sample boolean around the lap: true where the centerline is cornering (radius < maxR),
-// false on straights. Drives corner-only kerbs. `steps` samples evenly from frac 0.
-export function cornerMask(cl, steps, maxR) {
+// false on straights. `steps` samples evenly from frac 0. `w` is the radius-detection window;
+// it defaults to the sample spacing but accepts a coarser fixed window so corner classification
+// stays stable (not noisy) as the mesh `steps` rises.
+export function cornerMask(cl, steps, maxR, w = 1 / steps) {
   const m = [];
-  for (let k = 0; k < steps; k++) m.push(radiusAt(cl, k / steps, 1 / steps) < maxR);
+  for (let k = 0; k < steps; k++) m.push(radiusAt(cl, k / steps, w) < maxR);
   return m;
+}
+
+// Contiguous corner spans around the lap as [{start, len}] (a run covers samples
+// (start+0 .. start+len-1) mod steps). Built from cornerMask, then runs separated by <= `gap`
+// straight samples are merged and runs shorter than `minLen` dropped — so kerbs drawn from this
+// are clean continuous strips, not the per-sample flicker a raw mask produces near the threshold.
+export function cornerRuns(cl, steps, maxR, { w = 1 / 200, gap = 3, minLen = 5 } = {}) {
+  const m = cornerMask(cl, steps, maxR, w);
+  if (m.every(Boolean)) return [{ start: 0, len: steps }];
+  if (!m.some(Boolean)) return [];
+  const start0 = m.indexOf(false);                       // rotate to start on a straight -> no run wraps the seam
+  const rot = []; for (let i = 0; i < steps; i++) rot.push(m[(i + start0) % steps]);
+  const runs = [];
+  for (let i = 0; i < steps;) {
+    if (!rot[i]) { i++; continue; }
+    let j = i; while (j < steps && rot[j]) j++;
+    runs.push([i, j]); i = j;
+  }
+  const merged = [];
+  for (const r of runs) {
+    const last = merged[merged.length - 1];
+    if (last && r[0] - last[1] <= gap) last[1] = r[1];   // bridge a tiny straight gap inside one corner
+    else merged.push([r[0], r[1]]);
+  }
+  return merged.filter((r) => r[1] - r[0] >= minLen)
+    .map((r) => ({ start: (r[0] + start0) % steps, len: r[1] - r[0] }));
 }
 
 // Fraction of the local corner radius the road half-width is clamped to, so the inner ribbon
