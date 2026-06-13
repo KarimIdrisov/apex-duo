@@ -11,6 +11,8 @@ import { buildGrid } from "./quali.js";
 import { paceBonus, closeness, trackIdeal } from "./setup.js";
 import { driverAttrs, composeCar, genPersonnel } from "./team.js";
 import { fuelLaps } from "./fuel.js";
+import { newPracticeState, applyPracticeRun } from "./practice.js";
+import { mix32 } from "./rng.js";
 import { sfx } from "./audio.js";
 
 const SCREENS = { lobby, practice, quali, race, result: race };
@@ -56,6 +58,14 @@ function onCommand(cmd) {
       if (ctx.race) pushRaceState();   // reflect new speed on both screens
       break;
     case "set_setup": ctx.setups = ctx.setups || {}; ctx.setups[cmd.player] = cmd.setup; break;
+    case "practice_run": {
+      ctx.practice = ctx.practice || newPracticeState();
+      const { drv, car } = practiceDrvCar(cmd.player);
+      const pIdeal = trackIdeal(TRACK.laps * 1000 + Math.round(TRACK.lt));
+      const r = applyPracticeRun(ctx.practice, cmd, drv, car, pIdeal, mix32((ctx.seed || 1) >>> 0));
+      if (r.accepted) { ctx.practice = r.state; pushPracticeState(); }
+      break;
+    }
     case "quali_risk":
       ctx.qrisk = ctx.qrisk || {};
       ctx.qrisk[cmd.player] = cmd.risk;
@@ -64,6 +74,11 @@ function onCommand(cmd) {
   }
 }
 function onPhaseHost() {
+  if (ctx.weekend.phase === "practice") {
+    if (ctx.seed == null) ctx.seed = 1000 + Math.floor(Math.random() * 100000);  // shared weekend seed (race reuses it)
+    ctx.practice = newPracticeState();
+    pushPracticeState();
+  }
   if (ctx.weekend.phase === "race") startRaceHost();
 }
 function startRaceHost() {
@@ -83,6 +98,7 @@ function startRaceHost() {
   ctx._acc = 0; ctx._lastTs = 0;        // reset the real-time sim accumulator
   ctx._evtIdx = 0;                      // reset the commentary event cursor
   ctx.speed = ctx.speed || 1;
+  ctx.practiceFindings = ctx.practice ? ctx.practice.board : null;   // info aid for the race HUD (cliff/stops)
 }
 // build the full 22-car field: player team's two drivers flagged, rest AI.
 // Reused by quali grid and the race start (Task 15).
@@ -101,6 +117,22 @@ function buildField() {
       setup, setupBonus: paceBonus(closeness(setup, ideal)), startTyre: "medium",
     };
   }));
+}
+
+// resolve a practice player's driver+car for the run sims.
+function practiceDrvCar(player) {
+  const t = TEAMS[ctx.teamIdx] || TEAMS[0];
+  const d = t.drivers[player === "p2" ? 1 : 0];
+  return { drv: { skill: d.skill, attrs: driverAttrs(d.abbrev, d.skill) }, car: composeCar(t.car) };
+}
+// broadcast the shared practice state (budget + findings board + setups) to both screens.
+function pushPracticeState() {
+  const p = ctx.practice;
+  const snap = { type: "snapshot", phase: "practice", budget: p.budget, spent: p.spent,
+    findings: p.findings, board: p.board, setups: p.setups };
+  ctx.snapshot = snap;
+  if (ctx.net) ctx.net.send(snap);
+  rerender();
 }
 
 // run every car's flying lap and broadcast the resulting grid to the client.
