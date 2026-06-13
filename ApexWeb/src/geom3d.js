@@ -65,6 +65,14 @@ export function radiusAt(cl, frac, w = 1 / 240) {
   return dtheta > 1e-6 ? (la + lb) / 2 / dtheta : Infinity;
 }
 
+// Per-sample boolean around the lap: true where the centerline is cornering (radius < maxR),
+// false on straights. Drives corner-only kerbs. `steps` samples evenly from frac 0.
+export function cornerMask(cl, steps, maxR) {
+  const m = [];
+  for (let k = 0; k < steps; k++) m.push(radiusAt(cl, k / steps, 1 / steps) < maxR);
+  return m;
+}
+
 // Resample the centerline into `steps` points and offset by ±halfW along the
 // local normal -> left/right edge arrays ([x,y] each). Builds the road ribbon.
 export function ribbonEdges(cl, halfW, steps = 240) {

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath, radiusAt } from "../src/geom3d.js";
+import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath, radiusAt, cornerMask } from "../src/geom3d.js";
 
 const SQUARE = [0, 0, 1, 0, 1, 1, 0, 1];   // unit-square loop, perimeter 4
 
@@ -120,4 +120,15 @@ test("ribbonEdges does not self-intersect when halfW exceeds the corner radius",
       assert.ok((b[0] - a[0]) * tx + (b[1] - a[1]) * ty >= -1e-9, `edge segment runs backward (fold) at ${k}`);
     }
   }
+});
+
+test("cornerMask: all-true on a tight circle, mixed on a square (corners vs straights)", () => {
+  const R = 0.1, n = 120, p = [];
+  for (let i = 0; i < n; i++) { const a = (i / n) * 2 * Math.PI; p.push(R * Math.cos(a), R * Math.sin(a)); }
+  const circle = cornerMask(buildCenterline(p), n, 0.3);     // radius 0.1 < 0.3 everywhere
+  assert.equal(circle.length, n);
+  assert.ok(circle.every(Boolean), "a tight circle is corner everywhere");
+  const square = cornerMask(buildCenterline([0, 0, 1, 0, 1, 1, 0, 1]), 200, 0.1);
+  assert.ok(square.some(Boolean), "square has corner samples");
+  assert.ok(!square.every(Boolean), "square has straight (non-corner) samples");
 });
