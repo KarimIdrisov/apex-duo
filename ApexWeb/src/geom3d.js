@@ -83,3 +83,29 @@ export function sampleProg(buf, rt) {
   }
   return buf[buf.length - 1].prog;
 }
+
+// Signed bend of the track over a window `w` around frac (cross of the incoming
+// vs outgoing travel direction). + = turns left, - = right, ~0 on a straight.
+// Uses a window (not an infinitesimal) so it captures a whole corner on a
+// piecewise-linear path, where curvature otherwise concentrates at the vertices.
+export function turnRateAt(cl, frac, w = 1 / 48) {
+  const a = pointAt(cl, frac - w), b = pointAt(cl, frac), c = pointAt(cl, frac + w);
+  const v1x = b[0] - a[0], v1y = b[1] - a[1], m1 = Math.hypot(v1x, v1y) || 1;
+  const v2x = c[0] - b[0], v2y = c[1] - b[1], m2 = Math.hypot(v2x, v2y) || 1;
+  return (v1x / m1) * (v2y / m2) - (v1y / m1) * (v2x / m2);
+}
+
+// Lateral offset (normalized units) of the racing line at frac: hugs the INSIDE
+// of corners (sign follows the turn), ~0 on straights, bounded to ±maxLat.
+// +offset is the left of travel (matches ribbonEdges' left normal nx=-ty, ny=tx).
+export function racingLineOffset(cl, frac, maxLat = 1, gain = 8) {
+  const m = Math.max(-1, Math.min(1, turnRateAt(cl, frac) * gain));
+  return m * maxLat;
+}
+
+// Point at frac displaced sideways by `lat` (normalized units) along the left normal.
+export function offsetPoint(cl, frac, lat) {
+  const [px, py] = pointAt(cl, frac);
+  const [tx, ty] = tangentAt(cl, frac);
+  return [px + (-ty) * lat, py + tx * lat];
+}

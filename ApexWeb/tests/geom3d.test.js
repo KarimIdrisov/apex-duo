@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges, sampleProg } from "../src/geom3d.js";
+import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint } from "../src/geom3d.js";
 
 const SQUARE = [0, 0, 1, 0, 1, 1, 0, 1];   // unit-square loop, perimeter 4
 
@@ -58,4 +58,22 @@ test("sampleProg: interpolate, clamp-before-first, clamp extrapolation", () => {
   assert.equal(sampleProg([], 0), 0);                         // empty buffer -> 0
   const far = sampleProg(buf, 100 + 9999);                    // far future -> extrapolation capped at 140 ms
   assert.ok(far <= 2 + (1 / 100) * 140 + 1e-9);
+});
+
+test("racingLineOffset hugs the inside of a corner; offsetPoint moves perpendicular", () => {
+  const cx = 2, cy = 2, R = 1, n = 64, p = [];
+  for (let i = 0; i < n; i++) { const a = (i / n) * 2 * Math.PI; p.push(cx + R * Math.cos(a), cy + R * Math.sin(a)); }
+  const cl = buildCenterline(p);                       // CCW circle: inside = toward the centre everywhere
+  for (const f of [0.1, 0.4, 0.75]) {
+    const lat = racingLineOffset(cl, f, 0.3);
+    const on = pointAt(cl, f), off = offsetPoint(cl, f, lat);
+    const dOn = Math.hypot(on[0] - cx, on[1] - cy), dOff = Math.hypot(off[0] - cx, off[1] - cy);
+    assert.ok(dOff < dOn, `racing line should move toward the inside (centre): ${dOff} !< ${dOn}`);
+    assert.ok(Math.abs(Math.hypot(off[0] - on[0], off[1] - on[1]) - Math.abs(lat)) < 1e-6, "perpendicular move == |lat|");
+  }
+});
+
+test("racingLineOffset ~0 on a straight", () => {
+  const cl = buildCenterline([0, 0, 1, 0, 1, 1, 0, 1]);   // square: frac 0.125 = mid a straight edge
+  assert.ok(Math.abs(racingLineOffset(cl, 0.125, 1, 8)) < 1e-6);
 });
