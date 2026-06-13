@@ -19,6 +19,7 @@ export function init(canvas, ctx) {
   const sc = WORLD / b.size;                       // normalized -> world scale
   const wx = (p) => (p[0] - b.cx) * sc;            // center the track at world origin
   const wz = (p) => (p[1] - b.cy) * sc;
+  const mats = [];                                 // every runtime material, freed in dispose()
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setClearColor(0x0a0a0c, 1);
@@ -47,6 +48,7 @@ export function init(canvas, ctx) {
   trackGeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
   trackGeo.setIndex(index); trackGeo.computeVertexNormals();
   const trackMat = new THREE.MeshStandardMaterial({ color: ASPHALT, roughness: 0.95, metalness: 0, side: THREE.DoubleSide });
+  mats.push(trackMat);
   scene.add(new THREE.Mesh(trackGeo, trackMat));
 
   // sector tint lines just above the asphalt
@@ -55,7 +57,8 @@ export function init(canvas, ctx) {
     const v = [], lo = s / 3, hi = (s + 1) / 3;
     for (let k = 0; k <= 48; k++) { const p = pointAt(cl, lo + (hi - lo) * (k / 48)); v.push(new THREE.Vector3(wx(p), 0.05, wz(p))); }
     const lg = new THREE.BufferGeometry().setFromPoints(v); lineGeos.push(lg);
-    scene.add(new THREE.Line(lg, new THREE.LineBasicMaterial({ color: SECTOR_COL[s] })));
+    const lm = new THREE.LineBasicMaterial({ color: SECTOR_COL[s] }); mats.push(lm);
+    scene.add(new THREE.Line(lg, lm));
   }
   // start/finish line across the track at frac 0
   {
@@ -63,7 +66,8 @@ export function init(canvas, ctx) {
     const a = [p[0] + nx * hw, p[1] + ny * hw], c = [p[0] - nx * hw, p[1] - ny * hw];
     const sg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(wx(a), 0.06, wz(a)), new THREE.Vector3(wx(c), 0.06, wz(c))]);
     lineGeos.push(sg);
-    scene.add(new THREE.Line(sg, new THREE.LineBasicMaterial({ color: 0xffffff })));
+    const sm = new THREE.LineBasicMaterial({ color: 0xffffff }); mats.push(sm);
+    scene.add(new THREE.Line(sg, sm));
   }
 
   // --- cars: one Group per snapshot car, colored by team ---
@@ -73,12 +77,12 @@ export function init(canvas, ctx) {
   const cars = {};   // idx -> { group, ring }
   for (const c of ((ctx.snapshot && ctx.snapshot.cars) || [])) {
     const g = new THREE.Group();
-    const body = new THREE.Mesh(carGeo, new THREE.MeshStandardMaterial({ color: new THREE.Color(c.color || "#888888"), roughness: 0.5 }));
-    body.position.y = CAR_H / 2; g.add(body);
-    const cock = new THREE.Mesh(cockGeo, new THREE.MeshStandardMaterial({ color: 0x101014 }));
-    cock.position.set(0, CAR_H * 0.95, -CAR_L * 0.05); g.add(cock);
-    const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, side: THREE.DoubleSide }));
-    ring.rotation.x = -Math.PI / 2; ring.position.y = 0.09; g.add(ring);
+    const bodyMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(c.color || "#888888"), roughness: 0.5 }); mats.push(bodyMat);
+    const body = new THREE.Mesh(carGeo, bodyMat); body.position.y = CAR_H / 2; g.add(body);
+    const cockMat = new THREE.MeshStandardMaterial({ color: 0x101014 }); mats.push(cockMat);
+    const cock = new THREE.Mesh(cockGeo, cockMat); cock.position.set(0, CAR_H * 0.95, -CAR_L * 0.05); g.add(cock);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, side: THREE.DoubleSide }); mats.push(ringMat);
+    const ring = new THREE.Mesh(ringGeo, ringMat); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.09; g.add(ring);
     cars[c.idx] = { group: g, ring }; scene.add(g);
   }
   // pit-lane parking spot: start/finish, offset outward by ~2.4 half-widths
@@ -107,7 +111,7 @@ export function init(canvas, ctx) {
   window.addEventListener("mousemove", onMove);
 
   function resize() {
-    const w = canvas.clientWidth || 360, h = Math.max(240, Math.round(w * 0.72));
+    const w = canvas.clientWidth || 360, h = canvas.clientHeight || 300;
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     renderer.setSize(w, h, false);
     cam.aspect = w / h; cam.updateProjectionMatrix();
@@ -124,6 +128,7 @@ export function init(canvas, ctx) {
     window.removeEventListener("resize", resize);
     trackGeo.dispose(); for (const g of lineGeos) g.dispose();
     carGeo.dispose(); cockGeo.dispose(); ringGeo.dispose();
+    for (const m of mats) m.dispose();
     renderer.dispose();
   }
   function frame() {
