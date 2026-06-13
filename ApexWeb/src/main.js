@@ -152,6 +152,7 @@ function raceSnapshot() {
   return {
     type: "snapshot", phase: "race", paused: ctx.paused, finished: ctx.race.finished,
     speed: ctx.speed || 1, scActive: ctx.race.scActive, vscActive: ctx.race.vscActive, wetness: ctx.race.wetness, events: newEvents,
+    practiceFindings: ctx.practiceFindings || null,
     cars: ctx.race.order().map(c => ({
       idx: c.idx, pos: c.pos, abbrev: c.abbrev, color: c.color, player: c.player,
       lap: c.lap, lapFrac: c.lapFrac, tyre: c.tyre, wear: c.wear,

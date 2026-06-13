@@ -170,7 +170,7 @@ function buildHud(root, ctx) {
     <div id="dash">
       <div class="panel dash-head" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
         <div><div style="font-weight:700;font-size:16px">${TRACK.gp}</div>
-          <div class="label" style="margin:0">${TRACK.name} · <span id="d-chip">ГОНКА</span></div></div>
+          <div class="label" style="margin:0">${TRACK.name} · <span id="d-chip">ГОНКА</span> <span id="d-prac-aid" class="label" style="margin:0;opacity:.8"></span></div></div>
         <div style="display:flex;align-items:center;gap:8px">
           <div style="text-align:right"><div class="label" style="margin:0">КРУГ</div>
             <div style="font-weight:700"><span id="d-lap">0</span>/${TRACK.laps}</div></div>
@@ -261,6 +261,11 @@ function updateHud(root, ctx, snap) {
   // header
   $("#d-lap").textContent = me.lap;
   $("#d-chip").textContent = snap.finished ? "ФИНИШ" : (snap.scActive ? "🟡 SAFETY CAR" : (snap.vscActive ? "🟡 VSC" : (snap.paused ? "ПАУЗА" : "ГОНКА")));
+  const pf = snap.practiceFindings;
+  const aidEl = $("#d-prac-aid");
+  if (aidEl) aidEl.textContent = pf && pf.recommendedStops != null
+    ? `план: ${pf.recommendedStops} стоп${pf.degByCompound && pf.degByCompound.soft ? ` · софт-клифф ~${pf.degByCompound.soft.cliffLap}` : ""}`
+    : "";
   $("#d-pause").textContent = snap.paused ? "▶" : "⏸";
   $("#d-speed").textContent = (snap.speed || 1) + "x";
   pumpBuffers(ctx, snap);
