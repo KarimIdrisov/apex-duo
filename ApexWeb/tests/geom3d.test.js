@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds } from "../src/geom3d.js";
+import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges } from "../src/geom3d.js";
 
 const SQUARE = [0, 0, 1, 0, 1, 1, 0, 1];   // unit-square loop, perimeter 4
 
@@ -36,4 +36,17 @@ test("cameraFromBounds: target = centroid on ground, camera elevated, frames the
   assert.deepEqual(cam.target, [0.5, 0, 0.5]);
   assert.ok(cam.pos[1] > 0, "camera above the ground plane");
   assert.ok(cam.dist > b.size, "distance frames beyond the track");
+});
+
+test("ribbonEdges: left/right edges are exactly halfW from the centerline", () => {
+  const cl = buildCenterline(SQUARE);
+  const halfW = 0.05, steps = 200;
+  const { left, right } = ribbonEdges(cl, halfW, steps);
+  assert.equal(left.length, steps);
+  assert.equal(right.length, steps);
+  for (const k of [10, 50, 130]) {
+    const c = pointAt(cl, k / steps);
+    assert.ok(Math.abs(Math.hypot(left[k][0] - c[0], left[k][1] - c[1]) - halfW) < 1e-6);
+    assert.ok(Math.abs(Math.hypot(right[k][0] - c[0], right[k][1] - c[1]) - halfW) < 1e-6);
+  }
 });

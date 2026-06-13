@@ -52,3 +52,18 @@ export function cameraFromBounds(b, { elevDeg = 42, azimDeg = -35, fill = 1.5 } 
   const horiz = Math.cos(el) * dist;
   return { target, dist, pos: [target[0] + Math.sin(az) * horiz, dist * Math.sin(el), target[2] + Math.cos(az) * horiz] };
 }
+
+// Resample the centerline into `steps` points and offset by ±halfW along the
+// local normal -> left/right edge arrays ([x,y] each). Builds the road ribbon.
+export function ribbonEdges(cl, halfW, steps = 240) {
+  const left = [], right = [];
+  for (let k = 0; k < steps; k++) {
+    const f = k / steps;
+    const [px, py] = pointAt(cl, f);
+    const [tx, ty] = tangentAt(cl, f);
+    const nx = -ty, ny = tx;            // unit normal (left of travel)
+    left.push([px + nx * halfW, py + ny * halfW]);
+    right.push([px - nx * halfW, py - ny * halfW]);
+  }
+  return { left, right };
+}
