@@ -7,8 +7,3 @@ export function scheduleSC(erng, scProb, laps) {
   // somewhere in the middle of the race (25%..65% distance)
   return Math.max(1, Math.floor(laps * (0.25 + 0.40 * erng.unit())));
 }
-
-// per-car lap-1 start-incident roll.
-export function startIncidentHit(erng, prob) {
-  return erng.unit() < prob;
-}

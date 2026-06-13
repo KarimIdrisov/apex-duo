@@ -21,9 +21,6 @@ export function closeness(setup, ideal) {
 // max ~0.15 s/lap gain at perfect setup (negative = faster)
 export function paceBonus(close) { return -0.15 * Math.max(0, close); }
 
-// wear multiplier: a bad setup chews tyres up to +20%
-export function wearMod(close) { return 1 + 0.2 * (1 - Math.max(0, close)); }
-
 export function feedback(setup, ideal) {
   let worst = 0, worstErr = -1, sign = 0;
   for (let i = 0; i < 3; i++) {

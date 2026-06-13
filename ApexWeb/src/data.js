@@ -1,6 +1,7 @@
 // ApexWeb/src/data.js — ported from ApexDuo_Prototype (f1_2026.gd, race_sim.gd).
 // car{} = composed team_car() scalars (power from engine, aero from chassis,
 // rel = engine.rel*chassis.rel). Values track the prototype's tier order.
+// NOTE: car.energy is an inert Godot-port leftover — composeCar() drops it and no ApexWeb code reads it.
 
 export const TEAMS = [
   { name:"McLaren",      color:"#ff8000", facility:0.95, car:{power:0.93, aero:0.97, energy:0.90, rel:0.95, tyre:1.05, fuel:1.05},
@@ -30,7 +31,8 @@ export const TEAMS = [
 export const TRACK = {
   // lt/pw/df validated vs FastF1 2024 (Spain): lt 79.5–82, pw−df −0.25 ≈ our −0.27 (AERO). pit
   // corrected 21.5→23.5 (real green-ref pit-loss 23.4/23.7). compounds stay manual (FastF1 can't
-  // isolate tyre pace; soft/hard −0.55/+0.55 symmetry confirmed). ot now vestigial (overtake_zones).
+  // isolate tyre pace; soft/hard −0.55/+0.55 symmetry confirmed). ot drives the bold-lunge base (§18.2).
+  // NOTE: abr/harv/dep/el are inert Godot-port leftovers (no ApexWeb code reads them — kept for parity).
   name:"Барселона", gp:"Гран-при Испании", laps:66, lt:80.0, pit:23.5,
   df:0.82, pw:0.55, ot:0.30, abr:1.25, harv:0.58, dep:0.55, sc:0.25, wet:0.30, el:0.82,
   // overtake zones (mini-sector indices 0..17): a pass completes only here (TODO #2b)
@@ -166,7 +168,6 @@ export const CAR_K     = 1.2;    // s/lap per (power-aero)*(pw-df) track-charact
 export const DNF_BASE  = 0.0075; // per-lap mechanical-failure scale * (1-rel)
 export const STEP      = 0.25;   // sim time-step (seconds)
 export const COMBAT_GAP = 0.8;   // seconds: within this, two cars fight
-export const PASS_K    = 1.6;    // pass-credit accrual per unit track.ot
 // bold out-of-zone lunge (§18.2): a much-faster, aggressive driver risks a move where you "can't pass".
 // Instantaneous + cooldown-gated + contact risk (no credit banking) so it can't be spammed.
 export const AGGR_PASS_EDGE = 1.0;  // min pace edge (s/lap) to even attempt a bold move

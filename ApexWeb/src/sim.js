@@ -42,7 +42,7 @@ export class Race {
       retired: false, pitPending: null, pos: i + 1, startPos: i + 1,
       pitStops: 0, pitTimer: 0,
       lastMini: [], bestMini: new Array(N_MINI).fill(Infinity), miniColors: [], sectorTimes: [0, 0, 0],
-      _dirtyWear: 0, _dirtyPace: 0, _blueDelay: 0, _blueBudget: 0, _blueLast: -1, _launch: 0,
+      _dirtyWear: 0, _dirtyPace: 0, _blueDelay: 0, _blueBudget: 0, _blueLast: -1, _creditVs: -1, _launch: 0,
     }));
     // field-mean car performance ((power+aero)/2), fixed for the race — the anchor the
     // absolute car-pace term is measured against, so a better-than-average car is faster (§18.1).
@@ -70,8 +70,10 @@ export class Race {
 
   _emit(ev) { this.events.push(ev); }   // append a structured event (read-only w.r.t. the sim)
 
-  setPace(i, mode) { if (PACE_MODES[mode]) { this.cars[i].pace = mode; this.cars[i]._pin = true; } }
-  setEngine(i, mode) { if (ENGINE_KEYS.has(mode)) { this.cars[i].engine = mode; this.cars[i]._pin = true; } }
+  // command entry points — bounds/validate the (possibly network-supplied) car index + mode so a
+  // malformed peer can't crash the host sim (host-authoritative trust boundary; audit r3).
+  setPace(i, mode) { const c = this.cars[i]; if (c && PACE_MODES[mode]) { c.pace = mode; c._pin = true; } }
+  setEngine(i, mode) { const c = this.cars[i]; if (c && ENGINE_KEYS.has(mode)) { c.engine = mode; c._pin = true; } }
 
   // clean lap time for one car right now (seconds)
   _lapTime(c) {
@@ -148,8 +150,8 @@ export class Race {
         this._serveLapEnd(c); // phase 3: pit + DNF (finishers handled in order())
       }
     }
-    if (!this.scActive) { this._resolveCombat(); this._resolveBlueFlags(); }   // no green-flag passing/lapping under the safety car
-    else for (const c of this.cars) { c._dirtyPace = 0; c._blueDelay = 0; }    // neutral while the field crawls behind the SC
+    if (!this.scActive) { this._resolveCombat(); this._resolveBlueFlags(dt); }   // no green-flag passing/lapping under the safety car
+    else for (const c of this.cars) { c._dirtyPace = 0; c._blueDelay = 0; }      // neutral while the field crawls behind the SC
     this._aiDrive();   // AI engine/pace management (post-combat: pos + pass-credit are fresh)
     // safety-car lifecycle, driven by the leader's lap count
     const leadLap = this.cars.reduce((m, c) => Math.max(m, c.lap), 0);
@@ -170,7 +172,7 @@ export class Race {
     }
   }
 
-  requestPit(i, compound) { this.cars[i].pitPending = compound; }
+  requestPit(i, compound) { const c = this.cars[i]; if (c && COMPOUNDS[compound]) c.pitPending = compound; }
 
   // spread the start by skill: best skill -> P1, GRID_GAP seconds per slot
   gridStart() {
@@ -229,6 +231,7 @@ export class Race {
         const tow = slipstream(s, me.car.power);
         // recency bleed + accrual, then cap: the draft can't be banked over a whole straight and
         // cashed in one tick on zone entry (the verified credit-banking over-power, §18.13).
+        if (me._creditVs !== ahead.idx) { me._passCredit = 0; me._creditVs = ahead.idx; }   // credit is earned vs a SPECIFIC rival — don't carry a bank onto a newly-ahead car (audit r3)
         const cautious = me.lap === 0 ? LAP1_CAUTION : 1;   // opening-lap caution: let the launch/grid order settle through T1 (§18.3)
         const aggr = 1 + ATTRW.aggression * (A(me).aggression - 0.5) * 2;   // a braver driver commits harder to the move (§18.7)
         const cr = (me._passCredit ?? 0) * PASS_CREDIT_DECAY
@@ -256,7 +259,7 @@ export class Race {
             me.retired = true; continue;   // the lunge went wrong — into the gravel
           }
         }
-        const ease = zone ? zone.ease : this.track.ot;
+        const ease = zone ? zone.ease : 0;   // ease is only read in the in-zone resist below; 0 is a dead-safe fallback
         // outside any zone a pass cannot complete (resist = Infinity): stay pinned, credit keeps building
         const resist = zone ? (1 - ease) * 2.0 * (0.7 + ATTRW.defending * A(ahead).defending) : Infinity;
         if (me._passCredit < resist) {
@@ -284,7 +287,7 @@ export class Race {
   // FIXED amount of time threading past it. The backmarker yields, so this is a one-shot cost on the
   // LAPPING car (BLUE_COST per backmarker, spent down through _blueDelay so the closing-rate can't make it
   // run away) — not a pin. Writes only scratch scalars (read by _lapTime) — never lap/lapFrac/wear (invariant).
-  _resolveBlueFlags() {
+  _resolveBlueFlags(dt = STEP) {
     let lo = Infinity, hi = -Infinity;
     for (const c of this.cars) { if (c.retired) continue; if (c.lap < lo) lo = c.lap; if (c.lap > hi) hi = c.lap; }
     const lapped = hi - lo >= 1;   // someone is a full lap down → lapped traffic exists
@@ -313,7 +316,7 @@ export class Race {
       }
       if ((me._blueBudget || 0) > 0) {     // spend the budget down at BLUE_PACE (read by _lapTime as a pace loss)
         me._blueDelay = BLUE_PACE;
-        me._blueBudget = Math.max(0, me._blueBudget - BLUE_PACE * STEP / this.track.lt);
+        me._blueBudget = Math.max(0, me._blueBudget - BLUE_PACE * dt / this.track.lt);   // drain over the tick's real dt, not a hardcoded STEP (audit r3)
       }
     }
   }
