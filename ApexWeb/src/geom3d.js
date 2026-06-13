@@ -73,9 +73,10 @@ export function ribbonEdges(cl, halfW, steps = 240) {
     const f = k / steps;
     const [px, py] = pointAt(cl, f);
     const [tx, ty] = tangentAt(cl, f);
-    const nx = -ty, ny = tx;            // unit normal (left of travel)
-    left.push([px + nx * halfW, py + ny * halfW]);
-    right.push([px - nx * halfW, py - ny * halfW]);
+    const nx = -ty, ny = tx;                                   // unit normal (left of travel)
+    const hw = Math.min(halfW, radiusAt(cl, f, 1 / steps) * 0.8);   // clamp: inner edge can't reach the centre -> no fold
+    left.push([px + nx * hw, py + ny * hw]);
+    right.push([px - nx * hw, py - ny * hw]);
   }
   return { left, right };
 }

@@ -38,13 +38,13 @@ test("cameraFromBounds: target = centroid on ground, camera elevated, frames the
   assert.ok(cam.dist > b.size, "distance frames beyond the track");
 });
 
-test("ribbonEdges: left/right edges are exactly halfW from the centerline", () => {
+test("ribbonEdges: left/right edges are exactly halfW from the centerline (on straights)", () => {
   const cl = buildCenterline(SQUARE);
   const halfW = 0.05, steps = 200;
   const { left, right } = ribbonEdges(cl, halfW, steps);
   assert.equal(left.length, steps);
   assert.equal(right.length, steps);
-  for (const k of [10, 50, 130]) {
+  for (const k of [10, 90, 130]) {                 // mid-straight samples only; corners now clamp (see no-fold test)
     const c = pointAt(cl, k / steps);
     assert.ok(Math.abs(Math.hypot(left[k][0] - c[0], left[k][1] - c[1]) - halfW) < 1e-6);
     assert.ok(Math.abs(Math.hypot(right[k][0] - c[0], right[k][1] - c[1]) - halfW) < 1e-6);
@@ -106,4 +106,18 @@ test("radiusAt: ~R on a circle, large on a straight", () => {
   }
   const square = buildCenterline([0, 0, 1, 0, 1, 1, 0, 1]);
   assert.ok(radiusAt(square, 0.125, 0.03) > 100, "straight edge -> large/Infinity radius");
+});
+
+test("ribbonEdges does not self-intersect when halfW exceeds the corner radius", () => {
+  const R = 0.1, n = 120, p = [];
+  for (let i = 0; i < n; i++) { const a = (i / n) * 2 * Math.PI; p.push(R * Math.cos(a), R * Math.sin(a)); }
+  const cl = buildCenterline(p);
+  const { left, right } = ribbonEdges(cl, 0.2, n);   // halfW 0.2 > radius 0.1 -> naive offset folds; clamp must prevent it
+  for (const edge of [left, right]) {
+    for (let k = 0; k < n; k++) {
+      const a = edge[k], b = edge[(k + 1) % n];
+      const [tx, ty] = tangentAt(cl, (k + 0.5) / n);
+      assert.ok((b[0] - a[0]) * tx + (b[1] - a[1]) * ty >= -1e-9, `edge segment runs backward (fold) at ${k}`);
+    }
+  }
 });
