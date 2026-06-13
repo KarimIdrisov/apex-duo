@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath } from "../src/geom3d.js";
+import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath, radiusAt } from "../src/geom3d.js";
 
 const SQUARE = [0, 0, 1, 0, 1, 1, 0, 1];   // unit-square loop, perimeter 4
 
@@ -94,4 +94,16 @@ test("splinePath: denser smooth loop through the originals, far gentler corners 
     maxTurn = Math.max(maxTurn, d);
   }
   assert.ok(maxTurn < 1.0, `smoothed max per-segment turn ${maxTurn} rad should be well under the raw 90° (1.57)`);
+});
+
+test("radiusAt: ~R on a circle, large on a straight", () => {
+  const R = 1, n = 200, p = [];
+  for (let i = 0; i < n; i++) { const a = (i / n) * 2 * Math.PI; p.push(R * Math.cos(a), R * Math.sin(a)); }
+  const circle = buildCenterline(p);
+  for (const f of [0.1, 0.5, 0.85]) {
+    const r = radiusAt(circle, f, 0.03);                 // window a few segments wide -> robust estimate
+    assert.ok(Math.abs(r - R) < 0.12, `circle radius ~${R}, got ${r}`);
+  }
+  const square = buildCenterline([0, 0, 1, 0, 1, 1, 0, 1]);
+  assert.ok(radiusAt(square, 0.125, 0.03) > 100, "straight edge -> large/Infinity radius");
 });

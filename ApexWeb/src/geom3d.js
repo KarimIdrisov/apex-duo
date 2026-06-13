@@ -53,6 +53,18 @@ export function cameraFromBounds(b, { elevDeg = 42, azimDeg = -35, fill = 1.5 } 
   return { target, dist, pos: [target[0] + Math.sin(az) * horiz, dist * Math.sin(el), target[2] + Math.cos(az) * horiz] };
 }
 
+// Local turn radius of the centerline at frac, measured over a small symmetric window `w`
+// (the arc through three samples). Returns Infinity on a straight. Used to keep the road
+// ribbon from self-intersecting at corners tighter than its own half-width.
+export function radiusAt(cl, frac, w = 1 / 240) {
+  const a = pointAt(cl, frac - w), b = pointAt(cl, frac), c = pointAt(cl, frac + w);
+  const v1x = b[0] - a[0], v1y = b[1] - a[1], v2x = c[0] - b[0], v2y = c[1] - b[1];
+  const la = Math.hypot(v1x, v1y) || 1e-9, lb = Math.hypot(v2x, v2y) || 1e-9;
+  const cross = v1x * v2y - v1y * v2x;
+  const dtheta = Math.abs(Math.asin(Math.max(-1, Math.min(1, cross / (la * lb)))));
+  return dtheta > 1e-6 ? (la + lb) / 2 / dtheta : Infinity;
+}
+
 // Resample the centerline into `steps` points and offset by ±halfW along the
 // local normal -> left/right edge arrays ([x,y] each). Builds the road ribbon.
 export function ribbonEdges(cl, halfW, steps = 240) {
