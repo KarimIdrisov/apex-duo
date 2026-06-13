@@ -95,3 +95,49 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;
 /* finishing flourish: subtle entrance on each rendered screen */
 #app>.panel{animation:rise .25s var(--ease) both}
 @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ===== Practice screen (hero) ===== */
+/* shared trek-time budget meter — spent cells dim, remaining cells glow */
+.prac-budget{display:flex;gap:5px;margin:4px 0 2px}
+.prac-budget>i{flex:1;height:10px;border-radius:3px;background:var(--content2);transition:background-color .2s var(--ease)}
+.prac-budget>i.spent{background:var(--content3)}
+.prac-budget>i.left{background:linear-gradient(180deg,#28e98a,var(--good))}
+
+/* run-plan picker: three tappable cards with a cost chip */
+.run-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0 10px}
+.run-card{display:flex;flex-direction:column;gap:3px;align-items:flex-start;
+  background:var(--content2);border:1px solid var(--border);border-radius:var(--r-md);
+  padding:11px 12px;text-align:left;color:var(--ink);position:relative;min-height:80px;
+  transition:transform .1s var(--ease),background-color .2s var(--ease)}
+.run-card:hover:not(:disabled){background:var(--content3);transform:translateY(-2px)}
+.run-card .ico{font-size:21px;line-height:1.1}
+.run-card .nm{font-weight:700;font-size:14px;letter-spacing:-.01em}
+.run-card .ds{font-size:11px;color:var(--muted);line-height:1.25}
+.run-card .cost{position:absolute;top:9px;right:9px;font-size:11px;font-weight:800;
+  color:var(--accent);background:rgba(0,111,238,.16);border-radius:999px;padding:2px 7px}
+
+/* compound segmented control — active pill takes the F1 compound colour */
+.comp-seg button.on[data-c=soft]{background:var(--bad);color:#fff}
+.comp-seg button.on[data-c=medium]{background:var(--warn);color:#1a1205}
+.comp-seg button.on[data-c=hard]{background:#d4d4d8;color:#18181b}
+.comp-seg button.on[data-c=inter]{background:var(--good);color:#04190d}
+.comp-seg button.on[data-c=wet]{background:var(--accent);color:#fff}
+
+/* strategy stat tiles */
+.stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.stat{background:var(--content2);border:1px solid var(--border);border-radius:var(--r-md);padding:10px 12px}
+.stat .v{font-size:21px;font-weight:800;letter-spacing:-.02em;line-height:1.1}
+.stat .v.sm{font-size:16px}
+
+/* degradation-curve chart */
+.deg-chart{width:100%;height:auto;display:block;background:var(--content2);
+  border:1px solid var(--border);border-radius:var(--r-md);margin:2px 0 12px}
+.prac-empty{background:var(--content2);border:1px dashed var(--border);border-radius:var(--r-md);
+  padding:22px 14px;text-align:center;color:var(--muted);font-size:13px;margin:2px 0 12px}
+
+/* findings feed rows with a type/compound chip */
+.feed-row{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;border-top:1px solid var(--border)}
+.feed-row:first-child{border-top:0}
+.feed-chip{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;
+  border-radius:999px;padding:2px 8px;color:#0a0a0c;white-space:nowrap;min-width:64px;text-align:center}
+.feed-pl{font-size:10px;color:var(--muted);font-weight:700;margin-left:auto}
