@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath, radiusAt, cornerMask } from "../src/geom3d.js";
+import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath, radiusAt, cornerMask, cornerRuns } from "../src/geom3d.js";
 
 const SQUARE = [0, 0, 1, 0, 1, 1, 0, 1];   // unit-square loop, perimeter 4
 
@@ -131,4 +131,18 @@ test("cornerMask: all-true on a tight circle, mixed on a square (corners vs stra
   const square = cornerMask(buildCenterline([0, 0, 1, 0, 1, 1, 0, 1]), 200, 0.1);
   assert.ok(square.some(Boolean), "square has corner samples");
   assert.ok(!square.every(Boolean), "square has straight (non-corner) samples");
+});
+
+test("cornerRuns: one full run on a tight circle, two runs on an ellipse (the ends)", () => {
+  const R = 0.1, n = 120, cp = [];
+  for (let i = 0; i < n; i++) { const a = (i / n) * 2 * Math.PI; cp.push(R * Math.cos(a), R * Math.sin(a)); }
+  const circ = cornerRuns(buildCenterline(cp), 200, 0.3);     // radius 0.1 < 0.3 everywhere -> all corner
+  assert.equal(circ.length, 1);
+  assert.equal(circ[0].len, 200, "the whole lap is one continuous corner run");
+
+  const ep = [];                                              // elongated ellipse: tight ends (~0.16), gentle sides (~2.5)
+  for (let i = 0; i < 160; i++) { const a = (i / 160) * 2 * Math.PI; ep.push(Math.cos(a), 0.4 * Math.sin(a)); }
+  const runs = cornerRuns(buildCenterline(ep), 200, 0.5);     // maxR between end- and side-radius -> ends are corners
+  assert.equal(runs.length, 2, "two corner runs = the two ellipse ends, split by the straight sides");
+  for (const r of runs) assert.ok(r.len >= 5 && r.len < 200, "each run is a bounded span, not the whole lap");
 });

@@ -5,7 +5,7 @@
 // they catch the car ahead, so a train fans out instead of stacking on the centerline.
 import * as THREE from "https://esm.sh/three@0.160.0";
 import { TRACK_PATH } from "../data.js";
-import { buildCenterline, pointAt, tangentAt, bounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath, radiusAt, cornerMask, RIBBON_CLAMP } from "../geom3d.js";
+import { buildCenterline, pointAt, tangentAt, bounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath, radiusAt, cornerRuns, RIBBON_CLAMP } from "../geom3d.js";
 
 const WORLD = 120;                 // larger track axis spans ~120 world units
 const HALF_W = 3.8;                // track half-width (world units) — wider for a real-track feel
@@ -110,7 +110,7 @@ export function init(canvas, ctx) {
 
 
   // --- track ribbon: a triangle strip between the left/right edges ---
-  const STEPS = 320;
+  const STEPS = 800;                 // ribbon cross-sections — high so corners read smooth from the close chase cam
   const { left, right } = ribbonEdges(cl, HW_N, STEPS);   // edges in normalized space
   const pos = new Float32Array(STEPS * 2 * 3);
   for (let k = 0; k < STEPS; k++) {
@@ -133,21 +133,23 @@ export function init(canvas, ctx) {
   const trackMat = new THREE.MeshStandardMaterial({ map: asphaltMap, color: ASPHALT, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }); mats.push(trackMat);
   const trackMesh = new THREE.Mesh(trackGeo, trackMat); trackMesh.receiveShadow = true; scene.add(trackMesh);
 
-  // red/white rumble kerbs — only through corners (cornerMask), in chunky alternating blocks,
-  // as thin flat quads stepping inward from each edge. Straights get no kerb.
+  // red/white rumble kerbs through corners only — one CONTINUOUS strip per cornerRuns span,
+  // flush to the ribbon edge and stepped slightly inward, with uniform red/white blocks by arc
+  // length. cornerRuns merges threshold flicker into solid spans so the strip has no gaps.
   {
-    const mask = cornerMask(cl, STEPS, CORNER_R);
-    const KERB_W = 0.55 / sc, CHUNK = 4, KY = 0.02;        // 0.55 world units inward; ~4-sample colour blocks
+    const runs = cornerRuns(cl, STEPS, CORNER_R);
+    const KERB_W = 0.5 / sc, BLOCK = 6, KY = 0.02;         // inward width; ~BLOCK-sample colour blocks, counted within each run
     const inward = (p, c) => { const dx = c[0] - p[0], dy = c[1] - p[1], m = Math.hypot(dx, dy) || 1; return [p[0] + dx / m * KERB_W, p[1] + dy / m * KERB_W]; };
     const kpos = [], kcol = [];
     for (const edge of [left, right]) {
-      for (let k = 0; k < STEPS; k++) {
-        if (!mask[k]) continue;
-        const k1 = (k + 1) % STEPS, a = edge[k], bb = edge[k1];
-        const ca = pointAt(cl, k / STEPS), cb = pointAt(cl, k1 / STEPS);
-        const ia = inward(a, ca), ib = inward(bb, cb);
-        const col = (Math.floor(k / CHUNK) % 2) ? KERB_RED : KERB_WHITE;
-        for (const pt of [a, bb, ib, a, ib, ia]) { kpos.push(wx(pt), KY, wz(pt)); kcol.push(col[0], col[1], col[2]); }
+      for (const run of runs) {
+        for (let s = 0; s < run.len; s++) {
+          const k = (run.start + s) % STEPS, k1 = (k + 1) % STEPS, a = edge[k], bb = edge[k1];
+          const ca = pointAt(cl, k / STEPS), cb = pointAt(cl, k1 / STEPS);
+          const ia = inward(a, ca), ib = inward(bb, cb);
+          const col = (Math.floor(s / BLOCK) % 2) ? KERB_RED : KERB_WHITE;   // counted WITHIN the run -> uniform, gap-free blocks
+          for (const pt of [a, bb, ib, a, ib, ia]) { kpos.push(wx(pt), KY, wz(pt)); kcol.push(col[0], col[1], col[2]); }
+        }
       }
     }
     const kerbGeo = new THREE.BufferGeometry(); geos.push(kerbGeo);
