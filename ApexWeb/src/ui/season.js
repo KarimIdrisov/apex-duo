@@ -4,6 +4,7 @@
 import { CALENDAR, constructorStandings, driverStandings, boardOutcome } from "../career.js";
 import { objectiveLabel } from "../sponsors.js";
 import { INDICATORS, INDICATOR_LABEL, PROJECT_SIZE, effectiveCar } from "../development.js";
+import { STAFF_ROLES, ROLE_LABEL, FACILITIES, FAC_LABEL, FAC_MAX, STAFF_UPGRADE_COST, FAC_UPGRADE_BASE, upkeep } from "../staff.js";
 import { TEAM_LOGO, TEAMS } from "../data.js";
 
 const row = (cells, hot) => `<tr style="${hot ? "font-weight:700;color:var(--good)" : ""}">${cells.map(c => `<td style="padding:3px 8px">${c}</td>`).join("")}</tr>`;
@@ -60,6 +61,17 @@ export function render(root, ctx) {
   ])).join("");
   const driversPanel = mine.length ? `<div class="panel"><p class="label">Пилоты</p><table style="width:100%;border-collapse:collapse"><tbody>${driverRows}</tbody></table></div>` : "";
 
+  // staff & facilities panel
+  const st = c.staff;
+  const staffPanel = st ? `<div class="panel"><p class="label">Команда · содержание ${m$(upkeep(st))}/гонка</p>
+    <table style="width:100%;border-collapse:collapse">
+    ${STAFF_ROLES.map(rk => row([ROLE_LABEL[rk], `${Math.round(st[rk] * 100)}`,
+      `<button class="ready stf" data-kind="staff" data-key="${rk}" ${c.money < STAFF_UPGRADE_COST || st[rk] >= 0.99 ? "disabled" : ""} style="padding:3px 8px;font-size:12px">+ (${m$(STAFF_UPGRADE_COST)})</button>`])).join("")}
+    ${FACILITIES.map(fk => { const lvl = st.facilities[fk]; const cost = FAC_UPGRADE_BASE * (lvl + 1);
+      return row([FAC_LABEL[fk], `ур. ${lvl}/${FAC_MAX}`,
+      `<button class="ready stf" data-kind="facility" data-key="${fk}" ${lvl >= FAC_MAX || c.money < cost ? "disabled" : ""} style="padding:3px 8px;font-size:12px">+ (${m$(cost)})</button>`]); }).join("")}
+    </table></div>` : "";
+
   // season-start title-sponsor choice
   let offers = "";
   if (c.pendingOffers && c.pendingOffers.length) {
@@ -93,6 +105,7 @@ export function render(root, ctx) {
     <div style="display:flex;gap:12px;flex-wrap:wrap">${finances}${spons}</div>
     ${devPanel}
     ${driversPanel}
+    ${staffPanel}
     ${offers}
     <div style="display:flex;gap:12px;flex-wrap:wrap">
       <div class="panel" style="flex:1;min-width:240px"><p class="label">Кубок конструкторов</p>
@@ -105,6 +118,7 @@ export function render(root, ctx) {
   root.querySelectorAll("button.offer").forEach(b => b.onclick = () => { root.querySelectorAll("button.offer").forEach(x => x.disabled = true); ctx.send({ cmd: "career_sponsor", player: ctx.myPlayer, offerIdx: +b.dataset.i }); });
   root.querySelectorAll("button.devbtn").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_project", player: ctx.myPlayer, indicator: b.dataset.k, size: b.dataset.sz }); });
   root.querySelectorAll("button.resign").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_resign", player: ctx.myPlayer, abbrev: b.dataset.ab }); });
+  root.querySelectorAll("button.stf").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_upgrade", player: ctx.myPlayer, kind: b.dataset.kind, key: b.dataset.key }); });
   const sw = root.querySelector("#startwknd");
   if (sw) sw.onclick = () => { sw.disabled = true; ctx.send({ cmd: "career_start_weekend", player: ctx.myPlayer }); };
   const ns = root.querySelector("#newseason");
