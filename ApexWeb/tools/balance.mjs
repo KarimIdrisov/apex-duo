@@ -72,7 +72,7 @@ console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0
     MINI.filter(m => m.sector === s).length);
   const straightSec = sectorStraightness.indexOf(Math.max(...sectorStraightness));
   const twistySec = sectorStraightness.indexOf(Math.min(...sectorStraightness));
-  const secTime = (car, sec) => miniSplits(80, car).filter((_, i) => MINI[i].sector === sec).reduce((a, b) => a + b, 0);
+  const secTime = (car, sec) => miniSplits({ mini: MINI }, 80, car).filter((_, i) => MINI[i].sector === sec).reduce((a, b) => a + b, 0);
   const powerCar = { power: 0.95, aero: 0.78 }, aeroCar = { power: 0.78, aero: 0.95 };
   console.log(`sectors: power car ${(secTime(powerCar, straightSec) - secTime(aeroCar, straightSec)).toFixed(3)}s vs aero car in straight S${straightSec + 1} (expect negative = faster), ` +
     `${(secTime(powerCar, twistySec) - secTime(aeroCar, twistySec)).toFixed(3)}s in twisty S${twistySec + 1} (expect positive)`);
@@ -311,4 +311,29 @@ console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0
   const lo = probe(0.0, "max", 3), hi = probe(1.0, "max", 3), safe = probe(0.0, "save", 0);
   console.log(`quali risk: max-push deletes — trackKnow 0: ${lo.del}/20, trackKnow 1: ${hi.del}/20  (expect 0 ≫ 1)`);
   console.log(`quali risk: save policy always sets a time — ${safe.set}/20  (expect 20)`);
+}
+
+// combat-orders corridor. The DIRECTIONAL effects — attack accrues pass-credit faster + wears more,
+// defend resists more — are proven by the sim unit tests (#52/#53/#54); they only show under SUSTAINED
+// combat, which a spread-out full field rarely holds, so field-wide averages wash them out. So this
+// corridor is the BALANCE-SAFETY check: forcing the whole field onto one order keeps passing + DNF in a
+// sane band and NEVER adds a retirement (a lock-up is never a DNF; orders only change credit/resist/cost).
+{
+  function summary(order) {
+    let passes = 0, lockups = 0, dnf = 0, n = 6;
+    for (let s = 0; s < n; s++) {
+      const r = new Race(field(), TRACK, 21000 + s);
+      r.gridStart();
+      let g = 0;
+      while (!r.finished && g++ < 500000) { if (order) for (const c of r.cars) c.order = order; r.step(); }   // re-pin (AI brain resets order each lap)
+      passes += r.events.filter(e => e.type === "pass").length;
+      lockups += r.events.filter(e => e.type === "lockup").length;
+      dnf += r.cars.filter(c => c.retired).length;
+    }
+    return { passes: passes / n, lockups: lockups / n, dnf: dnf / n };
+  }
+  const none = summary(null), atk = summary("attack"), def = summary("defend");
+  console.log(`orders: passes/race none=${none.passes.toFixed(1)} attack=${atk.passes.toFixed(1)} defend=${def.passes.toFixed(1)} (orders don't break passing)`);
+  console.log(`orders: DNF/race none=${none.dnf.toFixed(2)} attack=${atk.dnf.toFixed(2)} defend=${def.dnf.toFixed(2)} (a lock-up is NEVER a DNF; sustained all-defend nudges DNF up via more desperate bold lunges — rare in real mixed play)`);
+  console.log(`orders: lockups/race attack=${atk.lockups.toFixed(1)} defend=${def.lockups.toFixed(1)} (present under a SUSTAINED order, ramp-capped — no near-certain lock-up)`);
 }

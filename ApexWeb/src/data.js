@@ -217,8 +217,9 @@ export const ATTACK_SCRUB      = 0.10;  // tyre-temp scrubbed/lap while attackin
 export const DEFEND_ORDER_K    = 1.5;   // ×resist while the car ahead defends
 export const DEFEND_WEAR_MULT  = 1.3;   // ×per-lap wear while defending
 export const DEFEND_SCRUB      = 0.07;  // tyre-temp scrubbed/lap while defending
-export const ORDER_MISTAKE_BASE = 0.04; // base per-lap lock-up chance while an order bites
-export const ORDER_MISTAKE_RAMP = 0.35; // extra chance per consecutive lap the order is held
+export const ORDER_MISTAKE_BASE = 0.03; // base per-lap lock-up chance while an order bites
+export const ORDER_MISTAKE_RAMP = 0.35; // extra chance per consecutive lap the order is held (capped)
+export const ORDER_MISTAKE_RAMP_CAP = 5; // held-lap count at which the ramp plateaus (no near-certain lock-up under a sustained order)
 export const ORDER_MISTAKE_SCRUB_MIN = 0.20; // tyre-temp scrubbed on a lock-up (min) — organic pace loss
 export const ORDER_MISTAKE_SCRUB_MAX = 0.40; // (max)
 

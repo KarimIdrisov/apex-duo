@@ -9,7 +9,7 @@ import { PASS_CREDIT_CAP, PASS_CREDIT_DECAY, DIRTY_PACE_K, LAP1_CAUTION,
   AGGR_PASS_EDGE, AGGR_PASS_ATTR, AGGR_PASS_REF, AGGR_PASS_K, AGGR_PASS_DNF, AGGR_PASS_SCRUB,
   BLUE_GAP, BLUE_PACE, BLUE_COST, ATTACK_CREDIT_K, DEFEND_ORDER_K,
   ATTACK_WEAR_MULT, ATTACK_SCRUB, DEFEND_WEAR_MULT, DEFEND_SCRUB,
-  ORDER_MISTAKE_BASE, ORDER_MISTAKE_RAMP, ORDER_MISTAKE_SCRUB_MIN, ORDER_MISTAKE_SCRUB_MAX } from "./data.js";
+  ORDER_MISTAKE_BASE, ORDER_MISTAKE_RAMP, ORDER_MISTAKE_RAMP_CAP, ORDER_MISTAKE_SCRUB_MIN, ORDER_MISTAKE_SCRUB_MAX } from "./data.js";
 import { scheduleSC } from "./events.js";
 import { scheduleWeather, wetnessAt, weatherTerm } from "./weather.js";
 import { planRace, pitDecision, engineMode, paceMode, combatOrder } from "./ai_strategy.js";
@@ -434,7 +434,7 @@ export class Race {
       const mr = this._keyRng(c.idx, c.lap, 1);
       const focus = c.order === "attack" ? (1 - A(c).composure) : (1 - A(c).discipline);   // composed/disciplined err less
       const wearTemp = 1 + c.wear / 100 + (1 - c.tyreTemp);                                 // worn/cold tyres → riskier
-      const p = ORDER_MISTAKE_BASE * (1 + ORDER_MISTAKE_RAMP * c._orderLaps) * wearTemp * (0.5 + focus);
+      const p = ORDER_MISTAKE_BASE * (1 + ORDER_MISTAKE_RAMP * Math.min(c._orderLaps, ORDER_MISTAKE_RAMP_CAP)) * wearTemp * (0.5 + focus);
       if (mr.unit() < p) {
         c.tyreTemp = Math.max(0.1, c.tyreTemp - mr.range(ORDER_MISTAKE_SCRUB_MIN, ORDER_MISTAKE_SCRUB_MAX));
         c._passCredit = 0;
