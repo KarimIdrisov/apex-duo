@@ -29,6 +29,8 @@ export function render(root, ctx) {
   const me = snap.cars[ctx.myPlayer];
   const otherKey = ctx.myPlayer === "p1" ? "p2" : "p1";
   const other = snap.cars[otherKey];
+  // a partial/early snapshot might not carry our car yet — wait gracefully rather than throwing (black screen)
+  if (!me) { root.innerHTML = `<div class="panel"><p class="label">Ожидание данных сессии…</p></div>`; return; }
 
   // ---- 1. header: title + clock + speed/pause + state chip + auto-sim ----
   const speedPills = [1, 2, 4, 8].map(v =>
@@ -53,8 +55,11 @@ export function render(root, ctx) {
   // ---- 2. setup widget: 6 axis rows (name | track+band+slider | feedback+knowledge) ----
   const axisRows = me.axes.map((ax, i) => {
     const st = ax.feedback.state;
-    const bandLeft = Math.max(0, (ax.window.center - ax.window.half)) * 100;
-    const bandW = Math.min(100, ax.window.half * 2 * 100);
+    // band = the ideal window clamped to [0,1] so left+width never exceeds the track (no overflow past the pill)
+    const lo = Math.max(0, ax.window.center - ax.window.half);
+    const hi = Math.min(1, ax.window.center + ax.window.half);
+    const bandLeft = lo * 100;
+    const bandW = Math.max(0, (hi - lo) * 100);
     const ink = STATE_INK[st] || "var(--muted)";
     return `
       <div class="pw-row">
@@ -105,7 +110,7 @@ export function render(root, ctx) {
     </div>`;
 
   // ---- 5. partner peek + 6. ready ----
-  const partner = `<p class="label pw-partner">Напарник: ${Math.round(other.satisfaction * 100)}% удовлетворённости</p>`;
+  const partner = other ? `<p class="label pw-partner">Напарник: ${Math.round(other.satisfaction * 100)}% удовлетворённости</p>` : "";
   const ready = `<button class="ready" id="pw-ready">Готов → ${snap.session < 3 ? "след. сессия" : "Квала"}</button>`;
 
   root.innerHTML = header + setupPanel + stintPanel + stratPanel + partner + ready;

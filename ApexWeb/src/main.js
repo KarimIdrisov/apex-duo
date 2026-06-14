@@ -36,7 +36,15 @@ export const ctx = {
 function rerender() {
   const phase = ctx.weekend.phase;
   root.className = (phase === "race" || phase === "result") ? "wide" : "";  // wide 2-col race layout
-  SCREENS[phase].render(root, ctx);
+  // a render error must NEVER escape: it runs inside the host rAF loop, so an uncaught throw would skip
+  // the loop's reschedule and freeze the whole session ("что-то сломалось" / black screen). Log + show a
+  // notice instead, keeping the loop alive and the cause diagnosable in the console.
+  try {
+    SCREENS[phase].render(root, ctx);
+  } catch (e) {
+    console.error(`[render] phase "${phase}" threw:`, e);
+    root.innerHTML = `<div class="panel"><p class="label">Ошибка отрисовки (${phase}). Детали в консоли — пришли их, чтобы починить.</p></div>`;
+  }
 }
 ctx.weekend.onPhase = (phase) => {
   if (ctx.role === "host") { onPhaseHost(); if (ctx.net) ctx.net.send({ type: "phase", phase }); }
