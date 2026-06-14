@@ -5,6 +5,7 @@ import { TRACK_SHAPES, TRACK_NAMES } from "../track_shapes.js";
 import { paintTrack } from "../track_paint.js";
 import { saveTrack, clearTrack, loadAll } from "../track_store.js";
 import { fitOutline } from "../editor_preview.js";   // pure, THREE-free — safe to import statically
+import { suggestZonesFromClasses } from "../autozones.js";   // pure heuristic for the «Авто» button
 import { hydratePack } from "../track_pack.js";
 import { saveToRepo, publish } from "../track_repo.js";
 
@@ -272,6 +273,15 @@ function refreshZoneList() {
 function addZone(type) { zones.push({ sectors: [], ease: parseFloat(document.getElementById("z-ease").value) || 0.5, type }); activeZone = zones.length - 1; refreshZoneList(); render(); }
 document.getElementById("z-brake").onclick = () => addZone("brake");
 document.getElementById("z-slip").onclick = () => addZone("slip");
+document.getElementById("autozones").onclick = () => {   // suggest zones from the corner classes (you edit after)
+  const cl = buildCenterline(splinePath(toFlat(pts)));
+  const auto = sectorCornerClasses(cl, N_MINI);
+  const eff = auto.map((c, m) => cornerOverrides[m] || c);   // honour right-click corner overrides
+  const zs = suggestZonesFromClasses(eff);
+  zones.length = 0; for (const z of zs) zones.push(z);
+  activeZone = -1; refreshZoneList(); render();
+  toast(zs.length ? ("Авто-зоны: " + zs.length) : "Зоны не найдены — расставь вручную");
+};
 document.getElementById("z-ease").oninput = (e) => { if (activeZone >= 0) { zones[activeZone].ease = parseFloat(e.target.value); } };
 document.getElementById("pitloss").oninput = (e) => { const v = parseFloat(e.target.value); pitLoss = isNaN(v) ? null : v; };
 document.getElementById("save").onclick = async () => {
