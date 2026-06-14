@@ -13,7 +13,7 @@ import { driverAttrs, composeCar, genPersonnel } from "./team.js";
 import { pickTrack } from "./track_shapes.js";
 import { fuelLaps } from "./fuel.js";
 import { newSession, step as pracStep, sessionSnapshot, setAxis, sendRun, setSpeed, setPaused, autoSim } from "./practice_session.js";
-import { newQuali, qualiStep, advanceSegment, qualiSnapshot, release as qRelease, abort as qAbort, setSpeed as qSetSpeed, setPaused as qSetPaused, finalGrid } from "./quali_session.js";
+import { newQuali, qualiStep, advanceSegment, qualiSnapshot, release as qRelease, abort as qAbort, setSpeed as qSetSpeed, setPaused as qSetPaused, setPush as qSetPush, finalGrid } from "./quali_session.js";
 import { sfx } from "./audio.js";
 
 const SCREENS = { lobby, practice1: practice, practice2: practice, practice3: practice, quali, race, result: race };
@@ -50,7 +50,7 @@ function liveSig(phase, snap) {
     return `P.${snap.paused ? 1 : 0}.${snap.speed}.${snap.session}.${snap.clock <= 0 ? "Z" : "r"}.${c("p1")}.${c("p2")}`;
   }
   if (phase === "quali") {
-    const c = p => { const x = snap.cars[p]; return x ? `${x.phase}.${x.tyre}.${x.softSets}.${x.eliminated ? 1 : 0}.${x.pos}` : "-"; };
+    const c = p => { const x = snap.cars[p]; return x ? `${x.phase}.${x.tyre}.${x.softSets}.${x.eliminated ? 1 : 0}.${x.pos}.${x.sector ?? "-"}.${x.push ?? "-"}.${x.lapDeleted ? 1 : 0}.${x.lapSectors ? x.lapSectors.length : 0}` : "-"; };
     const tower = snap.tower.map(t => `${t.pos}:${t.idx}:${t.eliminated ? 1 : 0}:${t.time ? 1 : 0}:${t.phase}`).join(",");
     return `Q.${snap.paused ? 1 : 0}.${snap.speed}.${snap.segment}.${snap.flag ? snap.flag.type : "-"}.${c("p1")}.${c("p2")}.${tower}`;
   }
@@ -76,7 +76,7 @@ function rerender() {
   // On a same-phase rebuild, mark #app `no-anim` to suppress the entrance.
   const cls = [];
   // wide #app for the 2-col dashboards: race/result and the practice setup grid (room for a wide slider track)
-  if (phase === "race" || phase === "result" || isPractice(phase)) cls.push("wide");
+  if (phase === "race" || phase === "result" || isPractice(phase) || phase === "quali") cls.push("wide");
   if (phase === ctx._renderedPhase) cls.push("no-anim");          // rebuild of the same screen → no re-entrance
   ctx._renderedPhase = phase;
   root.className = cls.join(" ");
@@ -121,6 +121,7 @@ function onCommand(cmd) {
     case "quali_abort":   if (ctx.qualiSession) { qAbort(ctx.qualiSession, cmd.player); pushQuali(); } break;
     case "quali_speed":   if (ctx.qualiSession) { qSetSpeed(ctx.qualiSession, cmd.value); pushQuali(); } break;
     case "quali_pause":   if (ctx.qualiSession) { qSetPaused(ctx.qualiSession, !ctx.qualiSession.paused); pushQuali(); } break;
+    case "quali_push": if (ctx.qualiSession) { qSetPush(ctx.qualiSession, cmd.player, cmd.level); pushQuali(); } break;
   }
 }
 function onPhaseHost() {
@@ -217,7 +218,7 @@ function pushPractice() {
 }
 // the 22-car field for the quali session, mapped from buildField() to the newQuali shape.
 function qualiField() {
-  return buildField().map(f => ({ idx: f.idx, abbrev: f.abbrev, drv: { skill: f.skill, attrs: f.attrs }, car: f.car, setupBonus: f.setupBonus, player: f.player }));
+  return buildField().map(f => ({ idx: f.idx, abbrev: f.abbrev, drv: { skill: f.skill, attrs: f.attrs }, car: f.car, setupBonus: f.setupBonus, player: f.player, trackKnow: f.player ? pracTrackKnow(f.player) : PRAC2.AI_TRACK_KNOW }));
 }
 // broadcast the live quali snapshot (timing tower + per-car controls) to both screens.
 function pushQuali() {
