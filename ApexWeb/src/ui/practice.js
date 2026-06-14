@@ -69,7 +69,7 @@ export function render(root, ctx) {
         </div>
         <div class="pw-track">
           <div class="pw-band" style="left:${bandLeft.toFixed(1)}%;width:${bandW.toFixed(1)}%;background:${BAND_COL[st] || BAND_COL.vague}"></div>
-          <input type="range" min="0" max="1" step="0.01" value="${ax.value}" data-ax="${i}" class="pw-range">
+          <input type="range" min="0" max="1" step="0.01" value="${ax.value}" data-ax="${i}" class="pw-range" ${me.onTrack ? "disabled" : ""}>
         </div>
         <div class="pw-fb">
           <div class="pw-chip" style="color:${ink}">${ax.feedback.text}</div>
@@ -79,7 +79,7 @@ export function render(root, ctx) {
   const setupPanel = `
     <div class="panel">
       <div class="pw-sec-head">
-        <h3 style="margin:0">Сетап машины</h3>
+        <h3 style="margin:0">Сетап машины${me.onTrack ? ` <span class="pw-lock">· на трассе — заблокирован</span>` : ""}</h3>
         <div class="pw-sat">${Math.round(me.satisfaction * 100)}%</div>
       </div>
       ${axisRows}
