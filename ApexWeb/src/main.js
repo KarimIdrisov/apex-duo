@@ -33,14 +33,50 @@ export const ctx = {
   },
 };
 
+const _mmss = sec => { const s = Math.max(0, Math.floor(sec)); const m = Math.floor(s / 60); return `${m}:${(s - m * 60).toString().padStart(2, "0")}`; };
+
+// Live screens (practice/quali) receive a snapshot ~15Hz. A full innerHTML rebuild every frame destroys
+// buttons/sliders mid-interaction (clicks land on an element that's already been replaced → "кнопки не
+// жмутся", sliders jump). So gate the rebuild on a STRUCTURAL signature — everything the screen draws
+// EXCEPT the ticking clock. When only the clock changed, patch its text in place and leave the controls
+// alone. Returns null for non-gated phases (lobby/race/result), so they render every call as before.
+function liveSig(phase, snap) {
+  if (!snap) return null;
+  if (isPractice(phase)) {
+    const c = p => { const x = snap.cars[p]; if (!x) return "-";
+      const ax = x.axes ? x.axes.map(a => Math.round(a.value * 100)).join("-") : "";   // slider positions → move = rebuild
+      return `${x.onTrack ? 1 : 0}.${x.totalLaps}.${Math.round(x.satisfaction * 100)}.${Math.round(x.prepCost || 0)}.${x.compound}.${x.stintLeft}.${ax}`; };
+    // include the clock-ZERO state (not the value) so run/auto buttons rebuild once to disable at session end
+    return `P.${snap.paused ? 1 : 0}.${snap.speed}.${snap.session}.${snap.clock <= 0 ? "Z" : "r"}.${c("p1")}.${c("p2")}`;
+  }
+  if (phase === "quali") {
+    const c = p => { const x = snap.cars[p]; return x ? `${x.phase}.${x.tyre}.${x.softSets}.${x.eliminated ? 1 : 0}.${x.pos}` : "-"; };
+    const tower = snap.tower.map(t => `${t.pos}:${t.idx}:${t.eliminated ? 1 : 0}:${t.time ? 1 : 0}:${t.phase}`).join(",");
+    return `Q.${snap.paused ? 1 : 0}.${snap.speed}.${snap.segment}.${snap.flag ? snap.flag.type : "-"}.${c("p1")}.${c("p2")}.${tower}`;
+  }
+  return null;
+}
+// cheap per-frame update when only the clock changed: keep the controls untouched (clickable).
+function patchClock(snap) {
+  const el = root.querySelector(".pw-clock, .q-clock");
+  if (el && snap) el.textContent = _mmss(snap.clock);
+}
+
 function rerender() {
   const phase = ctx.weekend.phase;
+  const snap = ctx.snapshot;
+  // structural gate: same screen + same structure as last render → just tick the clock, keep controls alive.
+  // sig runs before the render try/catch, so never let it throw (would kill the host loop) — fall through.
+  let sig = null;
+  try { sig = liveSig(phase, snap); } catch { sig = null; }
+  if (sig !== null && phase === ctx._renderedPhase && sig === ctx._liveSig) { patchClock(snap); return; }
+  ctx._liveSig = sig;
   // Entrance flourish (#app>.panel { animation:rise }) plays only on the FIRST render of a phase. Live
-  // screens (practice/quali/race) repaint ~15Hz; re-triggering the fade every frame froze panels at
-  // opacity 0 → BLACK SCREEN. On a same-phase repaint, mark #app `no-anim` to suppress the entrance.
+  // screens repaint often; re-triggering the fade every rebuild froze panels at opacity 0 → BLACK SCREEN.
+  // On a same-phase rebuild, mark #app `no-anim` to suppress the entrance.
   const cls = [];
   if (phase === "race" || phase === "result") cls.push("wide");   // wide 2-col race layout
-  if (phase === ctx._renderedPhase) cls.push("no-anim");          // repaint of the same screen → no re-entrance
+  if (phase === ctx._renderedPhase) cls.push("no-anim");          // rebuild of the same screen → no re-entrance
   ctx._renderedPhase = phase;
   root.className = cls.join(" ");
   // a render error must NEVER escape: it runs inside the host rAF loop, so an uncaught throw would skip
