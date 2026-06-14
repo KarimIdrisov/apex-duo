@@ -4,18 +4,23 @@
 import { TEAMS } from "../src/data.js";
 import { Race } from "../src/sim.js";
 import { driverAttrs, composeCar, genPersonnel } from "../src/team.js";
-import { POINTS, newCareer, applyResult, advanceRound, isSeasonOver, constructorStandings, boardOutcome, CALENDAR } from "../src/career.js";
+import { POINTS, newCareer, applyResult, advanceRound, isSeasonOver, constructorStandings, boardOutcome, CALENDAR, newSeason } from "../src/career.js";
 import { careerTrack } from "../src/track_build.js";
 import { effectiveCar, startProject } from "../src/development.js";
+import { moraleMod } from "../src/drivers.js";
 
 function field() {
   let idx = 0;
-  return TEAMS.flatMap((t, ti) => t.drivers.map(d => ({
-    idx: idx++, name: d.name, abbrev: d.abbrev, skill: d.skill,
-    car: composeCar(effectiveCar(t.car, career.carDev && career.carDev[t.name])), color: t.color, team: t.name,
-    attrs: driverAttrs(d.abbrev, d.skill), personnel: genPersonnel(t.facility, ti),
-    setup: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5], setupBonus: 0, startTyre: "medium",
-  })));
+  return TEAMS.flatMap((t, ti) => t.drivers.map(d => {
+    const dr = career.drivers && career.drivers[d.abbrev];
+    const overall = dr ? dr.overall : d.skill;
+    return {
+      idx: idx++, name: d.name, abbrev: d.abbrev, skill: overall,
+      car: composeCar(effectiveCar(t.car, career.carDev && career.carDev[t.name])), color: t.color, team: t.name,
+      attrs: driverAttrs(d.abbrev, overall), personnel: genPersonnel(t.facility, ti),
+      setup: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5], setupBonus: dr ? moraleMod(dr.morale) : 0, startTyre: "medium",
+    };
+  }));
 }
 function runRace(track, seed) {
   const r = new Race(field(), track, seed, 0.80);
@@ -56,4 +61,8 @@ const myDev = career.carDev[TEAMS[0].name];
 console.log(`dev: player McLaren carDev power +${myDev.power.toFixed(3)} aero +${myDev.aero.toFixed(3)}; field (power+aero)/2 spread ${spread.toFixed(3)}`);
 if (!(myDev.power > 0 || myDev.aero > 0 || myDev.tyre > 0)) { console.error("player car did not develop over the season"); process.exit(1); }
 if (spread > 0.45) { console.error(`grid spread ${spread.toFixed(3)} too wide — development ran away`); process.exit(1); }
+const antBefore = career.drivers["ANT"].overall, aloBefore = career.drivers["ALO"].overall;
+const next = newSeason(career);
+console.log(`drivers: ANT ${antBefore.toFixed(3)}->${next.drivers["ANT"].overall.toFixed(3)} (age ${next.drivers["ANT"].age}), ALO ${aloBefore.toFixed(3)}->${next.drivers["ALO"].overall.toFixed(3)}; player morale ${TEAMS[0].drivers.map(d => Math.round(career.drivers[d.abbrev].morale * 100) + "%").join("/")}`);
+if (!(next.drivers["ANT"].overall > antBefore && next.drivers["ALO"].overall < aloBefore)) { console.error("driver development curve broken (young should rise, veteran fall)"); process.exit(1); }
 console.log("CAREER CORRIDOR OK");
