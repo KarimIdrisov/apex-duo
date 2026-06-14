@@ -1,0 +1,30 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { newQuali, release, qualiStep, carView } from "../src/quali_session.js";
+import { TEAMS, TRACK } from "../src/data.js";
+import { driverAttrs, composeCar } from "../src/team.js";
+
+function field() {   // all 22 cars; p1/p2 = first team's two drivers
+  let idx = 0;
+  return TEAMS.flatMap((t, ti) => t.drivers.map((d, di) => ({
+    idx: idx++, abbrev: d.abbrev, drv: { skill: d.skill, attrs: driverAttrs(d.abbrev, d.skill) },
+    car: composeCar(t.car), setupBonus: 0, player: ti === 0 ? (di === 0 ? "p1" : "p2") : null,
+  })));
+}
+
+test("a released car warms on the out-lap then sets a flying time; grip rises", () => {
+  let s = newQuali(7, field()); s.paused = false; s.speed = 8;
+  s = release(s, "p1", "fresh", "attack");
+  const g0 = s.grip;
+  for (let i = 0; i < 600; i++) s = qualiStep(s, 1.0);
+  const v = carView(s, "p1");
+  assert.ok(v.bestTime > 60 && v.bestTime < 100, `set a flying time (${v.bestTime})`);
+  assert.ok(s.grip > g0, "track rubbered in");
+});
+
+test("determinism: same seed + same release → identical flying time", () => {
+  const run = () => { let s = newQuali(3, field()); s.paused = false; s.speed = 8;
+    s = release(s, "p1", "fresh", "steady"); for (let i = 0; i < 600; i++) s = qualiStep(s, 1.0);
+    return carView(s, "p1").bestTime; };
+  assert.equal(run(), run());
+});
