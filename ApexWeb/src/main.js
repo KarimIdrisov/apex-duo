@@ -44,8 +44,8 @@ function liveSig(phase, snap) {
   if (!snap) return null;
   if (isPractice(phase)) {
     const c = p => { const x = snap.cars[p]; if (!x) return "-";
-      const ax = x.axes ? x.axes.map(a => Math.round(a.value * 100)).join("-") : "";   // slider positions → move = rebuild
-      return `${x.onTrack ? 1 : 0}.${x.totalLaps}.${Math.round(x.satisfaction * 100)}.${Math.round(x.prepCost || 0)}.${x.compound}.${x.stintLeft}.${ax}`; };
+      const ax = x.axes ? x.axes.map(a => Math.round(a.value * 100)).join("-") : "";
+      return `${x.onTrack ? 1 : 0}.${x.totalLaps}.${Math.round(x.satisfaction * 100)}.${Math.round((x.trackKnow || 0) * 100)}.${x.compound}.${x.lastCompound || "-"}.${x.stintLeft}.${ax}`; };
     // include the clock-ZERO state (not the value) so run/auto buttons rebuild once to disable at session end
     return `P.${snap.paused ? 1 : 0}.${snap.speed}.${snap.session}.${snap.clock <= 0 ? "Z" : "r"}.${c("p1")}.${c("p2")}`;
   }
@@ -174,7 +174,9 @@ function buildField() {
       idx: idx++, name: d.name, abbrev: d.abbrev, skill: d.skill,
       car: composeCar(t.car), color: t.color, team: t.name, isPlayer: isPlayerTeam, player,
       attrs: driverAttrs(d.abbrev, d.skill), personnel: genPersonnel(t.facility, ti),
-      setup, setupBonus: player ? pracSetupBonus(player) : paceBonus(closeness(setup, ideal)), startTyre: "medium",
+      setup, setupBonus: player
+        ? pracSetupBonus(player) + PRAC2.TRACK_PACE * pracTrackKnow(player)
+        : paceBonus(closeness(setup, ideal)) + PRAC2.TRACK_PACE * PRAC2.AI_TRACK_KNOW, startTyre: "medium",
     };
   }));
 }
@@ -184,6 +186,10 @@ function pracSetupBonus(player) {
   if (!ctx.pracSession) return 0;
   const sat = ctx.pracSession.cars[player].confirmedSat.reduce((a, b) => a + b, 0) / PRAC2.AXES;
   return paceBonus(sat);   // sat 1 ⇒ today's best bonus; lower ⇒ less
+}
+// current track knowledge for a player car (0 if no practice happened).
+function pracTrackKnow(player) {
+  return ctx.pracSession ? (ctx.pracSession.cars[player]?.trackKnow ?? 0) : 0;
 }
 // fold the session's accumulated stint data into the race-HUD strategy aid (cliff + recommended stops).
 function analyzeStrategy(strategy) {
