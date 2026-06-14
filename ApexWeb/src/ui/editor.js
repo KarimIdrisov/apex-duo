@@ -267,13 +267,18 @@ document.getElementById("save").onclick = () => { saveTrack(name, { points: toFl
 document.getElementById("reset").onclick = () => { clearTrack(name); loadTrack(name); toast("Сброшено к пресету"); };
 document.getElementById("drive").onclick = toggleDrive;
 document.getElementById("export").onclick = () => {     // download the current track as JSON
-  const blob = new Blob([JSON.stringify({ name, points: toFlat(pts), objects }, null, 0)], { type: "application/json" });
+  const blob = new Blob([JSON.stringify({ name, points: toFlat(pts), objects, pit, pitLoss, zones, cornerOverrides }, null, 0)], { type: "application/json" });
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name + ".json"; a.click(); URL.revokeObjectURL(a.href);
 };
 document.getElementById("import").onclick = () => document.getElementById("file").click();
 document.getElementById("file").onchange = (e) => {     // load a track JSON back in
   const f = e.target.files[0]; if (!f) return; const r = new FileReader();
-  r.onload = () => { try { const d = JSON.parse(r.result); pts = toPts(d.points); objects.length = 0; for (const o of (d.objects || [])) objects.push({ ...o }); render(); toast("Импортировано"); } catch { toast("Битый JSON"); } };
+  r.onload = () => { try { const d = JSON.parse(r.result); pts = toPts(d.points); objects.length = 0; for (const o of (d.objects || [])) objects.push({ ...o });
+    pit = d.pit || null; pitLoss = (typeof d.pitLoss === "number") ? d.pitLoss : null;
+    zones.length = 0; for (const z of (d.zones || [])) zones.push({ sectors: [...z.sectors], ease: z.ease, type: z.type });
+    cornerOverrides = d.cornerOverrides ? { ...d.cornerOverrides } : {};
+    activeZone = -1; view = { zoom: 1, panX: 0, panY: 0 }; base = null; refreshZoneList();
+    render(); toast("Импортировано"); } catch { toast("Битый JSON"); } };
   r.readAsText(f);
 };
 document.getElementById("hint").innerHTML = "Колесо — зум к курсору · средняя-кнопка — пан · ⊡ по размеру<br><b>Точки:</b> ЛКМ-тащи точку/объект · 2× клик — добавить · ПКМ — удалить · объект: тип→клик · колесо над объектом — повернуть<br><b>Пит:</b> клик по холсту — поставить боксы + поле потери<br><b>Зоны:</b> создай зону → кликай сектора · ПКМ по сектору — класс поворота<br>▶ Прокатить — пустить машинки · 💾 Сохранить → 3D";
