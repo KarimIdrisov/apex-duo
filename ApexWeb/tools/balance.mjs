@@ -258,7 +258,8 @@ console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0
   function runQuali(seed) {
     let s = newQuali(seed, qualiField()); s.paused = false; s.speed = 8;
     const grip0 = s.grip;
-    let g = 0; while (s.segment <= 3 && g++ < 30000) { s = qualiStep(s, 2.0); if (s.clock <= 0 && s.segment <= 3) s = advanceSegment(s); }
+    // each new segment starts paused (players plan); the harness presses play immediately to run Q2/Q3
+    let g = 0; while (s.segment <= 3 && g++ < 30000) { s = qualiStep(s, 2.0); if (s.clock <= 0 && s.segment <= 3) { s = advanceSegment(s); s.paused = false; } }
     return { grid: finalGrid(s), gripGain: (s.grip - grip0) * QUALI2.GRIP_GAIN };
   }
   let spread = 0, gripGain = 0, ok = 0; const NQ = 6;

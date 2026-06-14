@@ -251,7 +251,7 @@ export const QUALI2 = {
   SEG_SEC: [480, 420, 360],  // game-seconds per segment (8 / 7 / 6 min)
   GRIP0: 0.0,                // track grip at the start of Q1
   GRIP_RISE: 0.00045,        // grip gained per game-second of running (carries across segments, cap 1)
-  GRIP_GAIN: 1.2,            // lap-time bonus (s) from green (grip 0) to fully rubbered (grip 1)
+  GRIP_GAIN: 2.4,            // lap-time bonus (s) from green (grip 0) to fully rubbered (grip 1) — the "when to run" core (~1.3s over a session, ~0.5s within a segment)
   QUALI_SOFT_SETS: 3,        // fresh soft sets per car for the whole quali
   USED_PENALTY: 0.25,        // a re-used (warm) soft set is this much slower than a fresh one
   TRAFFIC_MAX: 0.5,          // max time lost to a fully crowded out-lap window
