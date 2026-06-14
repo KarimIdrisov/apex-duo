@@ -4,8 +4,9 @@
 // SKILL_K 3.0->7.0 (widen field to land spread in corridor),
 // DNF_BASE 0.005->0.0075 (lift retirements into ~1-2 band). All 24 node:test pass.
 import { Race } from "../src/sim.js";
-import { TEAMS, TRACK, COMPOUNDS } from "../src/data.js";
+import { TEAMS, TRACK, COMPOUNDS, QUALI2 } from "../src/data.js";
 import { driverAttrs, composeCar, genPersonnel } from "../src/team.js";
+import { newQuali, qualiStep, advanceSegment, finalGrid } from "../src/quali_session.js";
 
 function field() {
   let idx = 0;
@@ -241,4 +242,34 @@ console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0
   good = good / NP; auto = auto / NP;
   console.log(`practice: good-policy satisfaction after 3 sessions = ${(good*100).toFixed(0)}%  (target >=75%, achievable)`);
   console.log(`practice: no-tune auto-sim satisfaction      = ${(auto*100).toFixed(0)}%  (target < good-policy: hands-on rewarded)`);
+}
+
+// quali grid-realism corridor: every session should classify all 22 cars with unique grid positions,
+// the pole→P22 lap-time spread should be realistic (not a procession or chaos), and the track
+// should rubber in across the session (positive track evolution).
+{
+  function qualiField() {
+    let idx = 0;
+    return TEAMS.flatMap(t => t.drivers.map(d => ({
+      idx: idx++, abbrev: d.abbrev, drv: { skill: d.skill, attrs: driverAttrs(d.abbrev, d.skill) },
+      car: composeCar(t.car), setupBonus: 0, player: null,   // all AI
+    })));
+  }
+  function runQuali(seed) {
+    let s = newQuali(seed, qualiField()); s.paused = false; s.speed = 8;
+    const grip0 = s.grip;
+    let g = 0; while (s.segment <= 3 && g++ < 30000) { s = qualiStep(s, 2.0); if (s.clock <= 0 && s.segment <= 3) s = advanceSegment(s); }
+    return { grid: finalGrid(s), gripGain: (s.grip - grip0) * QUALI2.GRIP_GAIN };
+  }
+  let spread = 0, gripGain = 0, ok = 0; const NQ = 6;
+  for (let k = 0; k < NQ; k++) {
+    const { grid, gripGain: gg } = runQuali(2000 + k);
+    const classified = grid.length === 22 && new Set(grid.map(x => x.idx)).size === 22 && grid.every(x => x.time != null);
+    if (classified) { ok++; spread += grid[21].time - grid[0].time; }
+    gripGain += gg;
+  }
+  spread /= Math.max(1, ok); gripGain /= NQ;
+  console.log(`quali: all 22 classified, unique positions = ${ok}/${NQ} sessions`);
+  console.log(`quali: pole→P22 spread = ${spread.toFixed(2)} s/lap  (target ~1.5-5: racing, not a procession/chaos)`);
+  console.log(`quali: track evolution over the session = ${gripGain.toFixed(2)} s  (rubbering effect)`);
 }
