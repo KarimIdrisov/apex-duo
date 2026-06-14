@@ -133,6 +133,7 @@ test("track knowledge cuts the deleted-lap rate at max push", () => {
     for (let run = 0; run < 12; run++) {
       let car = Object.values(s.cars).find(c => c.player === "p1");
       car.phase = "pit"; car.softSets = 9; car.trackKnow = tk;
+      s.clock = QUALI2.SEG_SEC[0];                       // full clock each run (probe risk, not clock management); lapIdx still progresses → variance
       s = release(s, "p1", "fresh", "max"); setPush(s, "p1", 3);
       for (let i = 0; i < 400 && Object.values(s.cars).find(c=>c.player==="p1").phase !== "pit"; i++) s = qualiStep(s, 1.0);
       if (Object.values(s.cars).find(c => c.player === "p1")._lastDeleted) del++;

@@ -146,11 +146,12 @@ export function qualiStep(s, dt) {
   if (s.flag && s.flag.type === "red") {                             // red: clock + cars frozen; freeze counts down
     s.flag.freezeLeft -= dt * s.speed; if (s.flag.freezeLeft <= 0) s.flag = null; return s;
   }
+  if (s.clock <= 0) return s;                                        // segment over: cars + clock frozen
   if (s.flag && s.flag.type === "yellow") {                          // yellow: session continues; window counts down
     s.flag.ySecLeft -= dt * s.speed; if (s.flag.ySecLeft <= 0) s.flag = null;
   }
-  const adv = s.clock <= 0 ? dt * s.speed : Math.min(s.clock, dt * s.speed);
-  if (s.clock > 0) s.clock -= adv;
+  const adv = Math.min(s.clock, dt * s.speed);
+  s.clock -= adv;
   s.grip = Math.min(1, s.grip + QUALI2.GRIP_RISE * adv);              // track rubbers in over time
   for (const idx in s.cars) {
     const car = s.cars[idx];
@@ -165,7 +166,7 @@ export function qualiStep(s, dt) {
       while (car.lapAcc >= LAP_SEC() && (car.phase === "outlap" || car.phase === "inlap") && guard++ < 8) { car.lapAcc -= LAP_SEC(); completeLap(s, car); }
     }
   }
-  if (s.clock > 0) aiReleases(s);
+  aiReleases(s);
   return s;
 }
 
