@@ -8,18 +8,20 @@ import { POINTS, newCareer, applyResult, advanceRound, isSeasonOver, constructor
 import { careerTrack } from "../src/track_build.js";
 import { effectiveCar, startProject } from "../src/development.js";
 import { composePersonnel, upgradeStaff, upgradeFacility, upkeep } from "../src/staff.js";
-import { moraleMod } from "../src/drivers.js";
+import { moraleMod, DRIVER_NAME } from "../src/drivers.js";
+import { signDriver, availableDrivers } from "../src/market.js";
 
 function field() {
   let idx = 0;
-  return TEAMS.flatMap((t, ti) => t.drivers.map(d => {
-    const dr = career.drivers && career.drivers[d.abbrev];
-    const overall = dr ? dr.overall : d.skill;
+  const rosterOf = ti => Object.keys(career.drivers || {}).filter(ab => career.drivers[ab].teamIdx === ti)
+    .sort((a, b) => career.drivers[b].overall - career.drivers[a].overall);
+  return TEAMS.flatMap((t, ti) => rosterOf(ti).map(ab => {
+    const dr = career.drivers[ab];
     return {
-      idx: idx++, name: d.name, abbrev: d.abbrev, skill: overall,
+      idx: idx++, name: DRIVER_NAME[ab] || ab, abbrev: ab, skill: dr.overall,
       car: composeCar(effectiveCar(t.car, career.carDev && career.carDev[t.name])), color: t.color, team: t.name,
-      attrs: driverAttrs(d.abbrev, overall), personnel: (ti === career.teamIdx && career.staff) ? composePersonnel(career.staff) : genPersonnel(t.facility, ti),
-      setup: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5], setupBonus: dr ? moraleMod(dr.morale) : 0, startTyre: "medium",
+      attrs: driverAttrs(ab, dr.overall), personnel: (ti === career.teamIdx && career.staff) ? composePersonnel(career.staff) : genPersonnel(t.facility, ti),
+      setup: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5], setupBonus: moraleMod(dr.morale), startTyre: "medium",
     };
   }));
 }
@@ -32,6 +34,8 @@ function runRace(track, seed) {
 }
 
 const career = newCareer({ teamIdx: 0, seed: 1 });
+{ const av = availableDrivers(career)[0]; const out = Object.keys(career.drivers).find(a => career.drivers[a].teamIdx === 0);
+  const ok = signDriver(career, av.abbrev, out); console.log(`transfer: signed ${av.abbrev} (ovr ${av.overall.toFixed(3)}) for ${out} -> ${ok}`); }
 let totalPts = 0, minPass = 1e9, maxPass = 0, races = 0;
 const expectedPerRace = POINTS.reduce((a, b) => a + b, 0);
 while (!isSeasonOver(career)) {
@@ -68,4 +72,8 @@ const next = newSeason(career);
 console.log(`drivers: ANT ${antBefore.toFixed(3)}->${next.drivers["ANT"].overall.toFixed(3)} (age ${next.drivers["ANT"].age}), ALO ${aloBefore.toFixed(3)}->${next.drivers["ALO"].overall.toFixed(3)}; player morale ${TEAMS[0].drivers.map(d => Math.round(career.drivers[d.abbrev].morale * 100) + "%").join("/")}`);
 if (!(next.drivers["ANT"].overall > antBefore && next.drivers["ALO"].overall < aloBefore)) { console.error("driver development curve broken (young should rise, veteran fall)"); process.exit(1); }
 console.log(`staff: designer ${Math.round(career.staff.designer * 100)}, design office L${career.staff.facilities.design}, upkeep ${upkeep(career.staff).toFixed(0)}k/race`);
+const counts = {}; for (const a in career.drivers) counts[career.drivers[a].teamIdx] = (counts[career.drivers[a].teamIdx] || 0) + 1;
+const badTeams = Object.entries(counts).filter(([, n]) => n !== 2);
+console.log(`grid integrity: ${Object.keys(counts).length} teams, ${badTeams.length === 0 ? "all 2 drivers" : "BAD " + JSON.stringify(badTeams)}`);
+if (badTeams.length) { console.error("a team does not have exactly 2 drivers after transfers/churn"); process.exit(1); }
 console.log("CAREER CORRIDOR OK");
