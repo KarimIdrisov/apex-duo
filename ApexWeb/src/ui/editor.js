@@ -114,7 +114,7 @@ cv.addEventListener("mousedown", (e) => {
     if (activeZone < 0) { toast("Сначала создай зону"); return; }
     const sec = sectorAt(mx, my), z = zones[activeZone], i = z.sectors.indexOf(sec);
     if (i >= 0) z.sectors.splice(i, 1); else z.sectors.push(sec);
-    z.sectors.sort((a, b) => a - b); render(); return;
+    z.sectors.sort((a, b) => a - b); refreshZoneList(); render(); return;   // keep the zone list text in sync with painted sectors
   }
   if (armed) { const p = unproject(mx, my); objects.push({ type: armed, x: p[0], y: p[1], rot: 0 }); render(); return; }   // place an armed object
   objDrag = pickObj(mx, my); if (objDrag >= 0) { render(); return; }   // grab an existing object before a point
