@@ -115,13 +115,15 @@ export function render(root, ctx) {
           <button data-t="fresh" class="${ctx.qTyre === "fresh" ? "on" : ""}" ${freshDisabled ? "disabled" : ""}>свежий софт ×${me.softSets}</button>
           <button data-t="used" class="${ctx.qTyre === "used" ? "on" : ""}">тёплый</button>
         </div>`;
-      const fmtDelta = d => d == null ? "—" : (d <= 0 ? "−" : "+") + Math.abs(d).toFixed(3);
+      // show each completed sector's TIME (always informative, incl. the first lap), coloured by the delta
+      // vs the car's best sector: green = personal best, amber = slower, neutral when there's no reference yet.
       const secCells = [0, 1, 2].map(i => {
-        const dn = me.lapSectors && me.lapSectors[i] != null;
+        const t = me.lapSectors && me.lapSectors[i];
+        const done = t != null;
         const d = me.sectorDelta && me.sectorDelta[i];
-        const cls = !dn ? "" : (d != null && d <= 0 ? "good" : "warn");
+        const cls = !done ? "" : (d == null ? "" : (d <= 0 ? "good" : "warn"));
         return `<div class="q-sec ${i === me.sector && me.phase === "flying" ? "live" : ""} ${cls}">
-          <span class="q-sec-n">S${i + 1}</span><span class="q-sec-d">${dn ? fmtDelta(d) : "—"}</span></div>`;
+          <span class="q-sec-n">S${i + 1}</span><span class="q-sec-d">${done ? t.toFixed(2) : "—"}</span></div>`;
       }).join("");
       const sectorStrip = `<div class="q-sectors">${secCells}</div>${me.lapDeleted ? `<div class="q-deleted">круг аннулирован</div>` : ""}`;
       const pushLabels = ["сейв", "норма", "атака", "предел"];
