@@ -134,6 +134,16 @@ export function init(canvas, ctx) {
     const pmesh = new THREE.Mesh(pg, pm); pmesh.receiveShadow = true; scene.add(pmesh);
   }
 
+  // editor-placed decorations (render-only): each object's normalized point -> world plane via wx/wz
+  for (const ob of edited.objects) {
+    const P = [ob.x, ob.y], X = wx(P), Z = wz(P); let mesh;
+    if (ob.type === "stand") { const go = new THREE.BoxGeometry(9, 2.2, 3); geos.push(go); const ma = new THREE.MeshStandardMaterial({ color: 0x9aa0aa, roughness: 1 }); mats.push(ma); mesh = new THREE.Mesh(go, ma); mesh.position.set(X, 1.1, Z); mesh.rotation.y = ob.rot || 0; mesh.castShadow = true; }
+    else if (ob.type === "banner") { const go = new THREE.PlaneGeometry(7, 2); geos.push(go); const ma = new THREE.MeshStandardMaterial({ color: 0x3d7aa0, roughness: 1, side: THREE.DoubleSide }); mats.push(ma); mesh = new THREE.Mesh(go, ma); mesh.position.set(X, 1, Z); mesh.rotation.y = ob.rot || 0; }
+    else if (ob.type === "tree") { const go = new THREE.ConeGeometry(1.6, 4, 7); geos.push(go); const ma = new THREE.MeshStandardMaterial({ color: 0x2e7d32, roughness: 1 }); mats.push(ma); mesh = new THREE.Mesh(go, ma); mesh.position.set(X, 2, Z); mesh.castShadow = true; }
+    else { const go = new THREE.ConeGeometry(0.6, 1.4, 10); geos.push(go); const ma = new THREE.MeshStandardMaterial({ color: 0xe07a1a, roughness: 1 }); mats.push(ma); mesh = new THREE.Mesh(go, ma); mesh.position.set(X, 0.7, Z); }
+    scene.add(mesh);
+  }
+
   // --- cars: a stylized low-poly F1 silhouette. Geometry is shared across all 22 cars
   // (nose points +Z = direction of travel); only the body material is per-team colour. ---
   const tubGeo = new THREE.BoxGeometry(0.5, 0.35, 1.6); geos.push(tubGeo);

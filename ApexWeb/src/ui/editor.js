@@ -56,6 +56,7 @@ function render() {
     const c = C(pts[i]); g.beginPath(); g.arc(c[0], c[1], R, 0, 7);
     g.fillStyle = i === drag ? "#ffd24a" : "#7ad0ff"; g.fill(); g.lineWidth = 2; g.strokeStyle = "#0b0d12"; g.stroke();
   }
+  for (const o of objects) drawObj(g, C([o.x, o.y]), o);   // placed objects on top
 }
 
 // nearest control point within `R*1.6` px of (mx,my), or -1
@@ -72,36 +73,62 @@ function unproject(mx, my) {
 const evtXY = (e) => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
 
 cv.addEventListener("mousedown", (e) => {
-  if (e.button !== 0) return;
-  const [mx, my] = evtXY(e); drag = pick(mx, my); render();
+  if (e.button !== 0) return; const [mx, my] = evtXY(e);
+  if (armed) { const p = unproject(mx, my); objects.push({ type: armed, x: p[0], y: p[1], rot: 0 }); render(); return; }   // place an armed object
+  objDrag = pickObj(mx, my); if (objDrag >= 0) { render(); return; }   // grab an existing object before a point
+  drag = pick(mx, my); render();
 });
 window.addEventListener("mousemove", (e) => {
-  if (drag < 0) return; const [mx, my] = evtXY(e); pts[drag] = unproject(mx, my); render();
+  const [mx, my] = evtXY(e);
+  if (objDrag >= 0) { const p = unproject(mx, my); objects[objDrag].x = p[0]; objects[objDrag].y = p[1]; render(); }
+  else if (drag >= 0) { pts[drag] = unproject(mx, my); render(); }
 });
-window.addEventListener("mouseup", () => { if (drag >= 0) { drag = -1; render(); } });
+window.addEventListener("mouseup", () => { if (drag >= 0 || objDrag >= 0) { drag = -1; objDrag = -1; render(); } });
 cv.addEventListener("dblclick", (e) => {                 // add a point on the nearest segment
   const [mx, my] = evtXY(e), p = unproject(mx, my);
   let bi = 0, bd = Infinity;
   for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i + 1) % pts.length], d = segDist(p, a, b); if (d < bd) { bd = d; bi = i; } }
   pts.splice(bi + 1, 0, p); render();
 });
-cv.addEventListener("contextmenu", (e) => {              // right-click removes the nearest point (min 4)
-  e.preventDefault(); const [mx, my] = evtXY(e), i = pick(mx, my);
-  if (i >= 0 && pts.length > 4) { pts.splice(i, 1); render(); }
+cv.addEventListener("contextmenu", (e) => {              // right-click: delete the object under the cursor, else the nearest point (min 4)
+  e.preventDefault(); const [mx, my] = evtXY(e); const oi = pickObj(mx, my);
+  if (oi >= 0) { objects.splice(oi, 1); render(); return; }
+  const i = pick(mx, my); if (i >= 0 && pts.length > 4) { pts.splice(i, 1); render(); }
 });
+cv.addEventListener("wheel", (e) => { const [mx, my] = evtXY(e), oi = pickObj(mx, my); if (oi >= 0) { e.preventDefault(); objects[oi].rot = (objects[oi].rot || 0) + (e.deltaY > 0 ? 0.2 : -0.2); render(); } }, { passive: false });
 function segDist(p, a, b) {                               // distance point->segment in normalized space
   const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy || 1e-9;
   let t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2; t = Math.max(0, Math.min(1, t));
   return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
 }
+// draw an object's editor icon at canvas point c, rotated by o.rot
+function drawObj(g, c, o) {
+  g.save(); g.translate(c[0], c[1]); g.rotate(o.rot || 0); g.lineWidth = 2;
+  if (o.type === "stand") { g.fillStyle = "#9aa0aa"; g.fillRect(-16, -7, 32, 14); g.strokeStyle = "#222"; g.strokeRect(-16, -7, 32, 14); }
+  else if (o.type === "banner") { g.fillStyle = "#3d7aa0"; g.fillRect(-18, -4, 36, 8); }
+  else if (o.type === "tree") { g.fillStyle = "#2e7d32"; g.beginPath(); g.arc(0, 0, 9, 0, 7); g.fill(); }
+  else { g.fillStyle = "#e07a1a"; g.beginPath(); g.moveTo(0, -10); g.lineTo(8, 8); g.lineTo(-8, 8); g.closePath(); g.fill(); }   // cone
+  g.restore();
+}
+// topmost object within ~18px of (mx,my), or -1
+function pickObj(mx, my) { const { C } = frame(); for (let i = objects.length - 1; i >= 0; i--) { const c = C([objects[i].x, objects[i].y]); if ((c[0] - mx) ** 2 + (c[1] - my) ** 2 < 18 ** 2) return i; } return -1; }
 
 // --- toolbar ---
 const sel = document.getElementById("preset");
 for (const n of [...TRACK_NAMES, EMPTY]) { const o = document.createElement("option"); o.value = o.textContent = n; sel.appendChild(o); }
 sel.onchange = () => loadTrack(sel.value);
+// object palette: click a type to arm it, then click the canvas to drop one
+const OBJ = { stand: "Трибуна", banner: "Баннер", tree: "Дерево", cone: "Конус" };
+let objDrag = -1;   // index of the object being dragged, or -1
+const pal = document.getElementById("palette");
+for (const [t, label] of Object.entries(OBJ)) {
+  const btn = document.createElement("button"); btn.textContent = label; btn.dataset.t = t; btn.style.margin = "3px";
+  btn.onclick = () => { armed = armed === t ? null : t; for (const b of pal.querySelectorAll("button")) b.classList.toggle("on", b.dataset.t === armed); };
+  pal.appendChild(btn);
+}
 document.getElementById("save").onclick = () => { saveTrack(name, { points: toFlat(pts), objects }); toast("Сохранено: " + name); };
 document.getElementById("reset").onclick = () => { clearTrack(name); loadTrack(name); toast("Сброшено к пресету"); };
-document.getElementById("hint").innerHTML = "ЛКМ-тащи — двигать точку<br>2× клик по дороге — добавить точку<br>ПКМ по точке — удалить<br>💾 Сохранить → откроется в 3D-гонке";
+document.getElementById("hint").innerHTML = "ЛКМ-тащи — точку/объект<br>2× клик по дороге — добавить точку<br>Объект: выбери тип → клик по холсту<br>Колесо над объектом — повернуть<br>ПКМ — удалить точку/объект<br>💾 Сохранить → откроется в 3D";
 function toast(t) { const el = document.getElementById("toast"); el.textContent = t; el.style.opacity = 1; setTimeout(() => el.style.opacity = 0, 1400); }
 
 loadTrack(name);
