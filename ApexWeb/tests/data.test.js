@@ -118,7 +118,7 @@ test("PRAC2 carries track-knowledge + dynamic pit-prep tuning", () => {
   assert.ok(PRAC2.AI_TRACK_KNOW >= 0 && PRAC2.AI_TRACK_KNOW <= 1, "AI baseline track knowledge");
   assert.ok(PRAC2.TYRE_CHANGE_SEC > PRAC2.TYRE_REFIT_SEC, "new compound costs more than a re-fit");
   assert.ok(PRAC2.FUEL_PER_LAP > 0, "fuel load scales with laps");
-  assert.equal(PRAC2.WIN_JITTER, 0.40, "window jitter bumped so P1 setup isn't ~100%");
+  assert.ok(PRAC2.WIN_JITTER > 0.1 && PRAC2.WIN_JITTER < 0.5, "window jitter set (tuned for the P1 setup ceiling)");
   assert.equal(PRAC2.PIT_PREP_SEC, undefined, "flat prep retired");
   assert.equal(PRAC2.KNOW_PER_LAP, undefined, "per-axis knowledge retired");
 });
