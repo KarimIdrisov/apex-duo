@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Race } from "../src/sim.js";
-import { TEAMS, TRACK, STEP, SKILL_K } from "../src/data.js";
+import { TEAMS, TRACK, STEP, SKILL_K, INCIDENT } from "../src/data.js";
 import { driverAttrs } from "../src/team.js";
 
 function field() {
@@ -475,12 +475,20 @@ test("determinism holds with the AI brain", () => {
 });
 
 test("easy AI laps slower than hard AI (same field, difficulty handicap)", () => {
-  const easy = new Race(field(), TRACK, 8001, 0.55);
-  const hard = new Race(field(), TRACK, 8001, 1.0);
-  easy.gridStart(); hard.gridStart();
-  for (let i = 0; i < 4000; i++) { easy.step(); hard.step(); }
-  const avg = r => { const f = r.cars.filter(c => !c.retired && c.avgLap > 0); return f.reduce((a, c) => a + c.avgLap, 0) / f.length; };
-  assert.ok(avg(easy) > avg(hard), `easy field slower (${avg(easy).toFixed(2)} > ${avg(hard).toFixed(2)})`);
+  // measure GREEN-flag pace: a no-caution track (sc:0) so an incident-triggered safety car in one field
+  // but not the other can't confound the cross-race comparison (SC laps run at ×1.40, ~8s/lap slower).
+  // Average over several seeds + all cars (incident-DNFs would otherwise bias which cars survive the avg).
+  const T = { ...TRACK, sc: 0 };
+  const avg = r => { const f = r.cars.filter(c => c.avgLap > 0); return f.reduce((a, c) => a + c.avgLap, 0) / f.length; };
+  let easySum = 0, hardSum = 0, n = 6;
+  for (let s = 0; s < n; s++) {
+    const easy = new Race(field(), T, 8001 + s, 0.55);
+    const hard = new Race(field(), T, 8001 + s, 1.0);
+    easy.gridStart(); hard.gridStart();
+    for (let i = 0; i < 4000; i++) { easy.step(); hard.step(); }
+    easySum += avg(easy); hardSum += avg(hard);
+  }
+  assert.ok(easySum / n > hardSum / n, `easy field slower on average (${(easySum / n).toFixed(2)} > ${(hardSum / n).toFixed(2)})`);
 });
 
 test("determinism holds across difficulty", () => {
@@ -664,4 +672,25 @@ test("defend order makes a follower pass less often than a neutral leader", () =
     return count;
   }
   assert.ok(passes("defend") <= passes("none"), "defending holds the position at least as often");
+});
+
+test("live safety cars: incidents are deterministic and can deploy a caution; emergent count varies", () => {
+  function cautionLapsAndCount(seed) {
+    const r = new Race(field(), TRACK, seed);
+    r.gridStart();
+    let everSC = false, cautions = 0, wasOn = false, g = 0;
+    while (!r.finished && g++ < 500000) {
+      r.step();
+      const on = r.scActive || r.vscActive;
+      if (on && !wasOn) { cautions++; everSC = true; }
+      wasOn = on;
+    }
+    return { everSC, cautions };
+  }
+  const a = cautionLapsAndCount(31), b = cautionLapsAndCount(31);
+  assert.deepEqual(a, b, "same seed → same caution history (determinism)");
+  const counts = new Set();
+  for (let s = 0; s < 16; s++) counts.add(cautionLapsAndCount(40000 + s).cautions);
+  assert.ok(counts.size >= 2, `emergent caution count varies across seeds (saw ${[...counts].join(",")})`);
+  assert.ok(Math.max(...counts) <= INCIDENT.maxCautions, "never exceeds the cap");
 });

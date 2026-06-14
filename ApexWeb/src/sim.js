@@ -1,6 +1,6 @@
 // ApexWeb/src/sim.js
 import { RNG, mix32 } from "./rng.js";
-import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, CAR_PACE_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP, TYRE, DIRTY_GAP, EVENT, ATTRW, AI_HANDICAP, AI_NOISE, AI_FORM, RACE_FORM, DEFEND_ROLL, DEFEND_MAX, DNF_CONSIST } from "./data.js";
+import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, CAR_PACE_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP, TYRE, DIRTY_GAP, EVENT, ATTRW, AI_HANDICAP, AI_NOISE, AI_FORM, RACE_FORM, DEFEND_ROLL, DEFEND_MAX, DNF_CONSIST, INCIDENT } from "./data.js";
 import { startFuel, burnFor, weightTerm, engineTerm, fuelLaps } from "./fuel.js";
 import { tyreTerm, warmStep } from "./tyres.js";
 import { miniSplits, N_MINI, sampleAt } from "./track.js";
@@ -10,7 +10,7 @@ import { PASS_CREDIT_CAP, PASS_CREDIT_DECAY, DIRTY_PACE_K, LAP1_CAUTION,
   BLUE_GAP, BLUE_PACE, BLUE_COST, ATTACK_CREDIT_K, DEFEND_ORDER_K,
   ATTACK_WEAR_MULT, ATTACK_SCRUB, DEFEND_WEAR_MULT, DEFEND_SCRUB,
   ORDER_MISTAKE_BASE, ORDER_MISTAKE_RAMP, ORDER_MISTAKE_RAMP_CAP, ORDER_MISTAKE_SCRUB_MIN, ORDER_MISTAKE_SCRUB_MAX } from "./data.js";
-import { scheduleSC } from "./events.js";
+import { incidentChance, cautionFromIncident } from "./events.js";
 import { scheduleWeather, wetnessAt, weatherTerm } from "./weather.js";
 import { planRace, pitDecision, engineMode, paceMode, combatOrder } from "./ai_strategy.js";
 import { ATTR_KEYS } from "./team.js";
@@ -29,9 +29,8 @@ export class Race {
     this.time = 0;
     this.finished = false;
     this.sessionBestMini = new Array(N_MINI).fill(Infinity);
-    const caution = scheduleSC(this.erng, track.sc, track.laps, EVENT.vscShare);  // { lap, vsc } or null
-    this.scLap = caution ? caution.lap : null; this.scIsVsc = caution ? caution.vsc : false;  // VSC = uniform delta, no bunching
     this.scActive = false; this.vscActive = false; this.scEverActive = false; this.scStartLap = 0; this._started = false;
+    this._cautionsDone = 0;   // live cautions triggered so far (capped at INCIDENT.maxCautions)
     this._vscWas = false;
     this.weather = scheduleWeather(this.erng, track.wet, track.laps);
     this.wetness = 0;
@@ -177,11 +176,7 @@ export class Race {
     else for (const c of this.cars) { c._dirtyPace = 0; c._blueDelay = 0; }                          // neutral while a caution is out
     this._aiDrive();   // AI engine/pace management (post-combat: pos + pass-credit are fresh)
     // safety-car lifecycle, driven by the leader's lap count
-    const leadLap = this.cars.reduce((m, c) => Math.max(m, c.lap), 0);
-    if (this.scLap != null && !this.scEverActive && leadLap >= this.scLap) {   // deploy the scheduled caution (full SC or VSC)
-      this.scEverActive = true; this.scStartLap = leadLap;
-      if (this.scIsVsc) this.vscActive = true; else this.scActive = true;
-    }
+    const leadLap = this.cars.reduce((m, c) => Math.max(m, c.lap), 0);   // incidents deploy the caution live (in _tryCaution); this just runs the retract/edge logic
     if (this.scActive && leadLap >= this.scStartLap + EVENT.scMinLaps) this.scActive = false;       // full SC retracts after scMinLaps
     if (this.vscActive && leadLap >= this.scStartLap + EVENT.vscMinLaps) this.vscActive = false;    // VSC clears faster
     if (this.scActive && !this._scWas) this._emit({ type: "sc_on", lap: leadLap });
@@ -420,6 +415,34 @@ export class Race {
     const pm = PACE_MODES[c.pace];
     const consist = 1 + DNF_CONSIST * (this.consMean - A(c).consistency) * 2;   // jittery-vs-field driver → more incidents; field-neutral so the DNF rate holds (§18.7 r3)
     if (this.erng.unit() < DNF_BASE * (1 - c.car.rel) * pm.risk * consist) c.retired = true;
+    this._rollIncident(c);
+  }
+
+  // on-track incident roll for a car at a completed lap (lap-keyed, deterministic). An incident loses
+  // the move, sometimes retires the car, and may draw a caution. Reuses the existing SC lifecycle.
+  _rollIncident(c) {
+    if (c.retired) return;
+    const pm = PACE_MODES[c.pace];
+    const p = incidentChance(INCIDENT.base, pm.risk, A(c).composure, c._inFight, c.lap, INCIDENT);
+    const ir = this._keyRng(c.idx, c.lap, 2);
+    if (ir.unit() >= p) return;
+    let wasDNF = false;
+    if (ir.unit() < INCIDENT.dnfShare) { c.retired = true; wasDNF = true; }
+    else { c.tyreTemp = Math.max(0.1, c.tyreTemp - INCIDENT.timeScrub); c._passCredit = 0; }   // a recovered moment still costs (felt as pace)
+    this._emit({ type: "incident", lap: c.lap, a: c.idx, abbr: c.abbrev, dnf: wasDNF });
+    this._tryCaution(ir, wasDNF);
+  }
+
+  // an incident may deploy a caution: one at a time, capped, kind by track.sc + vscShare. Reuses
+  // scActive/vscActive (the existing lifecycle bunches, cheapens pits and retracts after scMinLaps).
+  _tryCaution(rng, wasDNF) {
+    if (this.scActive || this.vscActive || this._cautionsDone >= INCIDENT.maxCautions) return;
+    const kind = cautionFromIncident(rng, this.track.sc, wasDNF, EVENT.vscShare, INCIDENT);
+    if (!kind) return;
+    this._cautionsDone += 1;
+    this.scEverActive = true;
+    this.scStartLap = this.cars.reduce((m, x) => Math.max(m, x.lap), 0);
+    if (kind === "vsc") this.vscActive = true; else this.scActive = true;
   }
 
   // order upkeep at a completed lap: while an order bit this lap, scrub temp + count held laps + roll a
