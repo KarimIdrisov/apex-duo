@@ -2,10 +2,11 @@
 // State keyed by car index over all cars; reuses qualiLap for the timed flying lap.
 // Randomness is keyed to lap events with stateless seeds (never per-tick) → deterministic across speeds.
 import { QUALI2, TRACK } from "./data.js";
-import { qualiLap } from "./quali.js";
+import { qualiLap, qualiLapClean, qualiSector } from "./quali.js";
 import { RNG, mix32 } from "./rng.js";
 
 const LAP_SEC = () => TRACK.lt;
+const SECTOR_SEC = () => TRACK.lt / 3;   // 3 equal sectors per flying lap
 const PUSH_RISK = { steady: 0.35, attack: 0.75 };
 // stateless per-lap RNG: same (seed, car, lapIdx) → same draws, independent of step cadence
 function lapRng(s, idx, lapIdx) { return new RNG(mix32((s.seed >>> 0) + idx * 977 + lapIdx * 131)); }
@@ -17,6 +18,9 @@ export function newQuali(seed, field) {
     phase: "pit", tyre: "fresh", softSets: QUALI2.QUALI_SOFT_SETS,
     lapAcc: 0, lapIdx: 0, bestTime: Infinity, segBest: Infinity,
     eliminated: false, gridPos: 0, risk: PUSH_RISK.steady, lapsThisRun: 0,
+    push: 1, trackKnow: f.trackKnow ?? 0.5,
+    sector: 0, secAcc: 0, lapSectors: [], base: 0, lapDeleted: false, bestSectors: [Infinity, Infinity, Infinity],
+    lastLap: Infinity, _lastDeleted: false,
   };
   const carMean = field.reduce((a, f) => a + (f.car.power + f.car.aero) / 2, 0) / field.length;
   return { seed: seed >>> 0, carMean, segment: 1, clock: QUALI2.SEG_SEC[0], speed: 1, paused: true,
@@ -33,6 +37,7 @@ function startRun(s, car, tyre, push) {
   if (tyre === "fresh" && car.softSets <= 0) tyre = "used";   // out of fresh sets
   if (tyre === "fresh") car.softSets -= 1;
   car.tyre = tyre; car.risk = PUSH_RISK[push] ?? PUSH_RISK.steady;
+  car.push = { save: 0, steady: 1, attack: 2, max: 3 }[push] ?? 1;
   car.phase = "outlap"; car.lapsThisRun = 0;
 }
 
@@ -72,24 +77,45 @@ export function redFlag(s) {
   return s;
 }
 
-// one completed lap for a car, by phase.
+// out-lap warms the tyre then BEGINS the live flying lap; in-lap returns to the pit. (flying laps resolve in completeSector.)
 function completeLap(s, car) {
+  if (car.phase === "outlap") { startFlyingLap(s, car); return; }
+  if (car.phase === "inlap")  { car.phase = "pit"; return; }
+}
+
+// stamp the clean base for a fresh flying lap + reset sector state. Bumps lapIdx → unique sector RNG per flying lap.
+function startFlyingLap(s, car) {
   car.lapIdx += 1;
-  if (car.phase === "outlap") { car.phase = "flying"; car._traffic = trafficFor(s, car, car.lapIdx); return; }       // out-lap just warms the tyre; stamp traffic for upcoming flying lap
-  if (car.phase === "flying") {
-    const push = car.risk >= PUSH_RISK.attack ? "attack" : "steady";
-    const inc = rollFlag(s, car.lapIdx, push);
-    if (inc === "red") { redFlag(s); return; }                       // crash voids this + all on-track laps
+  car._traffic = trafficFor(s, car, car.lapIdx);
+  car.base = qualiLapClean(car.drv, car.car, TRACK, car.setupBonus, s.carMean,
+    { grip: s.grip, tyre: car.tyre, traffic: car._traffic || 0, yellow: !!(s.flag && s.flag.type === "yellow") });
+  car.phase = "flying"; car.sector = 0; car.secAcc = 0; car.lapSectors = []; car.lapDeleted = false;
+}
+
+// one sector of a live flying lap: roll the flag on sector 0; resolve time + risk; finish/delete on the 3rd sector.
+function completeSector(s, car) {
+  if (car.sector === 0) {
+    const pushLabel = car.push >= 2 ? "attack" : "steady";
+    const inc = rollFlag(s, car.lapIdx, pushLabel);
+    if (inc === "red") { redFlag(s); return; }                       // red sends on-track cars to inlap
     if (inc === "yellow" && !s.flag) s.flag = { type: "yellow", ySecLeft: QUALI2.YELLOW_SEC };
-    const rng = lapRng(s, car.idx, car.lapIdx);
-    const t = qualiLap(car.drv, car.car, TRACK, car.setupBonus, car.risk, rng, s.carMean,
-      { grip: s.grip, tyre: car.tyre, traffic: car._traffic || 0, yellow: !!(s.flag && s.flag.type === "yellow") });
-    car.bestTime = Math.min(car.bestTime, t); car.segBest = Math.min(car.segBest, t);
-    car.lapsThisRun += 1;
-    if (car.lapsThisRun < 2 && car.tyre === "fresh") { car.tyre = "used"; return; }
-    car.phase = "inlap"; return;
   }
-  if (car.phase === "inlap") { car.phase = "pit"; return; }
+  const rng = lapRng(s, car.idx, car.lapIdx * 10 + car.sector);
+  const r = qualiSector(car.base, 1 / 3, car.push, car.trackKnow, rng);
+  if (r.event === "off") {                                           // big mistake → lap deleted, no time, run over
+    car.lapDeleted = true; car._lastDeleted = true; car.lapsThisRun += 1;
+    car.phase = "inlap"; car.lapAcc = 0; return;
+  }
+  car._lastDeleted = false;
+  car.lapSectors.push(r.time);
+  car.sector += 1;
+  if (car.sector < 3) return;                                        // mid-lap
+  const t = car.lapSectors.reduce((a, b) => a + b, 0);              // lap done
+  car.lastLap = t; car.bestTime = Math.min(car.bestTime, t); car.segBest = Math.min(car.segBest, t);
+  for (let i = 0; i < 3; i++) car.bestSectors[i] = Math.min(car.bestSectors[i], car.lapSectors[i]);
+  car.lapsThisRun += 1;
+  if (car.lapsThisRun < 2 && car.tyre === "fresh") { car.tyre = "used"; startFlyingLap(s, car); return; }  // 2nd flying lap
+  car.phase = "inlap"; car.lapAcc = 0;
 }
 
 // host-simulated AI: each non-player car does a staggered banker run, then a final run on a faster track.
@@ -120,26 +146,36 @@ export function qualiStep(s, dt) {
   if (s.flag && s.flag.type === "red") {                             // red: clock + cars frozen; freeze counts down
     s.flag.freezeLeft -= dt * s.speed; if (s.flag.freezeLeft <= 0) s.flag = null; return s;
   }
-  if (s.clock <= 0) return s;
   if (s.flag && s.flag.type === "yellow") {                          // yellow: session continues; window counts down
     s.flag.ySecLeft -= dt * s.speed; if (s.flag.ySecLeft <= 0) s.flag = null;
   }
-  const adv = Math.min(s.clock, dt * s.speed);
-  s.clock -= adv;
+  const adv = s.clock <= 0 ? dt * s.speed : Math.min(s.clock, dt * s.speed);
+  if (s.clock > 0) s.clock -= adv;
   s.grip = Math.min(1, s.grip + QUALI2.GRIP_RISE * adv);              // track rubbers in over time
   for (const idx in s.cars) {
     const car = s.cars[idx];
     if (car.eliminated || car.phase === "pit") continue;
-    car.lapAcc += adv;
-    let guard = 0;
-    while (car.lapAcc >= LAP_SEC() && car.phase !== "pit" && guard++ < 8) { car.lapAcc -= LAP_SEC(); completeLap(s, car); }
+    if (car.phase === "flying") {
+      car.secAcc += adv;
+      let guard = 0;
+      while (car.secAcc >= SECTOR_SEC() && car.phase === "flying" && guard++ < 8) { car.secAcc -= SECTOR_SEC(); completeSector(s, car); }
+    } else {
+      car.lapAcc += adv;
+      let guard = 0;
+      while (car.lapAcc >= LAP_SEC() && (car.phase === "outlap" || car.phase === "inlap") && guard++ < 8) { car.lapAcc -= LAP_SEC(); completeLap(s, car); }
+    }
   }
-  aiReleases(s);
+  if (s.clock > 0) aiReleases(s);
   return s;
 }
 
 export function setSpeed(s, v) { s.speed = QUALI2.SPEEDS.includes(v) ? v : s.speed; return s; }
 export function setPaused(s, p) { s.paused = !!p; return s; }
+export function setPush(s, player, level) {
+  const car = Object.values(s.cars).find(c => c.player === player);
+  if (car && !car.eliminated) car.push = Math.max(0, Math.min(3, level | 0));
+  return s;
+}
 
 export function carView(s, player) {
   const car = Object.values(s.cars).find(c => c.player === player);
@@ -192,7 +228,10 @@ export function qualiSnapshot(s) {
   const posOf = idx => { const r = tower.find(t => t.idx === idx); return r ? r.pos : 0; };
   const block = (player) => { const c = all.find(x => x.player === player); return c ? {
     phase: c.phase, tyre: c.tyre, softSets: c.softSets, bestTime: isFinite(c.bestTime) ? c.bestTime : null,
-    pos: posOf(c.idx), eliminated: c.eliminated, traffic: trafficDensity(s, c) } : null; };
+    pos: posOf(c.idx), eliminated: c.eliminated, traffic: trafficDensity(s, c),
+    sector: c.sector, push: c.push, lapSectors: c.lapSectors.slice(),
+    sectorDelta: c.lapSectors.map((t, i) => (isFinite(c.bestSectors[i]) ? t - c.bestSectors[i] : null)),
+    lapDeleted: c.lapDeleted, lastLap: isFinite(c.lastLap) ? c.lastLap : null } : null; };
   return { type: "snapshot", phase: "quali", segment: s.segment, clock: s.clock, speed: s.speed,
     paused: s.paused, grip: s.grip, flag: s.flag, cut, tower, cars: { p1: block("p1"), p2: block("p2") } };
 }

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { newQuali, release, qualiStep, carView, advanceSegment, finalGrid, trafficFor, rollFlag, redFlag, qualiSnapshot } from "../src/quali_session.js";
+import { newQuali, release, qualiStep, carView, advanceSegment, finalGrid, trafficFor, rollFlag, redFlag, qualiSnapshot, setPush } from "../src/quali_session.js";
 import { TEAMS, TRACK, QUALI2 } from "../src/data.js";
 import { driverAttrs, composeCar } from "../src/team.js";
 
@@ -116,4 +116,35 @@ test("AI cars all set a time over a segment, and the snapshot exposes the tower"
   const lastTimed = times.lastIndexOf(times.filter(t => t != null).slice(-1)[0]);
   const firstNull = times.indexOf(null);
   assert.ok(firstNull === -1 || lastTimed < firstNull || times.every(t => t != null), "timed cars sorted ahead of no-time cars");
+});
+
+test("a flying lap completes through 3 sectors into a summed time", () => {
+  let s = newQuali(7, field()); s.paused = false; s.speed = 8;
+  s = release(s, "p1", "fresh", "attack");
+  for (let i = 0; i < 800; i++) s = qualiStep(s, 1.0);
+  const v = carView(s, "p1");
+  assert.ok(v.bestTime > 60 && v.bestTime < 110, `set a sector-summed flying time (${v.bestTime})`);
+});
+
+test("track knowledge cuts the deleted-lap rate at max push", () => {
+  const deletes = (tk) => {
+    let s = newQuali(3, field()); s.paused = false; s.speed = 8;
+    let del = 0;
+    for (let run = 0; run < 12; run++) {
+      let car = Object.values(s.cars).find(c => c.player === "p1");
+      car.phase = "pit"; car.softSets = 9; car.trackKnow = tk;
+      s = release(s, "p1", "fresh", "max"); setPush(s, "p1", 3);
+      for (let i = 0; i < 400 && Object.values(s.cars).find(c=>c.player==="p1").phase !== "pit"; i++) s = qualiStep(s, 1.0);
+      if (Object.values(s.cars).find(c => c.player === "p1")._lastDeleted) del++;
+    }
+    return del;
+  };
+  assert.ok(deletes(0) > deletes(1), `low track knowledge deletes more (${deletes(0)} vs ${deletes(1)})`);
+});
+
+test("determinism: same seed + same push → identical flying time", () => {
+  const run = () => { let s = newQuali(5, field()); s.paused = false; s.speed = 8;
+    s = release(s, "p1", "fresh", "attack"); setPush(s, "p1", 2);
+    for (let i = 0; i < 800; i++) s = qualiStep(s, 1.0); return carView(s, "p1").bestTime; };
+  assert.equal(run(), run());
 });
