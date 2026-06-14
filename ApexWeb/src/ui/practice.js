@@ -3,7 +3,7 @@
 // controls, a 6-axis setup widget with per-axis knowledge windows + driver feedback, a stint launcher,
 // and the shared degradation-curve strategy panel. Compound/laps are local (ctx.pracCompound/pracLaps);
 // every actual change is sent to the host (prac_axis / prac_run / prac_speed / prac_pause / prac_auto).
-import { TRACK } from "../data.js";
+import { TRACK, PRAC2 } from "../data.js";
 import { AXES } from "../setup.js";
 
 const COMPOUNDS_RU = { soft: "софт", medium: "медиум", hard: "хард" };
@@ -73,8 +73,6 @@ export function render(root, ctx) {
         </div>
         <div class="pw-fb">
           <div class="pw-chip" style="color:${ink}">${ax.feedback.text}</div>
-          <div class="bar pw-know"><i style="width:${Math.round(ax.knowledge * 100)}%;background:linear-gradient(90deg,var(--accent),var(--good))"></i></div>
-          <div class="label" style="margin:2px 0 0">знание ${Math.round(ax.knowledge * 100)}%</div>
         </div>
       </div>`;
   }).join("");
@@ -92,17 +90,6 @@ export function render(root, ctx) {
     `<button data-c="${c}" class="${c === ctx.pracCompound ? "on" : ""}">${COMPOUNDS_RU[c]}</button>`).join("");
   const lapBtns = [5, 10, 15].map(n =>
     `<button class="btn pw-lap${n === ctx.pracLaps ? " on" : ""}" data-laps="${n}">${n}</button>`).join("");
-  const stintPanel = `
-    <div class="panel">
-      <h3 style="margin:0 0 10px">Выпустить на трассу</h3>
-      <p class="label" style="margin:0 0 4px">Компаунд</p>
-      <div class="seg comp-seg" id="pw-compound">${compSeg}</div>
-      <p class="label" style="margin:12px 0 4px">Кругов в стинте</p>
-      <div class="pw-laps" id="pw-laps">${lapBtns}</div>
-      <button class="primary" id="pw-run" style="margin-top:12px" ${me.onTrack || snap.clock <= 0 ? "disabled" : ""}>Выпустить болид · −${Math.round(me.prepCost)}с</button>
-      <p class="label" style="margin:6px 0 0">боксы: шины + топливо + применение настроек тратят время сессии</p>
-    </div>`;
-
   // ---- 4. strategy: shared deg curve (reuse preserved chart) ----
   const stratPanel = `
     <div class="panel">
@@ -114,7 +101,39 @@ export function render(root, ctx) {
   const partner = other ? `<p class="label pw-partner">Напарник: ${Math.round(other.satisfaction * 100)}% удовлетворённости</p>` : "";
   const ready = `<button class="ready" id="pw-ready">Готов → ${snap.session < 3 ? "след. сессия" : "Квала"}</button>`;
 
-  root.innerHTML = header + setupPanel + stintPanel + stratPanel + partner + ready;
+  // metric bars: track knowledge is the headline, satisfaction second
+  const bar = (label, pct, cls) => `
+    <div class="pw-metric">
+      <div class="pw-metric-top"><span>${label}</span><span class="pw-metric-val">${Math.round(pct)}%</span></div>
+      <div class="bar"><i class="${cls}" style="width:${Math.round(pct)}%"></i></div>
+    </div>`;
+  const metrics = `
+    <div class="panel pw-metrics">
+      ${bar("Знание трассы", (me.trackKnow || 0) * 100, "pw-fill-track")}
+      ${bar("Удовлетворённость", me.satisfaction * 100, "pw-fill-sat")}
+    </div>`;
+
+  // prep cost for the CURRENT picker selection (UI-side; the host charges the same on launch)
+  const tyreCost = (ctx.pracCompound !== me.lastCompound) ? PRAC2.TYRE_CHANGE_SEC : PRAC2.TYRE_REFIT_SEC;
+  const fuelCost = PRAC2.FUEL_PER_LAP * ctx.pracLaps;
+  const setupCost = PRAC2.SETUP_APPLY_SEC * (me.setupDelta || 0);
+  const prep = Math.round(tyreCost + fuelCost + setupCost);
+
+  const stintPanel = `
+    <div class="panel">
+      <h3 style="margin:0 0 10px">Выпустить на трассу</h3>
+      <p class="label" style="margin:0 0 4px">Компаунд</p>
+      <div class="seg comp-seg" id="pw-compound">${compSeg}</div>
+      <p class="label" style="margin:12px 0 4px">Кругов в стинте</p>
+      <div class="pw-laps" id="pw-laps">${lapBtns}</div>
+      <button class="primary" id="pw-run" style="margin-top:12px" ${me.onTrack || snap.clock <= 0 ? "disabled" : ""}>Выпустить болид · −${prep}с</button>
+      <p class="label pw-prep">шины ${Math.round(tyreCost)}с · топливо ${Math.round(fuelCost)}с · настройки ${Math.round(setupCost)}с</p>
+    </div>`;
+
+  root.innerHTML = header
+    + `<div class="pw-grid"><div class="pw-main">${setupPanel}</div>`
+    + `<div class="pw-side">${metrics}${stintPanel}${stratPanel}${partner}</div></div>`
+    + ready;
 
   // ---- wire handlers ----
   // axis sliders: input = let the native thumb move (no rerender mid-drag); change = commit to host.
