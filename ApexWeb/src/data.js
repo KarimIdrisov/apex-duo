@@ -243,3 +243,21 @@ export const PRAC2 = {
   TYRE_SETS: 6,           // tyre sets per car across all three sessions
   ACCL_PER_LAP: 0.01,     // acclimatisation per lap (cap 1) → tiny race buff
 };
+
+// Real-time qualifying tuning (spec 2026-06-14). See quali_session.js / quali.js.
+export const QUALI2 = {
+  IN: [22, 15, 10],          // cars entering Q1 / Q2 / Q3
+  ELIM: [7, 5, 0],           // eliminated at the end of Q1 / Q2 / Q3
+  SEG_SEC: [480, 420, 360],  // game-seconds per segment (8 / 7 / 6 min)
+  GRIP0: 0.0,                // track grip at the start of Q1
+  GRIP_RISE: 0.00045,        // grip gained per game-second of running (carries across segments, cap 1)
+  GRIP_GAIN: 1.2,            // lap-time bonus (s) from green (grip 0) to fully rubbered (grip 1)
+  QUALI_SOFT_SETS: 3,        // fresh soft sets per car for the whole quali
+  USED_PENALTY: 0.25,        // a re-used (warm) soft set is this much slower than a fresh one
+  TRAFFIC_MAX: 0.5,          // max time lost to a fully crowded out-lap window
+  FLAG_PROB: 0.015,          // per-flying-lap chance of an incident (raised by attack push)
+  RED_FREEZE_SEC: 90,        // a red flag freezes the clock this long
+  YELLOW_SEC: 25,            // a yellow lasts this long
+  YELLOW_PENALTY: 0.6,       // flat time added to a lap run under a yellow
+  SPEEDS: [1, 2, 4, 8],      // time-acceleration multipliers
+};

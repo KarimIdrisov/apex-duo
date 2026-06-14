@@ -111,3 +111,13 @@ test("PRAC2 has sane knowledge/session tuning", () => {
   assert.ok(PRAC2.CONFIRM_LAPS >= 1 && PRAC2.SAT_TOL > 0.1 && PRAC2.SAT_TOL < 0.3);
   assert.ok(PRAC2.SESSION_SEC >= 600 && PRAC2.SPEEDS.includes(8) && PRAC2.AUTOSIM_MULT < 1);
 });
+
+import { QUALI2 } from "../src/data.js";
+test("QUALI2 has a sane knockout structure + tuning", () => {
+  assert.deepEqual(QUALI2.IN, [22, 15, 10]);
+  assert.deepEqual(QUALI2.ELIM, [7, 5, 0]);
+  assert.equal(QUALI2.IN[0] - QUALI2.ELIM[0], QUALI2.IN[1], "Q1 survivors → Q2 field");
+  assert.equal(QUALI2.IN[1] - QUALI2.ELIM[1], QUALI2.IN[2], "Q2 survivors → Q3 field");
+  assert.ok(QUALI2.SEG_SEC.length === 3 && QUALI2.SEG_SEC.every(s => s >= 240));
+  assert.ok(QUALI2.GRIP_GAIN > 0.5 && QUALI2.QUALI_SOFT_SETS >= 2 && QUALI2.SPEEDS.includes(8));
+});
