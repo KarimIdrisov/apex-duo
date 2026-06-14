@@ -4,13 +4,14 @@ import { TEAMS } from "./data.js";
 import { defaultSponsors, titleOffers, evaluateSponsor } from "./sponsors.js";
 import { tickDevelopment } from "./development.js";
 import { initDrivers, developDrivers, updateMorale } from "./drivers.js";
+import { initStaff, upkeep } from "./staff.js";
 
 // championship points for the top 10 finishers (current F1 system).
 export const POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
 // prize money ($k) by race-finish position — a simple per-race payout (M2 deepens income).
 export const PRIZE = [1200, 1000, 850, 720, 620, 540, 470, 410, 360, 320, 280, 250, 220, 200, 180, 160, 150, 140, 130, 120, 110, 100];
 
-export const CAREER_V = 4;            // career save schema version
+export const CAREER_V = 5;            // career save schema version
 export const RUNNING_COST = 800;      // $k per-race operating cost (M5 facilities refine it)
 
 // the season calendar: each round picks a real circuit shape (a track_shapes.js key) for the
@@ -58,6 +59,7 @@ export function newCareer({ teamIdx = 0, seed = 1, coop = false } = {}) {
     sponsors: defaultSponsors(teamIdx, s), costCap: false, pendingOffers: titleOffers(teamIdx, s),
     carDev: {}, project: null, devSpentThisSeason: 0,
     drivers: initDrivers(),
+    staff: initStaff(TEAMS[teamIdx].facility, s),
     lastResult: null, history: [], done: false,
   };
 }
@@ -98,11 +100,12 @@ export function applyResult(career, classification) {
     updateMorale(dr, i + 1, 2 + dr.teamIdx * 2);   // a 2-car expectation band (lead + teammate), so the #2 isn't perma-unhappy
     if (dr.teamIdx === career.teamIdx) salaries += dr.salary;
   });
-  const net = prize + sponsorIncome - RUNNING_COST - salaries;
+  const up = upkeep(career.staff);
+  const net = prize + sponsorIncome - RUNNING_COST - salaries - up;
   career.money += net;
   const summary = {
     round: career.round, gp: CALENDAR[career.round].name, podium, bestPos,
-    prize, sponsorIncome, runningCost: RUNNING_COST, salaries, net,
+    prize, sponsorIncome, runningCost: RUNNING_COST, salaries, upkeep: up, net,
     classification: classification.map((c, i) => ({ pos: i + 1, abbrev: c.abbrev, team: c.team, retired: !!c.retired })),
   };
   career.lastResult = summary;
@@ -128,6 +131,10 @@ export function migrate(career) {
   if (career.v < 4) {
     career.drivers = career.drivers || initDrivers();
     career.v = 4;
+  }
+  if (career.v < 5) {
+    career.staff = career.staff || initStaff((TEAMS[career.teamIdx] || TEAMS[0]).facility, career.seed || 1);
+    career.v = 5;
   }
   return career;
 }
@@ -173,5 +180,6 @@ export function newSeason(career) {
   fresh.devSpentThisSeason = 0;
   fresh.drivers = JSON.parse(JSON.stringify(career.drivers || initDrivers()));
   developDrivers(fresh.drivers);             // age up, develop/decline, tick contracts
+  fresh.staff = JSON.parse(JSON.stringify(career.staff || initStaff((TEAMS[career.teamIdx] || TEAMS[0]).facility, career.seed || 1)));
   return fresh;
 }

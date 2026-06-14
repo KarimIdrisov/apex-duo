@@ -82,7 +82,7 @@ test("applyResult books prize + sponsor income minus running cost into a net led
   const sum = applyResult(c, order);
   assert.ok(sum.prize > 0 && sum.sponsorIncome > 0 && sum.runningCost === RUNNING_COST);
   assert.ok(sum.salaries >= 0);
-  assert.equal(sum.net, sum.prize + sum.sponsorIncome - sum.runningCost - sum.salaries);
+  assert.equal(sum.net, sum.prize + sum.sponsorIncome - sum.runningCost - sum.salaries - sum.upkeep);
   assert.equal(c.money, before + sum.net);
   assert.equal(sum.bestPos, 1);
 });
@@ -146,7 +146,7 @@ test("applyResult books driver salaries as an expense + updates driver morale", 
     ...TEAMS.flatMap((t, i) => i === 0 ? [] : t.drivers.map(d => ({ abbrev: d.abbrev, team: t.name })))];
   const sum = applyResult(c, order);
   assert.ok(sum.salaries > 0, "player driver salaries charged");
-  assert.equal(sum.net, sum.prize + sum.sponsorIncome - sum.runningCost - sum.salaries);
+  assert.equal(sum.net, sum.prize + sum.sponsorIncome - sum.runningCost - sum.salaries - sum.upkeep);
   assert.ok(c.drivers["NOR"].morale > 0.6, "a P1 finish (beats expected) lifts morale");
 });
 
@@ -163,4 +163,30 @@ test("migrate upgrades a v3 save to v4 (adds drivers)", () => {
   const up = migrate(v3);
   assert.equal(up.v, CAREER_V);
   assert.ok(up.drivers && up.drivers["VER"]);
+});
+
+// --- M5 staff & facilities ---
+import { upgradeFacility } from "../src/staff.js";
+
+test("newCareer at v5 carries staff + facilities", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  assert.ok(c.v >= 5);
+  assert.ok(c.staff && c.staff.designer > 0 && c.staff.facilities && c.staff.facilities.design >= 0);
+});
+
+test("applyResult books facility upkeep as an expense", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  upgradeFacility(c, "design"); upgradeFacility(c, "pit");
+  const order = [...TEAMS[0].drivers.map(d => ({ abbrev: d.abbrev, team: "McLaren" })),
+    ...TEAMS.flatMap((t, i) => i === 0 ? [] : t.drivers.map(d => ({ abbrev: d.abbrev, team: t.name })))];
+  const sum = applyResult(c, order);
+  assert.ok(sum.upkeep > 0, "upkeep charged");
+  assert.equal(sum.net, sum.prize + sum.sponsorIncome - sum.runningCost - sum.salaries - sum.upkeep);
+});
+
+test("migrate upgrades a v4 save to v5 (adds staff)", () => {
+  const v4 = { v: 4, teamIdx: 1, seed: 3, season: 1, round: 0, money: 0, driverPts: {}, teamPts: {}, board: { targetPos: 2 }, sponsors: [], costCap: false, pendingOffers: [], carDev: {}, project: null, devSpentThisSeason: 0, drivers: {}, lastResult: null, history: [], done: false };
+  const up = migrate(v4);
+  assert.equal(up.v, CAREER_V);
+  assert.ok(up.staff && up.staff.facilities);
 });
