@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Apex — редактор трассы</title>
+<style>
+  html,body{margin:0;height:100%;background:#11141a;color:#e8e8ea;font:14px system-ui,sans-serif;overflow:hidden}
+  #wrap{display:flex;height:100%}
+  #cv{background:#0b0d12;flex:0 0 auto;touch-action:none;cursor:crosshair}
+  #panel{flex:1;min-width:240px;max-width:300px;padding:14px;overflow:auto;border-left:1px solid #222}
+  h2{font-size:15px;margin:0 0 10px} .row{margin:8px 0} button,select{font:inherit}
+  button{background:#222733;color:#e8e8ea;border:1px solid #3a4150;border-radius:6px;padding:7px 10px;cursor:pointer}
+  button:hover{background:#2c3340} button.on{background:#2d5a7a;border-color:#3d7aa0}
+  select{background:#222733;color:#e8e8ea;border:1px solid #3a4150;border-radius:6px;padding:6px;width:100%}
+  .hint{color:#8a909c;font-size:12px;line-height:1.5;margin-top:10px}
+  #toast{position:fixed;bottom:16px;left:16px;background:#2d5a7a;padding:8px 12px;border-radius:6px;opacity:0;transition:opacity .25s}
+</style></head>
+<body><div id="wrap"><canvas id="cv"></canvas><div id="panel">
+  <h2>Редактор трассы</h2>
+  <div class="row"><select id="preset"></select></div>
+  <div class="row"><button id="save">💾 Сохранить</button> <button id="reset">↺ Сброс</button></div>
+  <div class="row"><button id="export">⬇ Экспорт JSON</button> <button id="import">⬆ Импорт</button>
+    <input id="file" type="file" accept="application/json" hidden></div>
+  <div class="hint" id="hint"></div>
+</div></div><div id="toast"></div>
+<script type="module" src="src/ui/editor.js"></script></body></html>
