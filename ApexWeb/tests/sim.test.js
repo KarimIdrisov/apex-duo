@@ -589,3 +589,19 @@ test("a car in the pit box sits still while race time passes — the pit-loss is
   assert.ok(Math.abs((c.lap + c.lapFrac) - prog0) < 1e-9, "car made no track progress during the stop");
   assert.ok(c.totalTime - t0 >= TRACK.pit - 2 * STEP, `accrued ~the stop time (${(c.totalTime - t0).toFixed(1)}s of ${TRACK.pit})`);
 });
+
+test("setOrder validates the mode and defaults to none", () => {
+  const r = new Race(field(), TRACK, 1);
+  assert.equal(r.cars[0].order, "none", "default order is none");
+  r.setOrder(0, "attack"); assert.equal(r.cars[0].order, "attack");
+  r.setOrder(0, "defend"); assert.equal(r.cars[0].order, "defend");
+  r.setOrder(0, "bogus"); assert.equal(r.cars[0].order, "defend", "invalid mode ignored");
+  r.setOrder(999, "attack"); // out of range — must not throw
+});
+
+test("_keyRng is deterministic and decorrelates by idx/lap/kind", () => {
+  const r = new Race(field(), TRACK, 1);
+  assert.equal(r._keyRng(2, 5, 1).unit(), r._keyRng(2, 5, 1).unit(), "same key → same stream");
+  assert.notEqual(r._keyRng(2, 5, 1).unit(), r._keyRng(2, 5, 2).unit(), "different kind → different stream");
+  assert.notEqual(r._keyRng(2, 5, 1).unit(), r._keyRng(3, 5, 1).unit(), "different car → different stream");
+});

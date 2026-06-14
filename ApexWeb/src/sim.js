@@ -14,6 +14,7 @@ import { planRace, pitDecision, engineMode, paceMode } from "./ai_strategy.js";
 import { ATTR_KEYS } from "./team.js";
 
 const ENGINE_KEYS = new Set(["save", "standard", "push"]);
+const ORDER_KEYS = new Set(["none", "attack", "defend"]);
 const NEUTRAL_ATTRS = Object.fromEntries(ATTR_KEYS.map(k => [k, 0.5]));
 const A = c => c.attrs || NEUTRAL_ATTRS;   // attribute accessor with a neutral fallback
 
@@ -22,6 +23,7 @@ export class Race {
     this.track = track;
     this.rng = new RNG(seed);
     this.erng = new RNG(mix32(seed));
+    this.seed = seed >>> 0;   // base seed for the stateless lap-keyed event RNGs (orders, incidents)
     this.time = 0;
     this.finished = false;
     this.sessionBestMini = new Array(N_MINI).fill(Infinity);
@@ -45,6 +47,7 @@ export class Race {
       pitStops: 0, pitTimer: 0,
       lastMini: [], bestMini: new Array(N_MINI).fill(Infinity), miniColors: [], sectorTimes: [0, 0, 0],
       _dirtyWear: 0, _dirtyPace: 0, _blueDelay: 0, _blueBudget: 0, _blueLast: -1, _creditVs: -1, _launch: 0,
+      order: "none", _orderBit: false, _orderLaps: 0, _inFight: false,
     }));
     // field-mean car performance ((power+aero)/2), fixed for the race — the anchor the
     // absolute car-pace term is measured against, so a better-than-average car is faster (§18.1).
@@ -79,6 +82,15 @@ export class Race {
   // malformed peer can't crash the host sim (host-authoritative trust boundary; audit r3).
   setPace(i, mode) { const c = this.cars[i]; if (c && PACE_MODES[mode]) { c.pace = mode; c._pin = true; } }
   setEngine(i, mode) { const c = this.cars[i]; if (c && ENGINE_KEYS.has(mode)) { c.engine = mode; c._pin = true; } }
+
+  // player combat order for their own car (validated; player cars are skipped by the AI brain already)
+  setOrder(i, mode) { const c = this.cars[i]; if (c && ORDER_KEYS.has(mode)) c.order = mode; }
+
+  // stateless lap-keyed RNG for event rolls (order lock-up, incident, caution) — deterministic,
+  // independent of the per-tick rng/erng streams and of draw order. kind: 1=lockup 2=incident 3=caution.
+  _keyRng(idx, lap, kind) {
+    return new RNG(mix32(((this.seed + (idx >>> 0) * 2654435761 + (lap >>> 0) * 40503 + (kind >>> 0) * 2246822519) >>> 0)));
+  }
 
   // clean lap time for one car right now (seconds)
   _lapTime(c) {
