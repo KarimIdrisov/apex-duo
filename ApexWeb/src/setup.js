@@ -59,8 +59,8 @@ export function feedback(setup, ideal) {
   return `${ax.name}: ${sign < 0 ? ax.high : ax.low}.`;
 }
 
-// the revealed ideal window for an axis: centre = optimum + jitter (shrinks with knowledge),
-// half-width shrinks from MAX_HALF to MIN_HALF as knowledge → 1.
+// the revealed ideal window for an axis: centre = optimum + jitter (shrinks with track knowledge),
+// half-width shrinks from MAX_HALF to MIN_HALF as track knowledge → 1. Gated by track knowledge.
 export function windowFor(knowledge, opt, seed, i) {
   const k = Math.max(0, Math.min(1, knowledge));
   const j = new RNG(((seed >>> 0) ^ (i * 977 + 0x9e3)) >>> 0).unit() * 2 - 1; // stable [-1,1)
@@ -69,7 +69,7 @@ export function windowFor(knowledge, opt, seed, i) {
   return { center, half };
 }
 
-// feedback for one axis. clarity (vague→directional) gated by knowledge + race_iq.
+// feedback for one axis. clarity (vague→directional) gated by track knowledge + race_iq.
 export function feedbackFor(value, win, knowledge, raceIq) {
   if (knowledge < PRAC2.KNOW_VAGUE) return { state:"vague", text: knowledge < 0.12 ? "почти нет данных" : "мало кругов" };
   const d = value - win.center;

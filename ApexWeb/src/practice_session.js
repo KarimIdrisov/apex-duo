@@ -15,7 +15,8 @@ function newCar(seed, driverSeed, drvCar) {
     drv: drvCar.drv, car: drvCar.car, ideal,
     setup: Array.from({ length: PRAC2.AXES }, () => 0.5),
     lastRunSetup: Array.from({ length: PRAC2.AXES }, () => 0.5),   // setup applied at the last run → setup-change prep cost
-    knowledge: Array.from({ length: PRAC2.AXES }, () => 0),
+    trackKnow: 0,                                                  // per-driver track knowledge → gates the window
+    lastCompound: null,                                           // last stint's compound → tyre-change prep cost (used later)
     lapsOnVal: Array.from({ length: PRAC2.AXES }, () => 0),
     confirmedSat: Array.from({ length: PRAC2.AXES }, () => 0),
     onTrack: false, compound: "soft", stintLeft: 0,
@@ -40,18 +41,21 @@ export function setAxis(s, player, i, value) {
   return s;
 }
 
-// pit-prep time a run costs the session clock: a flat tyre-change+refuel, plus mechanic time
-// proportional to how far the setup moved since the car was last out (Σ|Δaxis|). Telegraphed in the
-// snapshot so the UI can show "−Xс" before launch; converging setups cost less (smaller moves).
+// pit-prep time a run costs the session clock: a flat tyre-change (TYRE_CHANGE_SEC) or refit
+// (TYRE_REFIT_SEC if same compound as last stint), plus mechanic time proportional to how far the
+// setup moved since the car was last out (Σ|Δaxis|). Telegraphed in the snapshot so the UI can
+// show "−Xс" before launch; converging setups cost less (smaller moves).
 export function prepCostFor(car) {
   const delta = car.setup.reduce((a, v, i) => a + Math.abs(v - car.lastRunSetup[i]), 0);
-  return PRAC2.PIT_PREP_SEC + PRAC2.SETUP_APPLY_SEC * delta;
+  const base = (car.lastCompound && car.lastCompound === car.compound) ? PRAC2.TYRE_REFIT_SEC : PRAC2.TYRE_CHANGE_SEC;
+  return base + PRAC2.SETUP_APPLY_SEC * delta;
 }
 
 export function sendRun(s, player, compound, laps) {
   const car = s.cars[player]; if (!car) return s;
   s.clock = Math.max(0, s.clock - prepCostFor(car));   // garage work eats the session clock
   car.lastRunSetup = car.setup.slice();                // this setup is now "applied"
+  car.lastCompound = compound;                         // record for tyre-change prep cost
   car.compound = compound; car.stintLeft = laps; car.onTrack = true;
   car.wear = 0; car.temp = TYRE.pitTemp; car.fuel = startFuel(TRACK);
   return s;
@@ -60,8 +64,8 @@ export function sendRun(s, player, compound, laps) {
 // one completed flying lap for a car: bank knowledge, confirm axes, accumulate deg, burn fuel.
 function completeLap(car) {
   const fm = feedbackMult(car);
+  car.trackKnow = Math.min(1, car.trackKnow + PRAC2.TRACK_PER_LAP * fm);
   for (let i = 0; i < PRAC2.AXES; i++) {
-    car.knowledge[i] = Math.min(1, car.knowledge[i] + PRAC2.KNOW_PER_LAP * fm);
     car.lapsOnVal[i] += 1;
     if (car.lapsOnVal[i] >= PRAC2.CONFIRM_LAPS) car.confirmedSat[i] = axisSat(car.setup[i], car.ideal[i]);
   }
@@ -96,7 +100,7 @@ export function step(s, dt) {
 export function carView(s, player) {
   const car = s.cars[player];
   return {
-    setup: car.setup.slice(), knowledge: car.knowledge.slice(), confirmedSat: car.confirmedSat.slice(),
+    setup: car.setup.slice(), trackKnow: car.trackKnow, confirmedSat: car.confirmedSat.slice(),
     ideal: car.ideal.slice(), onTrack: car.onTrack, compound: car.compound, stintLeft: car.stintLeft,
     totalLaps: car.totalLaps, accl: car.accl, strategy: car.strategy, prepCost: prepCostFor(car),
     satisfaction: car.confirmedSat.reduce((a, b) => a + b, 0) / PRAC2.AXES,
@@ -109,12 +113,12 @@ export function setPaused(s, p) { s.paused = !!p; return s; }
 // fast-forward a car's remaining clock running the current setup, at reduced knowledge rate.
 export function autoSim(s, player) {
   const car = s.cars[player];
-  const laps = Math.floor(Math.max(0, s.clock - PRAC2.PIT_PREP_SEC) / LAP_SEC());   // one pit-out to get going
+  const laps = Math.floor(Math.max(0, s.clock - PRAC2.TYRE_CHANGE_SEC) / LAP_SEC());   // one pit-out to get going
   car.onTrack = true; car.stintLeft = Math.max(car.stintLeft, laps);
   for (let n = 0; n < laps; n++) {
     const fm = (0.75 + PRAC2.IQ_LEARN * (car.drv.attrs?.race_iq ?? 0.7)) * PRAC2.AUTOSIM_MULT;
+    car.trackKnow = Math.min(1, car.trackKnow + PRAC2.TRACK_PER_LAP * fm);
     for (let i = 0; i < PRAC2.AXES; i++) {
-      car.knowledge[i] = Math.min(1, car.knowledge[i] + PRAC2.KNOW_PER_LAP * fm);
       car.lapsOnVal[i] += 1;
       if (car.lapsOnVal[i] >= PRAC2.CONFIRM_LAPS) car.confirmedSat[i] = axisSat(car.setup[i], car.ideal[i]);
     }
@@ -128,11 +132,13 @@ export function sessionSnapshot(s) {
   const proj = (car, dseedIdx) => ({
     onTrack: car.onTrack, compound: car.compound, stintLeft: car.stintLeft, totalLaps: car.totalLaps,
     satisfaction: car.confirmedSat.reduce((a, b) => a + b, 0) / PRAC2.AXES, accl: car.accl,
-    strategy: car.strategy, prepCost: prepCostFor(car),
+    strategy: car.strategy, trackKnow: car.trackKnow,
+    setupDelta: car.setup.reduce((a, v, i) => a + Math.abs(v - car.lastRunSetup[i]), 0),
+    lastCompound: car.lastCompound,
     axes: car.setup.map((v, i) => {
-      const win = windowFor(car.knowledge[i], car.ideal[i], s.seed + dseedIdx * 101, i);
-      return { value: v, knowledge: car.knowledge[i], confirmedSat: car.confirmedSat[i],
-        window: win, feedback: feedbackFor(v, win, car.knowledge[i], car.drv.attrs?.race_iq ?? 0.7) };
+      const win = windowFor(car.trackKnow, car.ideal[i], s.seed + dseedIdx * 101, i);
+      return { value: v, confirmedSat: car.confirmedSat[i],
+        window: win, feedback: feedbackFor(v, win, car.trackKnow, car.drv.attrs?.race_iq ?? 0.7) };
     }),
   });
   return { type: "snapshot", phase: "practice", session: s.session, clock: s.clock, speed: s.speed, paused: s.paused,
