@@ -21,6 +21,7 @@ import * as seasonUI from "./ui/season.js";
 import { newCareer, newSeason, currentRound, applyResult, advanceRound, chooseTitleSponsor } from "./career.js";
 import { careerTrack } from "./track_build.js";
 import { effectiveCar, startProject } from "./development.js";
+import { moraleMod, reSign } from "./drivers.js";
 import { saveCareer } from "./career_store.js";
 
 const SCREENS = { lobby, practice1: practice, practice2: practice, practice3: practice, quali, race, result: race };
@@ -118,6 +119,9 @@ function onCommand(cmd) {
     case "career_project":
       if (ctx.career) { startProject(ctx.career, cmd.indicator, cmd.size); saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
+    case "career_resign":
+      if (ctx.career) { reSign(ctx.career, cmd.abbrev); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
     case "career_start_weekend":
       if (ctx.career && !ctx.career.done && !(ctx.career.pendingOffers && ctx.career.pendingOffers.length)) {
         ctx.careerReady[cmd.player] = true; publishCareer(); rerender();
@@ -204,13 +208,16 @@ function buildField() {
     // solo: only p1 is human, the teammate car runs as AI (player null)
     const player = isPlayerTeam ? (di === 0 ? "p1" : (ctx.solo ? null : "p2")) : null;
     const setup = (player && ctx.setups && ctx.setups[player]) ? ctx.setups[player] : [0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
+    const dr = ctx.career && ctx.career.drivers ? ctx.career.drivers[d.abbrev] : null;
+    const overall = dr ? dr.overall : d.skill;
+    const mMod = dr ? moraleMod(dr.morale) : 0;
     return {
-      idx: idx++, name: d.name, abbrev: d.abbrev, skill: d.skill,
+      idx: idx++, name: d.name, abbrev: d.abbrev, skill: overall,
       car: composeCar(ctx.career ? effectiveCar(t.car, ctx.career.carDev[t.name]) : t.car), color: t.color, team: t.name, isPlayer: isPlayerTeam, player,
-      attrs: driverAttrs(d.abbrev, d.skill), personnel: genPersonnel(t.facility, ti),
-      setup, setupBonus: player
+      attrs: driverAttrs(d.abbrev, overall), personnel: genPersonnel(t.facility, ti),
+      setup, setupBonus: (player
         ? pracSetupBonus(player) + PRAC2.TRACK_PACE * pracTrackKnow(player)
-        : paceBonus(closeness(setup, ideal)) + PRAC2.TRACK_PACE * PRAC2.AI_TRACK_KNOW, startTyre: "medium",
+        : paceBonus(closeness(setup, ideal)) + PRAC2.TRACK_PACE * PRAC2.AI_TRACK_KNOW) + mMod, startTyre: "medium",
     };
   }));
 }
