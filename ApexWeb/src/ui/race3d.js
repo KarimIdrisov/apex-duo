@@ -5,8 +5,10 @@
 // they catch the car ahead, so a train fans out instead of stacking on the centerline.
 import * as THREE from "https://esm.sh/three@0.160.0";
 import { TRACK_PATH } from "../data.js";
-import { buildCenterline, pointAt, tangentAt, bounds, sampleProg, racingLineOffset, offsetPoint, splinePath, cornerRuns } from "../geom3d.js";
+import { buildCenterline, pointAt, tangentAt, bounds, sampleProg, racingLineOffset, offsetPoint, splinePath } from "../geom3d.js";
 import { TRACK_SHAPES } from "../track_shapes.js";
+import { paintTrack } from "../track_paint.js";
+import { effectiveTrack } from "../track_store.js";
 
 const WORLD = 120;                 // larger track axis spans ~120 world units
 const HALF_W = 3.8;                // track half-width (world units) — wider for a real-track feel
@@ -14,7 +16,6 @@ const CAR_L = 2.8;                  // overall car length (used for the highligh
 const DELAY = 120;                 // render this many ms behind the newest snapshot
 const POS_EASE = 0.35;             // low-pass the rendered car position — kills snapshot-interp micro-judder up close
 const CLOSE_PROG = 0.012;          // gap (lap-fractions) under which a follower side-steps to pass
-const CORNER_R = 0.10;             // centerline radius (normalized) below which a sample counts as a corner (kerbs)
 const CAR_HALF = 0.30;             // car half-width as a fraction of the track half-width (bigger cars -> keep them on the road)
 const SECTOR_COL = [0x5aa0ff, 0xffce47, 0x46d08a];
 const ASPHALT = 0x2c2c33, ASPHALT_SC = 0x4a4626, GRASS = 0x1f3a22;
@@ -38,8 +39,8 @@ function noiseTex(base, shades, n = 128, density = 0.14) {
 
 export function init(canvas, ctx) {
   const trackName = (ctx.snapshot && ctx.snapshot.trackName) || null;   // host picked the circuit from the seed; client reads it from the snapshot
-  const path = (trackName && TRACK_SHAPES[trackName]) || TRACK_PATH;     // selected real circuit, else Barcelona fallback
-  const cl = buildCenterline(splinePath(path));         // Catmull-Rom-smoothed: soft corners, no per-vertex snapping
+  const edited = effectiveTrack(trackName, (trackName && TRACK_SHAPES[trackName]) || TRACK_PATH);   // owner's editor edits, else the preset
+  const cl = buildCenterline(splinePath(edited.points));   // Catmull-Rom-smoothed: soft corners, no per-vertex snapping
   const b = bounds(cl);
   const sc = WORLD / b.size;                       // normalized -> world scale
   const wx = (p) => (p[0] - b.cx) * sc;            // center the track at world origin
@@ -117,26 +118,11 @@ export function init(canvas, ctx) {
   // hairpins (overlapping paint is fine). Replaces the extruded ribbon/kerb/line meshes. The quad's
   // UVs match the C() world->canvas mapping, so the painted road sits exactly under the cars. ---
   {
-    const SIZE = 2048, HALF = WORLD * 0.72, PXW = SIZE / (2 * HALF), STEPS = 600;   // canvas px; plane half-extent (world); px/world; lap samples
+    const SIZE = 2048, HALF = WORLD * 0.72, PXW = SIZE / (2 * HALF);   // canvas px; plane half-extent (world); px/world
     const cv = document.createElement("canvas"); cv.width = cv.height = SIZE;
-    const g = cv.getContext("2d"); g.lineJoin = "round"; g.lineCap = "round";
+    const g = cv.getContext("2d");
     const C = (p) => [(wx(p) + HALF) * PXW, (wz(p) + HALF) * PXW];                  // normalized track point -> canvas px
-    const lap = (offN) => { g.beginPath(); for (let k = 0; k <= STEPS; k++) { const f = k / STEPS, pp = offN ? offsetPoint(cl, f, offN) : pointAt(cl, f), c = C(pp); k ? g.lineTo(c[0], c[1]) : g.moveTo(c[0], c[1]); } g.closePath(); };
-    g.fillStyle = "#2f5236"; g.fillRect(0, 0, SIZE, SIZE);                          // grass (brighter for contrast)
-    lap(0); g.lineWidth = (HALF_W * 2 + 9) * PXW; g.strokeStyle = "#3a5a38"; g.stroke();    // run-off shoulder (subtle, lighter green)
-    lap(0); g.lineWidth = (HALF_W * 2 + 0.8) * PXW; g.strokeStyle = "#5a5a64"; g.stroke();  // thin subtle road edge
-    {                                                                              // red/white kerb RIM along the CENTERLINE through corners — wider than the asphalt, so a clean even
-      const runs = cornerRuns(cl, STEPS, CORNER_R), CH = 7, KW = (HALF_W * 2 + 2.6) * PXW;  // rim peeks out BOTH edges. centerline is smooth -> no folding-offset-edge mess, no overlapping chunks.
-      for (const run of runs) for (let s = 0; s < run.len; s += CH) {
-        g.beginPath();
-        for (let j = 0; j <= CH && s + j <= run.len; j++) { const k = (run.start + s + j) % STEPS, c = C(pointAt(cl, k / STEPS)); j ? g.lineTo(c[0], c[1]) : g.moveTo(c[0], c[1]); }
-        g.lineWidth = KW; g.strokeStyle = (Math.floor(s / CH) % 2) ? "#d83b3b" : "#ededed"; g.stroke();
-      }
-    }
-    lap(0); g.lineWidth = HALF_W * 2 * PXW; g.strokeStyle = "#30303a"; g.stroke();          // asphalt on top -> the kerb rim peeks out ~1.3 world each side at corners
-    { const t = tangentAt(cl, 0), nx = -t[1], ny = t[0], p = pointAt(cl, 0);       // start/finish stripe
-      const A = C([p[0] + nx * HW_N, p[1] + ny * HW_N]), B = C([p[0] - nx * HW_N, p[1] - ny * HW_N]);
-      g.beginPath(); g.moveTo(A[0], A[1]); g.lineTo(B[0], B[1]); g.lineWidth = 1.6 * PXW; g.strokeStyle = "#ffffff"; g.stroke(); }
+    paintTrack(g, cl, C, PXW, HALF_W);
     const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.flipY = false; tex.anisotropy = 8; texs.push(tex);
     const pg = new THREE.BufferGeometry(); geos.push(pg);
     pg.setAttribute("position", new THREE.Float32BufferAttribute([-HALF, 0, -HALF, HALF, 0, -HALF, HALF, 0, HALF, -HALF, 0, HALF], 3));
@@ -145,6 +131,16 @@ export function init(canvas, ctx) {
     pg.setIndex([0, 1, 2, 0, 2, 3]);
     const pm = new THREE.MeshStandardMaterial({ map: tex, roughness: 1, metalness: 0, side: THREE.DoubleSide }); mats.push(pm);   // camera is always above; DoubleSide so the down-facing quad still renders
     const pmesh = new THREE.Mesh(pg, pm); pmesh.receiveShadow = true; scene.add(pmesh);
+  }
+
+  // editor-placed decorations (render-only): each object's normalized point -> world plane via wx/wz
+  for (const ob of edited.objects) {
+    const P = [ob.x, ob.y], X = wx(P), Z = wz(P); let mesh;
+    if (ob.type === "stand") { const go = new THREE.BoxGeometry(9, 2.2, 3); geos.push(go); const ma = new THREE.MeshStandardMaterial({ color: 0x9aa0aa, roughness: 1 }); mats.push(ma); mesh = new THREE.Mesh(go, ma); mesh.position.set(X, 1.1, Z); mesh.rotation.y = ob.rot || 0; mesh.castShadow = true; }
+    else if (ob.type === "banner") { const go = new THREE.PlaneGeometry(7, 2); geos.push(go); const ma = new THREE.MeshStandardMaterial({ color: 0x3d7aa0, roughness: 1, side: THREE.DoubleSide }); mats.push(ma); mesh = new THREE.Mesh(go, ma); mesh.position.set(X, 1, Z); mesh.rotation.y = ob.rot || 0; }
+    else if (ob.type === "tree") { const go = new THREE.ConeGeometry(1.6, 4, 7); geos.push(go); const ma = new THREE.MeshStandardMaterial({ color: 0x2e7d32, roughness: 1 }); mats.push(ma); mesh = new THREE.Mesh(go, ma); mesh.position.set(X, 2, Z); mesh.castShadow = true; }
+    else { const go = new THREE.ConeGeometry(0.6, 1.4, 10); geos.push(go); const ma = new THREE.MeshStandardMaterial({ color: 0xe07a1a, roughness: 1 }); mats.push(ma); mesh = new THREE.Mesh(go, ma); mesh.position.set(X, 0.7, Z); }
+    scene.add(mesh);
   }
 
   // --- cars: a stylized low-poly F1 silhouette. Geometry is shared across all 22 cars
