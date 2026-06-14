@@ -35,3 +35,12 @@ test("export/import round-trips via JSON; bad JSON -> null", () => {
   assert.deepEqual(importCareer(json).teamPts, c.teamPts);
   assert.equal(importCareer("{not json"), null);
 });
+
+import { CAREER_V } from "../src/career.js";
+
+test("loadCareer migrates an older v1 blob to the current version", () => {
+  localStorage.setItem("apexweb_career", JSON.stringify({ v: 1, teamIdx: 1, seed: 4, season: 1, round: 0, money: 0, driverPts: {}, teamPts: {}, board: { targetPos: 2 }, lastResult: null, history: [], done: false }));
+  const c = loadCareer();
+  assert.equal(c.v, CAREER_V);
+  assert.ok(c.sponsors.length >= 1);
+});
