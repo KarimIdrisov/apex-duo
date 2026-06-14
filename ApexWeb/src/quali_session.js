@@ -52,17 +52,35 @@ export function trafficFor(s, car, lapIdx) {
   return QUALI2.TRAFFIC_MAX * density * (0.4 + 0.6 * roll);
 }
 
+// roll a per-flying-lap incident: null | "red" (crash → freeze) | "yellow" (minor → penalty window).
+// stateless (keyed to lapIdx via a fixed pseudo-car id) and raised by attack push.
+export function rollFlag(s, lapIdx, push) {
+  const p = QUALI2.FLAG_PROB * (push === "attack" ? 1.8 : 1);
+  const r = lapRng(s, 999, lapIdx);
+  if (r.unit() >= p) return null;
+  return r.unit() < 0.6 ? "red" : "yellow";                          // most incidents are red
+}
+// raise a red flag: void every in-progress lap (all on-track cars → inlap) and freeze the session.
+export function redFlag(s) {
+  s.flag = { type: "red", freezeLeft: QUALI2.RED_FREEZE_SEC };
+  for (const c of Object.values(s.cars)) if (c.phase === "flying" || c.phase === "outlap") { c.phase = "inlap"; c.lapAcc = 0; }
+  return s;
+}
+
 // one completed lap for a car, by phase.
 function completeLap(s, car) {
   car.lapIdx += 1;
   if (car.phase === "outlap") { car.phase = "flying"; car._traffic = trafficFor(s, car, car.lapIdx); return; }       // out-lap just warms the tyre; stamp traffic for upcoming flying lap
   if (car.phase === "flying") {
+    const push = car.risk >= PUSH_RISK.attack ? "attack" : "steady";
+    const inc = rollFlag(s, car.lapIdx, push);
+    if (inc === "red") { redFlag(s); return; }                       // crash voids this + all on-track laps
+    if (inc === "yellow" && !s.flag) s.flag = { type: "yellow", ySecLeft: QUALI2.YELLOW_SEC };
     const rng = lapRng(s, car.idx, car.lapIdx);
     const t = qualiLap(car.drv, car.car, TRACK, car.setupBonus, car.risk, rng, s.carMean,
-      { grip: s.grip, tyre: car.tyre, traffic: car._traffic || 0, yellow: false });   // traffic stamped on out-lap
+      { grip: s.grip, tyre: car.tyre, traffic: car._traffic || 0, yellow: !!(s.flag && s.flag.type === "yellow") });
     car.bestTime = Math.min(car.bestTime, t); car.segBest = Math.min(car.segBest, t);
     car.lapsThisRun += 1;
-    // a fresh run can do a 2nd flying lap on the now-warm set; otherwise pit
     if (car.lapsThisRun < 2 && car.tyre === "fresh") { car.tyre = "used"; return; }
     car.phase = "inlap"; return;
   }
@@ -70,7 +88,14 @@ function completeLap(s, car) {
 }
 
 export function qualiStep(s, dt) {
-  if (s.paused || s.clock <= 0) return s;
+  if (s.paused) return s;
+  if (s.flag && s.flag.type === "red") {                             // red: clock + cars frozen; freeze counts down
+    s.flag.freezeLeft -= dt * s.speed; if (s.flag.freezeLeft <= 0) s.flag = null; return s;
+  }
+  if (s.clock <= 0) return s;
+  if (s.flag && s.flag.type === "yellow") {                          // yellow: session continues; window counts down
+    s.flag.ySecLeft -= dt * s.speed; if (s.flag.ySecLeft <= 0) s.flag = null;
+  }
   const adv = Math.min(s.clock, dt * s.speed);
   s.clock -= adv;
   s.grip = Math.min(1, s.grip + QUALI2.GRIP_RISE * adv);              // track rubbers in over time

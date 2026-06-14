@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { newQuali, release, qualiStep, carView, advanceSegment, finalGrid, trafficFor } from "../src/quali_session.js";
+import { newQuali, release, qualiStep, carView, advanceSegment, finalGrid, trafficFor, rollFlag, redFlag } from "../src/quali_session.js";
 import { TEAMS, TRACK, QUALI2 } from "../src/data.js";
 import { driverAttrs, composeCar } from "../src/team.js";
 
@@ -63,4 +63,21 @@ test("traffic loss rises with the number of cars on track", () => {
   const crowded = trafficFor(s, car, 0);
   assert.ok(crowded > lone, `crowded track loses more (${crowded} > ${lone})`);
   assert.ok(crowded <= QUALI2.TRAFFIC_MAX + 1e-9, "capped at TRAFFIC_MAX");
+});
+
+test("a red flag freezes the clock and voids in-progress laps", () => {
+  let s = newQuali(2, field()); s.paused = false;
+  const cars = Object.values(s.cars); cars[0].phase = "flying"; cars[0].lapAcc = 5; cars[1].phase = "outlap";
+  redFlag(s);
+  assert.equal(s.flag.type, "red");
+  assert.equal(cars[0].phase, "inlap", "flying lap voided"); assert.equal(cars[0].lapAcc, 0);
+  assert.equal(cars[1].phase, "inlap", "out-lap voided");
+  const c0 = s.clock; s = qualiStep(s, 5.0);
+  assert.equal(s.clock, c0, "clock frozen under red flag");
+});
+test("rollFlag is deterministic and raised by attack push", () => {
+  let s = newQuali(2, field());
+  const cnt = (push) => { let n = 0; for (let i = 0; i < 400; i++) if (rollFlag(s, i, push)) n++; return n; };
+  assert.ok(cnt("attack") >= cnt("steady"), "attack ≥ steady incident rate");
+  assert.equal(rollFlag(s, 7, "attack"), rollFlag(s, 7, "attack"), "deterministic for same (lap, push)");
 });
