@@ -39,7 +39,9 @@ function noiseTex(base, shades, n = 128, density = 0.14) {
 
 export function init(canvas, ctx) {
   const trackName = (ctx.snapshot && ctx.snapshot.trackName) || null;   // host picked the circuit from the seed; client reads it from the snapshot
-  const edited = effectiveTrack(trackName, (trackName && TRACK_SHAPES[trackName]) || TRACK_PATH);   // owner's editor edits, else the preset
+  const edited = (ctx.snapshot && ctx.snapshot.points)                                              // editor preview passes live geometry
+    ? { points: ctx.snapshot.points, objects: ctx.snapshot.objects || [] }
+    : effectiveTrack(trackName, (trackName && TRACK_SHAPES[trackName]) || TRACK_PATH);               // else owner's editor edits / preset
   const cl = buildCenterline(splinePath(edited.points));   // Catmull-Rom-smoothed: soft corners, no per-vertex snapping
   const b = bounds(cl);
   const speedWarp = buildSpeedWarp(cl);            // corner-aware visual speed (render-only; redistributes within the lap, preserves lap times)
@@ -268,7 +270,7 @@ export function init(canvas, ctx) {
         car.ring.material.opacity = 0; car.lat = 0; car.px = null;   // re-snap when it rejoins the track
         continue;
       }
-      const prog = sampleProg(buf[c.idx], rt);
+      const prog = ctx.editorPreview ? (c.lap + c.lapFrac) : sampleProg(buf[c.idx], rt);   // editor preview drives cars directly (no network buffer)
       const wf = sampleWarp(speedWarp, prog);                    // corner-aware visual speed: slow into corners, quick on straights (lap time unchanged)
       // lateral target = racing line, + a side-step when right behind the car ahead (fan a train out)
       let side = 0;
