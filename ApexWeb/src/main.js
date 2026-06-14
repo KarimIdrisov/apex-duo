@@ -18,7 +18,7 @@ import { sfx } from "./audio.js";
 import { defaultRaceTrack, trackFromEdited } from "./track_build.js";
 import { loadAll } from "./track_store.js";
 import * as seasonUI from "./ui/season.js";
-import { newCareer, newSeason, currentRound, applyResult, advanceRound } from "./career.js";
+import { newCareer, newSeason, currentRound, applyResult, advanceRound, chooseTitleSponsor } from "./career.js";
 import { careerTrack } from "./track_build.js";
 import { saveCareer } from "./career_store.js";
 
@@ -90,7 +90,7 @@ function rerender() {
   // the loop's reschedule and freeze the whole session ("что-то сломалось" / black screen). Log + show a
   // notice instead, keeping the loop alive and the cause diagnosable in the console.
   try {
-    const mod = (ctx.career && phase === "result") ? seasonUI : SCREENS[phase];
+    const mod = (ctx.careerView && ctx.atPaddock) ? seasonUI : SCREENS[phase];
     mod.render(root, ctx);
   } catch (e) {
     console.error(`[render] phase "${phase}" threw:`, e);
@@ -111,10 +111,13 @@ function onCommand(cmd) {
   if (ctx.role !== "host") return;
   switch (cmd.cmd) {
     case "ready":     ctx.weekend.setReady(cmd.player); break;
-    case "career_next":
-      if (ctx.career && !ctx.career.done) {
+    case "career_sponsor":
+      if (ctx.career) { chooseTitleSponsor(ctx.career, cmd.offerIdx); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_start_weekend":
+      if (ctx.career && !ctx.career.done && !(ctx.career.pendingOffers && ctx.career.pendingOffers.length)) {
         ctx.careerReady[cmd.player] = true; publishCareer(); rerender();
-        if (ctx.solo || (ctx.careerReady.p1 && ctx.careerReady.p2)) advanceCareer();
+        if (ctx.solo || (ctx.careerReady.p1 && ctx.careerReady.p2)) startWeekendFromPaddock();
       }
       break;
     case "career_newseason":
@@ -290,16 +293,19 @@ function hostLoop(ts) {
     let guard = 0;
     while (ctx._acc >= STEP && !ctx.race.finished && guard++ < 400) { ctx.race.step(STEP); ctx._acc -= STEP; }
     if ((++ctx._frame % 5) === 0) pushRaceState();          // throttle broadcast/render to ~12 Hz
-    if (ctx.race.finished) {
-      if (ctx.career && ctx._roundRecorded !== ctx.career.round) {
+    if (ctx.race.finished && !ctx._raceClosed) {
+      ctx._raceClosed = true;
+      if (ctx.career) {
         const cls = ctx.race.order().map(c => ({ abbrev: c.abbrev, team: c.team, retired: c.retired }));
         applyResult(ctx.career, cls);
-        ctx._roundRecorded = ctx.career.round;
+        advanceRound(ctx.career);            // -> next round (or done)
         saveCareer(ctx.career);
-        publishCareer();
+        ctx.atPaddock = true; publishCareer();
+        pushRaceState(); rerender();         // show the paddock with results + finances
+      } else {
+        pushRaceState();
+        ctx.weekend.setReady("p1"); ctx.weekend.setReady("p2");  // non-career -> result screen
       }
-      pushRaceState();
-      ctx.weekend.setReady("p1"); ctx.weekend.setReady("p2");  // race -> result (onPhase broadcasts)
     }
   }
   if (ctx.role === "host" && isPractice(ctx.weekend.phase) && ctx.pracSession && !ctx.pracSession.paused) {
@@ -323,7 +329,7 @@ function hostLoop(ts) {
 function onMessage(m) {
   if (m.type === "snapshot") { ctx.snapshot = m; rerender(); }
   if (m.type === "phase")    { ctx.weekend.phase = m.phase; rerender(); }
-  if (m.type === "career")   { ctx.careerView = m.career; ctx.careerReadyView = m.ready; rerender(); }
+  if (m.type === "career")   { ctx.careerView = m.career; ctx.careerReadyView = m.ready; ctx.atPaddock = m.atPaddock; rerender(); }
   if (ctx.role === "host" && m.type === "command") onCommand(m);
   if (ctx.role === "host" && m.type === "hello") {
     if (ctx.weekend.phase === "lobby") {
@@ -366,7 +372,7 @@ export function startSolo() {
 function publishCareer() {
   ctx.careerView = ctx.career;
   ctx.careerReadyView = ctx.careerReady;
-  if (ctx.net) ctx.net.send({ type: "career", career: ctx.career, ready: ctx.careerReady });
+  if (ctx.net) ctx.net.send({ type: "career", career: ctx.career, ready: ctx.careerReady, atPaddock: !!ctx.atPaddock });
 }
 // configure ctx for the career's current round (track visual + sim track) before a weekend.
 function loadRoundTrack() {
@@ -377,7 +383,7 @@ function loadRoundTrack() {
 // reset the per-weekend scratch so the next round starts clean.
 function resetWeekendState() {
   ctx.seed = null; ctx.pracSession = null; ctx.qualiSession = null;
-  ctx.race = null; ctx.setups = null; ctx._roundRecorded = null;
+  ctx.race = null; ctx.setups = null; ctx._raceClosed = false;
 }
 // SOLO career: single player engineers p1; teammate + grid AI.
 export function startCareerSolo(teamIdx) {
@@ -385,10 +391,10 @@ export function startCareerSolo(teamIdx) {
   ctx.teamIdx = teamIdx;
   ctx.career = newCareer({ teamIdx, seed: 1000 + Math.floor(Math.random() * 100000), coop: false });
   ctx.careerReady = { p1: false, p2: false };
-  resetWeekendState(); loadRoundTrack(); publishCareer();
+  resetWeekendState(); loadRoundTrack(); ctx.atPaddock = true; publishCareer();
   ctx.weekend.solo = true;
   requestAnimationFrame(hostLoop);
-  ctx.weekend.start();
+  rerender();
 }
 // CO-OP career: host creates it; the first weekend begins when the partner joins (see onMessage hello).
 export function hostCareer(teamIdx) { ctx.careerPending = teamIdx; }
@@ -397,23 +403,21 @@ function beginCoopCareer() {
   ctx.career = newCareer({ teamIdx: ctx.careerPending, seed: 1000 + Math.floor(Math.random() * 100000), coop: true });
   ctx.careerReady = { p1: false, p2: false };
   ctx.careerPending = null;
-  resetWeekendState(); loadRoundTrack(); publishCareer();
-  ctx.weekend.start();
+  resetWeekendState(); loadRoundTrack(); ctx.atPaddock = true; publishCareer();
+  rerender();
 }
 // advance the season after both players are ready (or solo).
-function advanceCareer() {
+// begin the upcoming round's weekend from the paddock.
+function startWeekendFromPaddock() {
   ctx.careerReady = { p1: false, p2: false };
-  const hasNext = advanceRound(ctx.career);
-  saveCareer(ctx.career);
-  if (!hasNext) { publishCareer(); rerender(); return; }   // season over -> season screen shows the verdict
-  resetWeekendState(); loadRoundTrack(); publishCareer();
-  ctx.weekend._goto("practice1");                          // fires onPhase -> onPhaseHost sets up practice + broadcasts
+  ctx.atPaddock = false;
+  resetWeekendState(); loadRoundTrack();
+  ctx.weekend._goto("practice1");                          // fires onPhase -> practice + broadcasts
 }
 function startNewSeason() {
   ctx.career = newSeason(ctx.career);
   ctx.careerReady = { p1: false, p2: false };
-  resetWeekendState(); loadRoundTrack(); publishCareer();
-  ctx.weekend._goto("practice1");
+  resetWeekendState(); loadRoundTrack(); ctx.atPaddock = true; publishCareer(); rerender();
 }
 
 // quick race straight onto an edited track (from the editor's 🏁 button) — skip lobby/practice/quali.
