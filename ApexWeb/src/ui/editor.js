@@ -266,6 +266,11 @@ document.getElementById("pitloss").oninput = (e) => { const v = parseFloat(e.tar
 document.getElementById("save").onclick = () => { saveTrack(name, { points: toFlat(pts), objects, pit, pitLoss, zones, cornerOverrides }); toast("Сохранено: " + name); };
 document.getElementById("reset").onclick = () => { clearTrack(name); loadTrack(name); toast("Сброшено к пресету"); };
 document.getElementById("drive").onclick = toggleDrive;
+document.getElementById("race").onclick = () => {       // race the current track in the sim
+  saveTrack(name, { points: toFlat(pts), objects, pit, pitLoss, zones, cornerOverrides });   // persist first
+  localStorage.setItem("apexweb_race_track", name);     // main.js picks this up on boot
+  location.href = "index.html";                          // go to the game -> it boots straight into the race
+};
 document.getElementById("export").onclick = () => {     // download the current track as JSON
   const blob = new Blob([JSON.stringify({ name, points: toFlat(pts), objects, pit, pitLoss, zones, cornerOverrides }, null, 0)], { type: "application/json" });
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name + ".json"; a.click(); URL.revokeObjectURL(a.href);
