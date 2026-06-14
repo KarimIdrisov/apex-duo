@@ -5,8 +5,10 @@
 // they catch the car ahead, so a train fans out instead of stacking on the centerline.
 import * as THREE from "https://esm.sh/three@0.160.0";
 import { TRACK_PATH } from "../data.js";
-import { buildCenterline, pointAt, tangentAt, bounds, sampleProg, racingLineOffset, offsetPoint, splinePath, cornerRuns } from "../geom3d.js";
+import { buildCenterline, pointAt, tangentAt, bounds, sampleProg, racingLineOffset, offsetPoint, splinePath } from "../geom3d.js";
 import { TRACK_SHAPES } from "../track_shapes.js";
+import { paintTrack } from "../track_paint.js";
+import { effectiveTrack } from "../track_store.js";
 
 const WORLD = 120;                 // larger track axis spans ~120 world units
 const HALF_W = 3.8;                // track half-width (world units) — wider for a real-track feel
@@ -38,8 +40,8 @@ function noiseTex(base, shades, n = 128, density = 0.14) {
 
 export function init(canvas, ctx) {
   const trackName = (ctx.snapshot && ctx.snapshot.trackName) || null;   // host picked the circuit from the seed; client reads it from the snapshot
-  const path = (trackName && TRACK_SHAPES[trackName]) || TRACK_PATH;     // selected real circuit, else Barcelona fallback
-  const cl = buildCenterline(splinePath(path));         // Catmull-Rom-smoothed: soft corners, no per-vertex snapping
+  const edited = effectiveTrack(trackName, (trackName && TRACK_SHAPES[trackName]) || TRACK_PATH);   // owner's editor edits, else the preset
+  const cl = buildCenterline(splinePath(edited.points));   // Catmull-Rom-smoothed: soft corners, no per-vertex snapping
   const b = bounds(cl);
   const sc = WORLD / b.size;                       // normalized -> world scale
   const wx = (p) => (p[0] - b.cx) * sc;            // center the track at world origin
@@ -117,26 +119,11 @@ export function init(canvas, ctx) {
   // hairpins (overlapping paint is fine). Replaces the extruded ribbon/kerb/line meshes. The quad's
   // UVs match the C() world->canvas mapping, so the painted road sits exactly under the cars. ---
   {
-    const SIZE = 2048, HALF = WORLD * 0.72, PXW = SIZE / (2 * HALF), STEPS = 600;   // canvas px; plane half-extent (world); px/world; lap samples
+    const SIZE = 2048, HALF = WORLD * 0.72, PXW = SIZE / (2 * HALF);   // canvas px; plane half-extent (world); px/world
     const cv = document.createElement("canvas"); cv.width = cv.height = SIZE;
-    const g = cv.getContext("2d"); g.lineJoin = "round"; g.lineCap = "round";
+    const g = cv.getContext("2d");
     const C = (p) => [(wx(p) + HALF) * PXW, (wz(p) + HALF) * PXW];                  // normalized track point -> canvas px
-    const lap = (offN) => { g.beginPath(); for (let k = 0; k <= STEPS; k++) { const f = k / STEPS, pp = offN ? offsetPoint(cl, f, offN) : pointAt(cl, f), c = C(pp); k ? g.lineTo(c[0], c[1]) : g.moveTo(c[0], c[1]); } g.closePath(); };
-    g.fillStyle = "#2f5236"; g.fillRect(0, 0, SIZE, SIZE);                          // grass (brighter for contrast)
-    lap(0); g.lineWidth = (HALF_W * 2 + 9) * PXW; g.strokeStyle = "#3a5a38"; g.stroke();    // run-off shoulder (subtle, lighter green)
-    lap(0); g.lineWidth = (HALF_W * 2 + 0.8) * PXW; g.strokeStyle = "#5a5a64"; g.stroke();  // thin subtle road edge
-    {                                                                              // red/white kerb RIM along the CENTERLINE through corners — wider than the asphalt, so a clean even
-      const runs = cornerRuns(cl, STEPS, CORNER_R), CH = 7, KW = (HALF_W * 2 + 2.6) * PXW;  // rim peeks out BOTH edges. centerline is smooth -> no folding-offset-edge mess, no overlapping chunks.
-      for (const run of runs) for (let s = 0; s < run.len; s += CH) {
-        g.beginPath();
-        for (let j = 0; j <= CH && s + j <= run.len; j++) { const k = (run.start + s + j) % STEPS, c = C(pointAt(cl, k / STEPS)); j ? g.lineTo(c[0], c[1]) : g.moveTo(c[0], c[1]); }
-        g.lineWidth = KW; g.strokeStyle = (Math.floor(s / CH) % 2) ? "#d83b3b" : "#ededed"; g.stroke();
-      }
-    }
-    lap(0); g.lineWidth = HALF_W * 2 * PXW; g.strokeStyle = "#30303a"; g.stroke();          // asphalt on top -> the kerb rim peeks out ~1.3 world each side at corners
-    { const t = tangentAt(cl, 0), nx = -t[1], ny = t[0], p = pointAt(cl, 0);       // start/finish stripe
-      const A = C([p[0] + nx * HW_N, p[1] + ny * HW_N]), B = C([p[0] - nx * HW_N, p[1] - ny * HW_N]);
-      g.beginPath(); g.moveTo(A[0], A[1]); g.lineTo(B[0], B[1]); g.lineWidth = 1.6 * PXW; g.strokeStyle = "#ffffff"; g.stroke(); }
+    paintTrack(g, cl, C, PXW, HALF_W);
     const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.flipY = false; tex.anisotropy = 8; texs.push(tex);
     const pg = new THREE.BufferGeometry(); geos.push(pg);
     pg.setAttribute("position", new THREE.Float32BufferAttribute([-HALF, 0, -HALF, HALF, 0, -HALF, HALF, 0, HALF, -HALF, 0, HALF], 3));
