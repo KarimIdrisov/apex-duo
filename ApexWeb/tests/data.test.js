@@ -141,3 +141,15 @@ test("QUALI2 carries live-lap push/risk/variance consts", () => {
   assert.ok(QUALI2.LOCK_MAX > QUALI2.LOCK_MIN && QUALI2.LOCK_MIN > 0, "lock-up time range");
   assert.ok(QUALI2.SEC_VAR_PUSH >= QUALI2.SEC_VAR_BASE, "push widens sector variance");
 });
+
+import { ATTACK_CREDIT_K, ATTACK_WEAR_MULT, ATTACK_SCRUB, DEFEND_ORDER_K, DEFEND_WEAR_MULT, DEFEND_SCRUB,
+  ORDER_MISTAKE_BASE, ORDER_MISTAKE_RAMP, ORDER_MISTAKE_SCRUB_MIN, ORDER_MISTAKE_SCRUB_MAX } from "../src/data.js";
+
+test("combat-order consts: boosts > 1, costs sane, scrub range ordered", () => {
+  assert.ok(ATTACK_CREDIT_K > 1 && DEFEND_ORDER_K > 1, "boosts amplify");
+  assert.ok(ATTACK_WEAR_MULT >= 1 && DEFEND_WEAR_MULT >= 1, "wear multipliers >= 1");
+  assert.ok(ATTACK_SCRUB > 0 && DEFEND_SCRUB > 0, "scrub positive");
+  assert.ok(ORDER_MISTAKE_BASE > 0 && ORDER_MISTAKE_BASE < 0.5, "mistake base is a small probability");
+  assert.ok(ORDER_MISTAKE_RAMP > 0, "mistake ramps with held laps");
+  assert.ok(ORDER_MISTAKE_SCRUB_MAX > ORDER_MISTAKE_SCRUB_MIN, "scrub range ordered");
+});

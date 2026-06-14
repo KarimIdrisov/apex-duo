@@ -193,6 +193,20 @@ export const AGGR_PASS_SCRUB = 0.15;// tyre-temp scrubbed off on a SUCCESSFUL lu
 export const GRID_GAP  = 0.25;   // starting time spread per grid slot (seconds) — widened from 0.20 so a launch delta causes fewer swaps (§18.3)
 export const LAP1_CAUTION = 0.4; // pass-credit multiplier on the opening lap (lap 0): the field settles the launch/grid order through T1, racing opens from lap 1 (§18.3)
 
+// combat orders (race depth): a contextual Attack/Defend lever the player drives in a fight.
+// Attack amplifies pass-credit; Defend amplifies resist; both cost tyre wear + temp, with a
+// lap-keyed lock-up risk (organic pace loss via a temp scrub, never a DNF). Driver attrs modulate.
+export const ATTACK_CREDIT_K   = 1.6;   // ×pass-credit accrual while attacking
+export const ATTACK_WEAR_MULT  = 1.5;   // ×per-lap wear while attacking
+export const ATTACK_SCRUB      = 0.10;  // tyre-temp scrubbed/lap while attacking
+export const DEFEND_ORDER_K    = 1.5;   // ×resist while the car ahead defends
+export const DEFEND_WEAR_MULT  = 1.3;   // ×per-lap wear while defending
+export const DEFEND_SCRUB      = 0.07;  // tyre-temp scrubbed/lap while defending
+export const ORDER_MISTAKE_BASE = 0.04; // base per-lap lock-up chance while an order bites
+export const ORDER_MISTAKE_RAMP = 0.35; // extra chance per consecutive lap the order is held
+export const ORDER_MISTAKE_SCRUB_MIN = 0.20; // tyre-temp scrubbed on a lock-up (min) — organic pace loss
+export const ORDER_MISTAKE_SCRUB_MAX = 0.40; // (max)
+
 // Practice "run plans" (§ practice redesign). A shared team track-time budget spent across run types.
 export const PRAC_BUDGET = 8;                                   // total track-time units the two co-directors share
 export const PRAC_COST   = { setup: 1, long: 3, quali: 1 };     // cost per run type
