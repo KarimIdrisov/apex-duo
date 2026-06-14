@@ -2,6 +2,7 @@
 // reads the SAME ctx._buf / ctx._meta snapshot buffers race.js maintains. No sim/netcode
 // coupling. WebGL -> owner-playtest verified. Self-disposes when its canvas leaves the DOM.
 import * as THREE from "https://esm.sh/three@0.160.0";
+import { GLTFLoader } from "https://esm.sh/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
 import { TRACK_PATH } from "../data.js";
 import { buildCenterline, pointAt, tangentAt, bounds, ribbonEdges, sampleProg } from "../geom3d.js";
 
@@ -74,7 +75,7 @@ export function init(canvas, ctx) {
   const carGeo = new THREE.BoxGeometry(CAR_W, CAR_H, CAR_L);
   const cockGeo = new THREE.BoxGeometry(CAR_W * 0.6, CAR_H * 0.7, CAR_L * 0.4);
   const ringGeo = new THREE.RingGeometry(CAR_L * 0.85, CAR_L * 1.05, 24);
-  const cars = {};   // idx -> { group, ring }
+  const cars = {};   // idx -> { group, ring, body, cock, color }
   for (const c of ((ctx.snapshot && ctx.snapshot.cars) || [])) {
     const g = new THREE.Group();
     const bodyMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(c.color || "#888888"), roughness: 0.5 }); mats.push(bodyMat);
@@ -83,8 +84,35 @@ export function init(canvas, ctx) {
     const cock = new THREE.Mesh(cockGeo, cockMat); cock.position.set(0, CAR_H * 0.95, -CAR_L * 0.05); g.add(cock);
     const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, side: THREE.DoubleSide }); mats.push(ringMat);
     const ring = new THREE.Mesh(ringGeo, ringMat); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.09; g.add(ring);
-    cars[c.idx] = { group: g, ring }; scene.add(g);
+    cars[c.idx] = { group: g, ring, body, cock, color: c.color || "#888888" }; scene.add(g);
   }
+
+  // --- optional: swap the box cars for a license-cleared glTF model ---
+  // Drops in assets/models/f1car.glb if present; otherwise the box cars stay (silent
+  // fallback, so the view always works with no external asset). Per-model knobs:
+  // MODEL_YAW (rotate the nose to local +Z, the tangent) and the auto-scale to CAR_L.
+  // Licensing + attribution rules live in docs/SKETCHFAB_3D_ASSETS.md.
+  const MODEL_URL = "assets/models/f1car.glb";
+  const MODEL_YAW = Math.PI;                          // most glTF cars face -Z → flip to +Z
+  let modelDispose = null;
+  new GLTFLoader().load(MODEL_URL, (gltf) => {
+    if (!alive) return;
+    const src = gltf.scene;
+    const bb = new THREE.Box3().setFromObject(src), size = new THREE.Vector3(); bb.getSize(size);
+    const span = Math.max(size.x, size.z) || 1, s = CAR_L / span;     // longest horizontal span → CAR_L
+    const cx = (bb.min.x + bb.max.x) / 2, cz = (bb.min.z + bb.max.z) / 2;
+    const srcGeos = new Set(), srcMats = new Set();
+    src.traverse((o) => { if (o.isMesh) { srcGeos.add(o.geometry); srcMats.add(o.material); } });
+    for (const idx in cars) {
+      const h = cars[idx], mdl = src.clone(true);
+      mdl.scale.setScalar(s);
+      mdl.position.set(-cx * s, -bb.min.y * s, -cz * s);              // center on XZ, sit on ground
+      const car = new THREE.Group(); car.rotation.y = MODEL_YAW; car.add(mdl);
+      car.traverse((o) => { if (o.isMesh) { const m = o.material.clone(); m.color = new THREE.Color(h.color); o.material = m; mats.push(m); } });
+      h.group.remove(h.body); h.group.remove(h.cock); h.group.add(car);
+    }
+    modelDispose = () => { for (const gm of srcGeos) gm.dispose(); for (const mm of srcMats) mm.dispose(); };
+  }, undefined, () => { /* no model / load error → keep the box cars */ });
   // pit-lane parking spot: start/finish, offset outward by ~2.4 half-widths
   const pitN = tangentAt(cl, 0), pitP = pointAt(cl, 0);
   const PIT = [pitP[0] + (-pitN[1]) * (2.4 * HALF_W / sc), pitP[1] + pitN[0] * (2.4 * HALF_W / sc)];
@@ -128,6 +156,7 @@ export function init(canvas, ctx) {
     window.removeEventListener("resize", resize);
     trackGeo.dispose(); for (const g of lineGeos) g.dispose();
     carGeo.dispose(); cockGeo.dispose(); ringGeo.dispose();
+    if (modelDispose) modelDispose();
     for (const m of mats) m.dispose();
     renderer.dispose();
   }
