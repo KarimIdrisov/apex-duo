@@ -284,7 +284,10 @@ test("a safety car occurs at roughly track.sc across seeds", () => {
     if (r.scEverActive) sc++;
   }
   const freq = sc / 200;
-  assert.ok(freq > TRACK.sc - 0.12 && freq < TRACK.sc + 0.12, `SC freq ${freq} ~ ${TRACK.sc}`);
+  // incident-driven model: cautions emerge from per-lap incidents + start/lunge shunts, so the SC-per-race
+  // frequency runs at roughly track.sc up to ~1.6×track.sc (design target: 25-40% of races see a caution),
+  // not pinned to the raw track.sc the old pre-scheduled roll produced.
+  assert.ok(freq > 0.15 && freq < 0.42, `SC freq ${freq} in the incident-driven band (~0.25-0.40)`);
 });
 
 test("a VSC occurs, is exclusive with the full SC, slows the field, and emits vsc events (§21 r3)", () => {
@@ -693,4 +696,15 @@ test("live safety cars: incidents are deterministic and can deploy a caution; em
   for (let s = 0; s < 16; s++) counts.add(cautionLapsAndCount(40000 + s).cautions);
   assert.ok(counts.size >= 2, `emergent caution count varies across seeds (saw ${[...counts].join(",")})`);
   assert.ok(Math.max(...counts) <= INCIDENT.maxCautions, "never exceeds the cap");
+});
+
+test("a start bog-down DNF can draw an opening-lap caution", () => {
+  let sawEarlySC = false;
+  for (let s = 0; s < 60 && !sawEarlySC; s++) {
+    const r = new Race(field(), { ...TRACK, sc: 1.0 }, 60000 + s);
+    r.cars[5].attrs = { ...r.cars[5].attrs, starts: 0.0, composure: 0.0 };
+    let g = 0;
+    while (!r.finished && g++ < 4000) { r.step(); if ((r.scActive || r.vscActive) && r.cars.reduce((m, c) => Math.max(m, c.lap), 0) <= 2) { sawEarlySC = true; break; } }
+  }
+  assert.ok(sawEarlySC, "a first-lap incident can bring out the safety car");
 });

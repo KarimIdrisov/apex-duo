@@ -213,7 +213,7 @@ export class Race {
       const composed = 1 - ATTRW.composure * (A(c).composure - 0.5) * 2;   // a composed driver bogs down less often (§18.7)
       if (this.erng.unit() < EVENT.startP * composed) {        // rare bog-down / anti-stall
         launch += EVENT.startLoss;
-        if (this.erng.unit() < EVENT.startDnf) c.retired = true;
+        if (this.erng.unit() < EVENT.startDnf) { c.retired = true; this._emit({ type: "incident", lap: 0, a: c.idx, abbr: c.abbrev, dnf: true }); this._tryCaution(this._keyRng(c.idx, 0, 3), true); }
       }
       c._launch = launch;   // graded launch delta, applied to the opening-lap time (good launch < 0 = faster lap 1 = gains)
     }
@@ -282,7 +282,10 @@ export class Race {
               continue;   // move done this tick — skip the pin
             }
           } else if (this.erng.unit() < AGGR_PASS_DNF) {
-            me.retired = true; continue;   // the lunge went wrong — into the gravel
+            me.retired = true;             // the lunge went wrong — into the gravel
+            this._emit({ type: "incident", lap: me.lap, a: me.idx, abbr: me.abbrev, dnf: true });
+            this._tryCaution(this._keyRng(me.idx, me.lap, 3), true);
+            continue;
           }
         }
         const ease = zone ? zone.ease : 0;   // ease is only read in the in-zone resist below; 0 is a dead-safe fallback
