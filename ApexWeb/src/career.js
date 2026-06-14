@@ -2,13 +2,14 @@
 // objective. No UI, no I/O. M1 evolves only meta state (the sim is untouched). Deterministic.
 import { TEAMS } from "./data.js";
 import { defaultSponsors, titleOffers, evaluateSponsor } from "./sponsors.js";
+import { tickDevelopment } from "./development.js";
 
 // championship points for the top 10 finishers (current F1 system).
 export const POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
 // prize money ($k) by race-finish position — a simple per-race payout (M2 deepens income).
 export const PRIZE = [1200, 1000, 850, 720, 620, 540, 470, 410, 360, 320, 280, 250, 220, 200, 180, 160, 150, 140, 130, 120, 110, 100];
 
-export const CAREER_V = 2;            // career save schema version
+export const CAREER_V = 3;            // career save schema version
 export const RUNNING_COST = 800;      // $k per-race operating cost (M5 facilities refine it)
 
 // the season calendar: each round picks a real circuit shape (a track_shapes.js key) for the
@@ -50,10 +51,11 @@ export function newCareer({ teamIdx = 0, seed = 1, coop = false } = {}) {
   const s = seed >>> 0;
   return {
     v: CAREER_V, seed: s, teamIdx, coop,
-    season: 1, round: 0, money: 0,
+    season: 1, round: 0, money: 3000 + (TEAMS.length - teamIdx) * 800,   // tier-scaled starting budget ($k)
     driverPts, teamPts,
     board: { targetPos: Math.min(TEAMS.length, teamIdx + 1) },  // meet your tier (P{teamIdx+1})
     sponsors: defaultSponsors(teamIdx, s), costCap: false, pendingOffers: titleOffers(teamIdx, s),
+    carDev: {}, project: null, devSpentThisSeason: 0,
     lastResult: null, history: [], done: false,
   };
 }
@@ -107,6 +109,12 @@ export function migrate(career) {
     career.pendingOffers = career.pendingOffers || [];
     career.v = 2;
   }
+  if (career.v < 3) {
+    career.carDev = career.carDev || {};
+    career.project = career.project ?? null;
+    career.devSpentThisSeason = career.devSpentThisSeason ?? 0;
+    career.v = 3;
+  }
   return career;
 }
 // accept a season-start title-sponsor offer: replace the title deal, clear the offers.
@@ -120,6 +128,7 @@ export function chooseTitleSponsor(career, offerIdx) {
 
 // advance to the next round. Returns true if a next round exists, false if the season ended.
 export function advanceRound(career) {
+  tickDevelopment(career);          // progress the player project + AI dev for the round just completed
   career.round += 1;
   if (isSeasonOver(career)) { career.done = true; return false; }
   return true;
@@ -144,5 +153,7 @@ export function newSeason(career) {
   const fresh = newCareer({ teamIdx: career.teamIdx, seed: career.seed, coop: career.coop });
   fresh.season = career.season + 1;
   fresh.money = career.money;
+  fresh.carDev = career.carDev || {};        // development carries into the new season (M8 adds regulation resets)
+  fresh.devSpentThisSeason = 0;
   return fresh;
 }

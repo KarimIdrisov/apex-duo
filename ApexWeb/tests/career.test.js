@@ -103,3 +103,31 @@ test("migrate upgrades a v1 save to v2 (adds sponsors)", () => {
   assert.ok(up.sponsors.length >= 1);
   assert.equal(up.costCap, false);
 });
+
+// --- M3 car development ---
+import { startProject } from "../src/development.js";
+
+test("newCareer at v3 carries carDev + a null project + a season dev-spend counter", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  assert.equal(c.v, CAREER_V);
+  assert.ok(c.v >= 3);
+  assert.deepEqual(c.project, null);
+  assert.equal(c.devSpentThisSeason, 0);
+  assert.ok(c.carDev && typeof c.carDev === "object");
+});
+
+test("advanceRound develops the car: a finished project lands + AI teams gain", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  startProject(c, "power", "small");                  // completes after 1 round
+  advanceRound(c);
+  assert.ok(c.carDev["McLaren"].power > 0, "player gain applied on advance");
+  assert.ok(c.carDev[TEAMS[8].name].power > 0, "AI developed");
+});
+
+test("migrate upgrades a v2 save to v3 (adds carDev/project)", () => {
+  const v2 = { v: 2, teamIdx: 1, seed: 3, season: 1, round: 0, money: 0, driverPts: {}, teamPts: {}, board: { targetPos: 2 }, sponsors: [], costCap: false, pendingOffers: [], lastResult: null, history: [], done: false };
+  const up = migrate(v2);
+  assert.equal(up.v, CAREER_V);
+  assert.deepEqual(up.project, null);
+  assert.ok(up.carDev && typeof up.carDev === "object");
+});
