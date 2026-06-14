@@ -175,6 +175,17 @@ input[type=range].pw-range{position:absolute;inset:0;width:100%;height:100%;marg
 .pw-chip{font-size:12px;font-weight:700;line-height:1.2;margin-bottom:5px}
 .pw-know{height:6px}
 
+/* practice desktop dashboard: setup left (wide), side column right; collapses on narrow screens */
+.pw-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:14px;align-items:start}
+.pw-side{display:flex;flex-direction:column;gap:14px}
+@media (max-width:760px){ .pw-grid{grid-template-columns:1fr} }
+.pw-metrics{display:flex;flex-direction:column;gap:12px}
+.pw-metric-top{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;margin-bottom:5px}
+.pw-metric-val{font-weight:700;font-size:15px}
+.pw-fill-track{background:linear-gradient(90deg,var(--accent),var(--good))}
+.pw-fill-sat{background:linear-gradient(90deg,var(--warn),var(--good))}
+.pw-prep{margin:6px 0 0;opacity:.8}
+
 /* laps chooser */
 .pw-laps{display:flex;gap:6px}
 .pw-lap{flex:1;text-align:center}
