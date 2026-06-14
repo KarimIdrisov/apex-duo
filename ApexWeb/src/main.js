@@ -96,8 +96,8 @@ function startRaceHost() {
   ctx.race = new Race(field, TRACK, ctx.seed, ctx.difficulty ?? DIFFICULTY.normal.ai);
   ctx.trackName = pickTrack(ctx.seed);   // visual circuit for this race (3D + minimap); sim races abstract sectors
   // apply the quali grid as the start order (fastest quali -> P1), spread by slot
-  const withRisk = field.map(f => ({ ...f, risk: f.player ? (ctx.qrisk?.[f.player] ?? 0.5) : 0.5 }));
-  const grid = buildGrid(withRisk, TRACK, 1234);
+  // starting grid comes from the quali session (P1..P22); fall back to a one-shot grid if quali was skipped
+  const grid = ctx.qualiSession ? finalGrid(ctx.qualiSession) : buildGrid(field.map(f => ({ ...f, risk: 0.5 })), TRACK, 1234);
   grid.forEach((g, slot) => {
     const c = ctx.race.cars[g.idx];
     c.lap = 0; c.lapFrac = -slot * (GRID_GAP / TRACK.lt); c.startPos = slot + 1;
@@ -166,14 +166,6 @@ function pushQuali() {
   const snap = qualiSnapshot(ctx.qualiSession);
   ctx.snapshot = snap;
   if (ctx.net) ctx.net.send(snap);
-  rerender();
-}
-// run every car's flying lap and broadcast the resulting grid to the client.
-function broadcastQualiGrid() {
-  const field = buildField().map(f => ({ ...f, risk: f.player ? (ctx.qrisk?.[f.player] ?? 0.5) : 0.5 }));
-  const grid = buildGrid(field, TRACK, 1234);
-  ctx.snapshot = { grid };
-  if (ctx.net) ctx.net.send({ type: "snapshot", grid });
   rerender();
 }
 
