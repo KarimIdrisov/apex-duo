@@ -15,6 +15,8 @@ import { fuelLaps } from "./fuel.js";
 import { newSession, step as pracStep, sessionSnapshot, setAxis, sendRun, setSpeed, setPaused, autoSim } from "./practice_session.js";
 import { newQuali, qualiStep, advanceSegment, qualiSnapshot, release as qRelease, abort as qAbort, setSpeed as qSetSpeed, setPaused as qSetPaused, setPush as qSetPush, finalGrid } from "./quali_session.js";
 import { sfx } from "./audio.js";
+import { defaultRaceTrack, trackFromEdited } from "./track_build.js";
+import { loadAll } from "./track_store.js";
 
 const SCREENS = { lobby, practice1: practice, practice2: practice, practice3: practice, quali, race, result: race };
 const isPractice = p => p === "practice1" || p === "practice2" || p === "practice3";
@@ -144,16 +146,17 @@ function onPhaseHost() {
 }
 function startRaceHost() {
   const field = buildField();
+  ctx.track = ctx.track || defaultRaceTrack();
   // host picks the race seed once; the sim run stays fully deterministic from it
   if (ctx.seed == null) ctx.seed = 1000 + Math.floor(Math.random() * 100000);
-  ctx.race = new Race(field, TRACK, ctx.seed, ctx.difficulty ?? DIFFICULTY.normal.ai);
-  ctx.trackName = pickTrack(ctx.seed);   // visual circuit for this race (3D + minimap); sim races abstract sectors
+  ctx.race = new Race(field, ctx.track, ctx.seed, ctx.difficulty ?? DIFFICULTY.normal.ai);
+  ctx.trackName = ctx.trackName || pickTrack(ctx.seed);   // keep a quick-race's edited circuit; else seed-pick the visual (3D + minimap)
   // apply the quali grid as the start order (fastest quali -> P1), spread by slot
   // starting grid comes from the quali session (P1..P22); fall back to a one-shot grid if quali was skipped
-  const grid = ctx.qualiSession ? finalGrid(ctx.qualiSession) : buildGrid(field.map(f => ({ ...f, risk: 0.5 })), TRACK, 1234);
+  const grid = ctx.qualiSession ? finalGrid(ctx.qualiSession) : buildGrid(field.map(f => ({ ...f, risk: 0.5 })), ctx.track, 1234);
   grid.forEach((g, slot) => {
     const c = ctx.race.cars[g.idx];
-    c.lap = 0; c.lapFrac = -slot * (GRID_GAP / TRACK.lt); c.startPos = slot + 1;
+    c.lap = 0; c.lapFrac = -slot * (GRID_GAP / ctx.track.lt); c.startPos = slot + 1;
   });
   ctx.paused = false;
   ctx._frame = 0;
@@ -166,7 +169,7 @@ function startRaceHost() {
 // Reused by quali grid and the race start (Task 15).
 function buildField() {
   let idx = 0;
-  const ideal = trackIdeal(TRACK.laps * 1000 + Math.round(TRACK.lt));
+  const ideal = trackIdeal((ctx.track || TRACK).laps * 1000 + Math.round((ctx.track || TRACK).lt));
   return TEAMS.flatMap((t, ti) => t.drivers.map((d, di) => {
     const isPlayerTeam = ti === ctx.teamIdx;
     // solo: only p1 is human, the teammate car runs as AI (player null)
@@ -199,7 +202,7 @@ function analyzeStrategy(strategy) {
   let recommendedStops = null;
   for (const c in degByCompound) {
     const st = degByCompound[c].stintLaps;
-    if (st > 0) { const n = Math.max(1, Math.ceil(TRACK.laps / st) - 1); recommendedStops = recommendedStops == null ? n : Math.min(recommendedStops, n); }
+    if (st > 0) { const n = Math.max(1, Math.ceil((ctx.track || TRACK).laps / st) - 1); recommendedStops = recommendedStops == null ? n : Math.min(recommendedStops, n); }
   }
   return { degByCompound, recommendedStops };
 }
@@ -322,9 +325,26 @@ export async function joinGame(code, useP2P) {
 // solo: single player engineers car p1; teammate + grid are AI. No network.
 export function startSolo() {
   ctx.role = "host"; ctx.myPlayer = "p1"; ctx.solo = true; ctx.net = null;
+  ctx.track = ctx.track || defaultRaceTrack();   // default Barcelona (with mini) unless a quick-race set it
   ctx.weekend.solo = true;
   requestAnimationFrame(hostLoop);
   ctx.weekend.start();
 }
 
-rerender();
+// quick race straight onto an edited track (from the editor's 🏁 button) — skip lobby/practice/quali.
+export function startQuickRace(edited) {
+  ctx.role = "host"; ctx.myPlayer = "p1"; ctx.solo = true; ctx.net = null;
+  ctx.track = trackFromEdited(edited);
+  ctx.trackName = edited.name || null;            // 3D/minimap reads the edited circuit by name
+  ctx.weekend.solo = true;
+  requestAnimationFrame(hostLoop);
+  ctx.weekend._goto("race");                      // jump to the race phase (fires onPhase -> startRaceHost)
+}
+
+const _quick = (typeof localStorage !== "undefined") ? localStorage.getItem("apexweb_race_track") : null;
+if (_quick) {
+  localStorage.removeItem("apexweb_race_track");
+  const saved = loadAll()[_quick];
+  if (saved && Array.isArray(saved.points) && saved.points.length >= 8) startQuickRace({ name: _quick, ...saved });
+  else rerender();                                // stale flag -> normal boot
+} else { rerender(); }
