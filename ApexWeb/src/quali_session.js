@@ -82,3 +82,29 @@ export function carView(s, player) {
   return car ? { idx: car.idx, phase: car.phase, tyre: car.tyre, softSets: car.softSets,
     bestTime: car.bestTime, eliminated: car.eliminated, gridPos: car.gridPos } : null;
 }
+
+// classify the current segment: sort active cars fastest-first (no-time → last by idx), eliminate the
+// slowest ELIM[seg], and give each eliminated car the lowest free grid slot from the back (P22, P21, …).
+export function advanceSegment(s) {
+  const seg = s.segment;                                              // 1|2|3
+  const active = Object.values(s.cars).filter(c => !c.eliminated);
+  active.sort((a, b) => (a.segBest - b.segBest) || (a.idx - b.idx));  // fastest first; Infinity ties → by idx
+  const elim = QUALI2.ELIM[seg - 1];
+  const survivors = active.length - elim;
+  for (let i = active.length - 1; i >= survivors; i--) {              // slowest first → lowest free slot
+    const c = active[i]; c.eliminated = true; c.gridPos = s._bottom--;
+  }
+  if (seg < 3) {                                                      // carry survivors into the next segment
+    s.segment = seg + 1; s.clock = QUALI2.SEG_SEC[seg]; s.paused = true; s.flag = null;
+    for (let i = 0; i < survivors; i++) { const c = active[i]; c.segBest = Infinity; c.phase = "pit"; c.lapAcc = 0; c.lapsThisRun = 0; }
+  } else {                                                            // Q3 done: survivors take P1..P10 (fastest = P1)
+    for (let i = 0; i < survivors; i++) { active[i].eliminated = true; active[i].gridPos = i + 1; }
+    s.segment = 4;                                                    // sentinel: quali complete
+  }
+  return s;
+}
+
+export function finalGrid(s) {
+  const all = Object.values(s.cars).slice().sort((a, b) => a.gridPos - b.gridPos);
+  return all.map((c, i) => ({ idx: c.idx, abbrev: c.abbrev, pos: i + 1, time: c.bestTime }));
+}

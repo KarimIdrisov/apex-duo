@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { newQuali, release, qualiStep, carView } from "../src/quali_session.js";
+import { newQuali, release, qualiStep, carView, advanceSegment, finalGrid } from "../src/quali_session.js";
 import { TEAMS, TRACK } from "../src/data.js";
 import { driverAttrs, composeCar } from "../src/team.js";
 
@@ -27,4 +27,17 @@ test("determinism: same seed + same release → identical flying time", () => {
     s = release(s, "p1", "fresh", "steady"); for (let i = 0; i < 600; i++) s = qualiStep(s, 1.0);
     return carView(s, "p1").bestTime; };
   assert.equal(run(), run());
+});
+
+test("a full knockout yields a 22-car grid: Q1 drops 7, Q2 drops 5, Q3 sets P1..P10", () => {
+  let s = newQuali(11, field()); s.paused = false; s.speed = 8;
+  let g = 0; while (s.segment <= 3 && g++ < 20000) {
+    s = qualiStep(s, 2.0);
+    if (s.clock <= 0 && s.segment <= 3) s = advanceSegment(s);
+  }
+  const grid = finalGrid(s);
+  assert.equal(grid.length, 22, "22-car grid");
+  assert.equal(new Set(grid.map(r => r.idx)).size, 22, "no duplicate cars");
+  assert.deepEqual(grid.map(r => r.pos), Array.from({ length: 22 }, (_, i) => i + 1), "positions 1..22");
+  assert.ok(grid[21].pos === 22, "P22 is the slowest Q1 car");
 });
