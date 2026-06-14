@@ -267,10 +267,10 @@ export const QUALI2 = {
   YELLOW_PENALTY: 0.6,       // flat time added to a lap run under a yellow
   SPEEDS: [1, 2, 4, 8],      // time-acceleration multipliers
   PUSH_GAIN: 0.6,         // s/lap from save(0) to max(3) push (full-lap; per sector ∝ frac)
-  TRACK_SAFETY: 0.7,      // track knowledge cuts risk + variance: safety = 1 - TRACK_SAFETY*trackKnow
+  TRACK_SAFETY: 0.85,     // track knowledge cuts risk + variance: safety = 1 - TRACK_SAFETY*trackKnow
   SEC_VAR_BASE: 0.03,     // sector time noise at push 0
   SEC_VAR_PUSH: 0.10,     // + this much noise at push 3
-  OFF_BASE: 0.05,         // per-sector "off" (lap-deleting) chance at push 3, trackKnow 0 (× pushN² × safety)
+  OFF_BASE: 0.09,         // per-sector "off" (lap-deleting) chance at push 3, trackKnow 0 (× pushN² × safety)
   LOCK_BASE: 0.10,        // per-sector lock-up chance at push 3, trackKnow 0 (× pushN × safety)
   LOCK_MIN: 0.2,          // lock-up time loss min (s)
   LOCK_MAX: 0.8,          // lock-up time loss max (s)

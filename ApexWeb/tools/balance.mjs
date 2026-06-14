@@ -6,7 +6,7 @@
 import { Race } from "../src/sim.js";
 import { TEAMS, TRACK, COMPOUNDS, QUALI2 } from "../src/data.js";
 import { driverAttrs, composeCar, genPersonnel } from "../src/team.js";
-import { newQuali, qualiStep, advanceSegment, finalGrid } from "../src/quali_session.js";
+import { newQuali, qualiStep, advanceSegment, finalGrid, release, setPush } from "../src/quali_session.js";
 
 function field() {
   let idx = 0;
@@ -281,4 +281,34 @@ console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0
   console.log(`quali: all 22 classified, unique positions = ${ok}/${NQ} sessions`);
   console.log(`quali: pole→P22 spread = ${spread.toFixed(2)} s/lap  (target ~1.5-5: racing, not a procession/chaos)`);
   console.log(`quali: track evolution over the session = ${gripGain.toFixed(2)} s  (rubbering effect)`);
+}
+
+// quali deletion-rate corridor: push vs track knowledge risk probe
+{
+  function probeField() {
+    let idx = 0;
+    return TEAMS.flatMap(t => t.drivers.map(d => {
+      const i = idx++;
+      return { idx: i, abbrev: d.abbrev, drv: { skill: d.skill, attrs: driverAttrs(d.abbrev, d.skill) },
+        car: composeCar(t.car), setupBonus: 0, player: i === 0 ? "p1" : null };
+    }));
+  }
+  const probe = (tk, pushLabel, lvl) => {
+    let s = newQuali(4242, probeField()); s.paused = false; s.speed = 8;
+    let del = 0, set = 0;
+    for (let run = 0; run < 20; run++) {
+      const car = Object.values(s.cars).find(c => c.player === "p1");
+      if (!car) return { del: -1, set: -1 };
+      car.phase = "pit"; car.softSets = 9; car.trackKnow = tk;
+      s.clock = QUALI2.SEG_SEC[0];
+      s = release(s, "p1", "fresh", pushLabel); setPush(s, "p1", lvl);
+      for (let i = 0; i < 400 && Object.values(s.cars).find(c => c.player === "p1").phase !== "pit"; i++) s = qualiStep(s, 1.0);
+      const c2 = Object.values(s.cars).find(c => c.player === "p1");
+      if (c2._lastDeleted) del++; else if (isFinite(c2.bestTime)) set++;
+    }
+    return { del, set };
+  };
+  const lo = probe(0.0, "max", 3), hi = probe(1.0, "max", 3), safe = probe(0.0, "save", 0);
+  console.log(`quali risk: max-push deletes — trackKnow 0: ${lo.del}/20, trackKnow 1: ${hi.del}/20  (expect 0 ≫ 1)`);
+  console.log(`quali risk: save policy always sets a time — ${safe.set}/20  (expect 20)`);
 }
