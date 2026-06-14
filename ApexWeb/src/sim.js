@@ -12,7 +12,7 @@ import { PASS_CREDIT_CAP, PASS_CREDIT_DECAY, DIRTY_PACE_K, LAP1_CAUTION,
   ORDER_MISTAKE_BASE, ORDER_MISTAKE_RAMP, ORDER_MISTAKE_SCRUB_MIN, ORDER_MISTAKE_SCRUB_MAX } from "./data.js";
 import { scheduleSC } from "./events.js";
 import { scheduleWeather, wetnessAt, weatherTerm } from "./weather.js";
-import { planRace, pitDecision, engineMode, paceMode } from "./ai_strategy.js";
+import { planRace, pitDecision, engineMode, paceMode, combatOrder } from "./ai_strategy.js";
 import { ATTR_KEYS } from "./team.js";
 
 const ENGINE_KEYS = new Set(["save", "standard", "push"]);
@@ -371,9 +371,12 @@ export class Race {
       const canPass = (c._passCredit || 0) > 0;
       const lapsLeft = this.track.laps - c.lap;
       const fl = fuelLaps(c.fuel, c.engine, c.car.fuel);
-      const ctx = { pos: c.pos, gapAhead, gapBehind, dirtyAir, canPass, lapsLeft, fuelLaps: fl, difficulty: this.difficulty };
+      const edgeAhead = (ahead && !ahead.retired) ? (this._lapTime(ahead) - this._lapTime(c)) : 0;   // >0 = c faster than the car ahead
+      const behindFaster = (behind && !behind.retired) ? (this._lapTime(c) - this._lapTime(behind)) > 0.1 : false;
+      const ctx = { pos: c.pos, gapAhead, gapBehind, dirtyAir, canPass, lapsLeft, fuelLaps: fl, difficulty: this.difficulty, edgeAhead, behindFaster };
       c.engine = engineMode(c, ctx);
       c.pace = paceMode(c, ctx);
+      c.order = combatOrder(c, ctx);
     }
   }
 

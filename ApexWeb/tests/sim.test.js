@@ -630,8 +630,9 @@ test("an attacking car in a sustained fight wears its tyres faster + never DNFs 
     const a = r.cars[0], b = r.cars[1];
     const car = { ...a.car, rel: 1 };
     a.car = car; b.car = car; b.skill = a.skill; b.attrs = { ...a.attrs };
-    b.order = order;
+    b.player = "p1";   // a player's car — its order persists (the AI brain only sets orders for AI cars)
     for (let i = 0; i < 6000; i++) {
+      b.order = order;   // re-affirm the player's order each tick (defensive; b is skipped by _aiDrive anyway)
       r.step();
       if (!a.retired && !b.retired && a.lap === b.lap) {
         const gap = (a.lapFrac - b.lapFrac) * TRACK.lt;

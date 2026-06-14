@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { stintLife, planRace, pitDecision, engineMode, paceMode } from "../src/ai_strategy.js";
+import { stintLife, planRace, pitDecision, engineMode, paceMode, combatOrder } from "../src/ai_strategy.js";
 import { TRACK, COMPOUNDS } from "../src/data.js";
 
 const aiCar = (over = {}) => ({
@@ -64,4 +64,14 @@ test("paceMode push is gated by race_iq × difficulty (sharp AI attacks, easy AI
   const attack = { dirtyAir: false, canPass: false, gapAhead: 0.7 };
   assert.equal(paceMode(c, { ...attack, difficulty: 1.0 }), "push", "hard AI attacks");
   assert.equal(paceMode(c, { ...attack, difficulty: 0.55 }), "balanced", "easy AI holds station");
+});
+
+test("combatOrder: attack when clearly faster + close ahead; defend when pressured; else none", () => {
+  const car = { car: { tyre: 1 }, tyre: "medium", wear: 5, attrs: { race_iq: 0.8, aggression: 0.8, defending: 0.8 } };
+  const attack = combatOrder(car, { edgeAhead: 0.6, gapAhead: 0.5, gapBehind: null, behindFaster: false, difficulty: 1 });
+  assert.equal(attack, "attack");
+  const defend = combatOrder(car, { edgeAhead: 0, gapAhead: null, gapBehind: 0.4, behindFaster: true, difficulty: 1 });
+  assert.equal(defend, "defend");
+  const none = combatOrder(car, { edgeAhead: 0, gapAhead: 5, gapBehind: 5, behindFaster: false, difficulty: 1 });
+  assert.equal(none, "none");
 });
