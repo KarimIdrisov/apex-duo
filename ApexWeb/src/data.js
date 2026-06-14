@@ -235,7 +235,7 @@ export const PRAC2 = {
   MAX_HALF: 0.45,         // ideal-window half-width at track knowledge 0 (≈ whole range)
   MIN_HALF: 0.02,         // half-width floor at track knowledge 1
   WIN_P: 1.5,             // half = MIN + (MAX-MIN)*(1-trackKnow)^WIN_P
-  WIN_JITTER: 0.28,       // window-centre offset at track knowledge 0 (shrinks to 0); 0.40 → P1 setup ≈ 60%
+  WIN_JITTER: 0.28,       // window-centre offset at track knowledge 0 (shrinks to 0); tuned so P1 setup ≈ 58%
   KNOW_VAGUE: 0.25,       // below this track knowledge the axis reads "мало кругов"
   CONFIRM_LAPS: 2,        // flying laps on a value before its satisfaction is confirmed
   SAT_TOL: 0.18,          // axisSat = clamp(1-(|v-opt|/SAT_TOL)^2,0,1)
