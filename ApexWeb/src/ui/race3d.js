@@ -15,7 +15,7 @@ const DELAY = 120;                 // render this many ms behind the newest snap
 const POS_EASE = 0.35;             // low-pass the rendered car position — kills snapshot-interp micro-judder up close
 const CLOSE_PROG = 0.012;          // gap (lap-fractions) under which a follower side-steps to pass
 const CORNER_R = 0.10;             // centerline radius (normalized) below which a sample counts as a corner (kerbs)
-const CAR_HALF = 0.20;             // car half-width as a fraction of the track half-width (lateral-clamp margin)
+const CAR_HALF = 0.30;             // car half-width as a fraction of the track half-width (bigger cars -> keep them on the road)
 const SECTOR_COL = [0x5aa0ff, 0xffce47, 0x46d08a];
 const ASPHALT = 0x2c2c33, ASPHALT_SC = 0x4a4626, GRASS = 0x1f3a22;
 const KERB_RED = [0.86, 0.16, 0.18], KERB_WHITE = [0.88, 0.88, 0.9];
@@ -48,7 +48,7 @@ export function init(canvas, ctx) {
   const geos = [];                                 // every runtime geometry, freed in dispose()
   const texs = [];                                 // every runtime texture, freed in dispose()
   const HW_N = HALF_W / sc;                          // half-width in normalized units
-  const LANE_LAT = HW_N * 0.45, SIDE_LAT = HW_N * 0.34;   // racing-line + side-step lateral range (kept on asphalt)
+  const LANE_LAT = HW_N * 0.45, SIDE_LAT = HW_N * 0.22;   // racing-line + side-step lateral range (side-step gentler so corners don't jolt)
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setClearColor(0x0a0a0c, 1);
@@ -188,7 +188,7 @@ export function init(canvas, ctx) {
     const g = makeCar(bodyMat);
     const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, side: THREE.DoubleSide }); mats.push(ringMat);
     const ring = new THREE.Mesh(ringGeo, ringMat); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.09; g.add(ring);
-    cars[c.idx] = { group: g, ring, lat: 0 }; scene.add(g);
+    g.scale.setScalar(1.4); cars[c.idx] = { group: g, ring, lat: 0 }; scene.add(g);   // bigger cars — easier to read
   }
   // pit-lane parking spot: start/finish, offset outward by ~2.4 half-widths
   const pitN = tangentAt(cl, 0), pitP = pointAt(cl, 0);
@@ -197,7 +197,7 @@ export function init(canvas, ctx) {
   // --- camera: orbit the whole track, or chase a car (ctx._cam3d.mode/target).
   // Drag adjusts the angle; the frame loop repositions every frame (smooth pan/zoom). ---
   let azim = -35 * Math.PI / 180, elev = 42 * Math.PI / 180, zoom = 1;   // zoom = wheel-controlled distance multiplier
-  const ORBIT_DIST = b.size * 1.6 * sc, CHASE_DIST = 14;   // camera distance (world units)
+  const ORBIT_DIST = b.size * 1.15 * sc, CHASE_DIST = 14;   // camera distance (world units) — tighter so the track fills the view
   const ORIGIN0 = new THREE.Vector3(0, 0, 0);
   const camTarget = new THREE.Vector3(0, 0, 0);            // smoothed look-at point
   let curDist = ORBIT_DIST;
@@ -280,7 +280,7 @@ export function init(canvas, ctx) {
         if (gapProg > 0 && gapProg < CLOSE_PROG) side = ((c.idx % 2) ? 1 : -1) * SIDE_LAT;
       }
       const tlat = racingLineOffset(cl, prog, LANE_LAT) + side;
-      car.lat += (tlat - car.lat) * 0.12;                        // ease toward target (smooth)
+      car.lat += (tlat - car.lat) * 0.07;                        // ease toward the racing line gently so corner entry doesn't jolt
       const maxLat = Math.max(0, HW_N - CAR_HALF * HW_N);        // keep the car body on the painted constant-width road
       car.lat = Math.max(-maxLat, Math.min(maxLat, car.lat));
       const p = offsetPoint(cl, prog, car.lat), t = tangentAt(cl, prog);
