@@ -20,6 +20,7 @@ import { loadAll } from "./track_store.js";
 import * as seasonUI from "./ui/season.js";
 import { newCareer, newSeason, currentRound, applyResult, advanceRound, chooseTitleSponsor } from "./career.js";
 import { careerTrack } from "./track_build.js";
+import { effectiveCar, startProject } from "./development.js";
 import { saveCareer } from "./career_store.js";
 
 const SCREENS = { lobby, practice1: practice, practice2: practice, practice3: practice, quali, race, result: race };
@@ -114,6 +115,9 @@ function onCommand(cmd) {
     case "career_sponsor":
       if (ctx.career) { chooseTitleSponsor(ctx.career, cmd.offerIdx); saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
+    case "career_project":
+      if (ctx.career) { startProject(ctx.career, cmd.indicator, cmd.size); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
     case "career_start_weekend":
       if (ctx.career && !ctx.career.done && !(ctx.career.pendingOffers && ctx.career.pendingOffers.length)) {
         ctx.careerReady[cmd.player] = true; publishCareer(); rerender();
@@ -202,7 +206,7 @@ function buildField() {
     const setup = (player && ctx.setups && ctx.setups[player]) ? ctx.setups[player] : [0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
     return {
       idx: idx++, name: d.name, abbrev: d.abbrev, skill: d.skill,
-      car: composeCar(t.car), color: t.color, team: t.name, isPlayer: isPlayerTeam, player,
+      car: composeCar(ctx.career ? effectiveCar(t.car, ctx.career.carDev[t.name]) : t.car), color: t.color, team: t.name, isPlayer: isPlayerTeam, player,
       attrs: driverAttrs(d.abbrev, d.skill), personnel: genPersonnel(t.facility, ti),
       setup, setupBonus: player
         ? pracSetupBonus(player) + PRAC2.TRACK_PACE * pracTrackKnow(player)
@@ -235,7 +239,8 @@ function analyzeStrategy(strategy) {
 function practiceCars() {
   const t = TEAMS[ctx.teamIdx] || TEAMS[0];
   const personnel = genPersonnel(t.facility, ctx.teamIdx || 0);   // shared crew/facility → speeds setup learning a little
-  const mk = di => ({ drv: { skill: t.drivers[di].skill, attrs: driverAttrs(t.drivers[di].abbrev, t.drivers[di].skill) }, car: composeCar(t.car), personnel });
+  const car = composeCar(ctx.career ? effectiveCar(t.car, ctx.career.carDev[t.name]) : t.car);
+  const mk = di => ({ drv: { skill: t.drivers[di].skill, attrs: driverAttrs(t.drivers[di].abbrev, t.drivers[di].skill) }, car, personnel });
   return { p1: mk(0), p2: mk(1) };
 }
 // broadcast the live practice-session snapshot (clock + per-car setup/knowledge) to both screens.
