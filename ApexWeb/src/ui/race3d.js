@@ -143,7 +143,7 @@ export function init(canvas, ctx) {
     pg.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
     pg.setAttribute("normal", new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
     pg.setIndex([0, 1, 2, 0, 2, 3]);
-    const pm = new THREE.MeshStandardMaterial({ map: tex, roughness: 1, metalness: 0 }); mats.push(pm);
+    const pm = new THREE.MeshStandardMaterial({ map: tex, roughness: 1, metalness: 0, side: THREE.DoubleSide }); mats.push(pm);   // camera is always above; DoubleSide so the down-facing quad still renders
     const pmesh = new THREE.Mesh(pg, pm); pmesh.receiveShadow = true; scene.add(pmesh);
   }
 
