@@ -42,3 +42,9 @@ test("a pass without a zone still works (default line)", () => {
   const s = describe({ type: "pass", lap: 5, abbr: "NOR", abbrB: "LEC" });
   assert.ok(typeof s === "string" && s.includes("NOR") && s.includes("LEC"));
 });
+
+test("incident + lockup events produce a non-empty Russian line", () => {
+  assert.ok(describe({ type: "incident", lap: 4, a: 2, abbr: "VER", dnf: true }).length > 0);
+  assert.ok(describe({ type: "incident", lap: 4, a: 2, abbr: "VER", dnf: false }).length > 0);
+  assert.ok(describe({ type: "lockup", lap: 7, a: 1, abbr: "LEC" }).length > 0);
+});
