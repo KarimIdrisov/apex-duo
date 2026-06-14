@@ -1,10 +1,10 @@
 // ApexWeb/src/ui/quali.js — live qualifying SESSION screen (timing tower).
 // Renders the host snapshot (ctx.snapshot when phase==="quali"): a running game-clock + speed/pause
 // controls, a track-grip read + flag banner, a 22-car live timing tower with a drop-zone cut line, and
-// a per-player control card (tyre / push / release / abort). The tyre+push picks are LOCAL state
-// (ctx.qTyre / ctx.qPush); every committed action is sent to the host (quali_release / quali_abort /
-// quali_speed / quali_pause / ready). The host pushes a fresh snapshot ~15 Hz, so we just repaint the
-// whole subtree each tick — the controls are buttons/segments (no drag), so a full re-render is fine.
+// a per-player live-lap card (tyre / sector deltas / live push / release / abort). The tyre pick is LOCAL
+// state (ctx.qTyre); push is host state set live via quali_push. Every committed action is sent to the host
+// (quali_release / quali_abort / quali_push / quali_speed / quali_pause / ready). The host pushes a fresh
+// snapshot ~15 Hz; the repaint gate keeps controls clickable while the clock patches in place.
 import { DRIVER_INFO, QUALI2 } from "../data.js";
 
 // mm:ss for the game-seconds session clock.
