@@ -162,9 +162,11 @@ export class Race {
         const drvTyre = 1 - ATTRW.wear * (A(c).tyre - 0.5) * 2;          // <1 = kinder driver
         const carTyre = 1.2 - ATTRW.carWear * (c.car.tyre ?? 1);         // car.tyre 1.0 = neutral (1.0)
         const drvSmooth = 1 - ATTRW.smoothWear * (A(c).smoothness - 0.5) * 2;   // smooth inputs save the tyres a touch (§18.7 r3)
-        c.wear += (comp.wear * pm.wear * drvTyre * carTyre * drvSmooth) + c._dirtyWear;
+        const orderWear = c._orderBit ? (c.order === "attack" ? ATTACK_WEAR_MULT : c.order === "defend" ? DEFEND_WEAR_MULT : 1) : 1;
+        c.wear += (comp.wear * pm.wear * drvTyre * carTyre * drvSmooth * orderWear) + c._dirtyWear;
         c._dirtyWear = 0;
         c.tyreTemp = warmStep(c.tyreTemp, c.tyre);
+        this._serveOrderCost(c);   // temp scrub + held-lap counter + lap-keyed lock-up roll (clears _orderBit)
         const smooth = 1.1 - ATTRW.fuel * A(c).smoothness;              // smoother driver burns a touch less
         c.fuel -= burnFor(c.engine, c.car.fuel) * smooth;
         c.tyreAge += 1;
@@ -415,6 +417,28 @@ export class Race {
     const pm = PACE_MODES[c.pace];
     const consist = 1 + DNF_CONSIST * (this.consMean - A(c).consistency) * 2;   // jittery-vs-field driver → more incidents; field-neutral so the DNF rate holds (§18.7 r3)
     if (this.erng.unit() < DNF_BASE * (1 - c.car.rel) * pm.risk * consist) c.retired = true;
+  }
+
+  // order upkeep at a completed lap: while an order bit this lap, scrub temp + count held laps + roll a
+  // lock-up (lap-keyed). A lock-up scrubs a chunk of tyre temp (organic pace loss as it re-warms) and
+  // wipes pass-credit (the move is lost). NEVER a DNF — explicit contact risk stays on the bold lunge.
+  _serveOrderCost(c) {
+    if (!c._orderBit) { c._orderLaps = 0; return; }
+    c._orderLaps += 1;
+    const scrub = c.order === "attack" ? ATTACK_SCRUB : DEFEND_SCRUB;
+    c.tyreTemp = Math.max(0.1, c.tyreTemp - scrub);
+    if (c.lap >= 1) {
+      const mr = this._keyRng(c.idx, c.lap, 1);
+      const focus = c.order === "attack" ? (1 - A(c).composure) : (1 - A(c).discipline);   // composed/disciplined err less
+      const wearTemp = 1 + c.wear / 100 + (1 - c.tyreTemp);                                 // worn/cold tyres → riskier
+      const p = ORDER_MISTAKE_BASE * (1 + ORDER_MISTAKE_RAMP * c._orderLaps) * wearTemp * (0.5 + focus);
+      if (mr.unit() < p) {
+        c.tyreTemp = Math.max(0.1, c.tyreTemp - mr.range(ORDER_MISTAKE_SCRUB_MIN, ORDER_MISTAKE_SCRUB_MAX));
+        c._passCredit = 0;
+        this._emit({ type: "lockup", lap: c.lap, a: c.idx, abbr: c.abbrev });
+      }
+    }
+    c._orderBit = false;
   }
 
   // race position: more laps first, then further along current lap

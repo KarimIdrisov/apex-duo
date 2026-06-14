@@ -624,6 +624,26 @@ test("attack order builds pass-credit faster than neutral", () => {
   assert.ok(creditAfter("attack") > creditAfter("none"), "attacking accrues more credit");
 });
 
+test("an attacking car in a sustained fight wears its tyres faster + never DNFs from the order", () => {
+  function wearAfter(order, seed) {
+    const r = new Race(field(), TRACK, seed);
+    const a = r.cars[0], b = r.cars[1];
+    const car = { ...a.car, rel: 1 };
+    a.car = car; b.car = car; b.skill = a.skill; b.attrs = { ...a.attrs };
+    b.order = order;
+    for (let i = 0; i < 6000; i++) {
+      r.step();
+      if (!a.retired && !b.retired && a.lap === b.lap) {
+        const gap = (a.lapFrac - b.lapFrac) * TRACK.lt;
+        if (gap > COMBAT_GAP * 0.5 || gap < 0) b.lapFrac = a.lapFrac - (COMBAT_GAP * 0.3) / TRACK.lt;
+      }
+    }
+    return { wear: b.wear, retired: b.retired, laps: b.lap };
+  }
+  const atk = wearAfter("attack", 11), none = wearAfter("none", 11);
+  assert.ok(atk.wear > none.wear, `attacker wears more (${atk.wear.toFixed(1)} vs ${none.wear.toFixed(1)})`);
+});
+
 test("defend order makes a follower pass less often than a neutral leader", () => {
   function passes(order) {
     let count = 0;
