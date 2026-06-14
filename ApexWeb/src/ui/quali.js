@@ -183,7 +183,7 @@ export function render(root, ctx) {
   };
   const releaseEl = root.querySelector("#q-release");
   if (releaseEl) releaseEl.onclick = () => {
-    if (me && me.phase === "pit") ctx.send({ cmd: "quali_release", player: ctx.myPlayer, tyre: ctx.qTyre, push: ctx.qPush });
+    if (me && me.phase === "pit") ctx.send({ cmd: "quali_release", player: ctx.myPlayer, tyre: ctx.qTyre });   // push is live via #q-push (defaults to steady on release)
   };
   const abortEl = root.querySelector("#q-abort");
   if (abortEl) abortEl.onclick = () => {
