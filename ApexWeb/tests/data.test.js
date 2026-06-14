@@ -106,7 +106,7 @@ test("difficulty presets ascend easy<normal<hard in [0,1] with labels", () => {
 import { PRAC2 } from "../src/data.js";
 test("PRAC2 has sane knowledge/session tuning", () => {
   assert.ok(PRAC2.AXES === 6, "6 setup axes");
-  assert.ok(PRAC2.KNOW_PER_LAP > 0 && PRAC2.KNOW_PER_LAP < 0.2);
+  assert.ok(PRAC2.TRACK_PER_LAP > 0 && PRAC2.TRACK_PER_LAP < 0.2);
   assert.ok(PRAC2.MAX_HALF > 0.3 && PRAC2.MAX_HALF <= 0.5);
   assert.ok(PRAC2.CONFIRM_LAPS >= 1 && PRAC2.SAT_TOL > 0.1 && PRAC2.SAT_TOL < 0.3);
   assert.ok(PRAC2.SESSION_SEC >= 600 && PRAC2.SPEEDS.includes(8) && PRAC2.AUTOSIM_MULT < 1);
