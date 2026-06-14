@@ -2,7 +2,7 @@
 // per-position "straightness" derived from the real outline (TRACK_PATH curvature).
 // Pure module. sampleAt() locates a car for Phase-4 combat; miniSplits() distributes
 // a lap time across the minis by the car's power(straights)/aero(corners) fit.
-import { FIT_K } from "./data.js";
+import { FIT_K, TRACK_PATH, TRACK } from "./data.js";
 
 export const N_MINI = 18, N_SECTOR = 3;
 
@@ -31,7 +31,6 @@ export function buildMini(outline) {
   return raw.map((a, m) => ({ straightness: 1 - a / maxA, lenFrac: 1 / N_MINI, sector: Math.floor(m / (N_MINI / N_SECTOR)) }));
 }
 
-import { TRACK_PATH, TRACK } from "./data.js";
 export const MINI = buildMini(TRACK_PATH);
 // Stamp mini onto the default TRACK object so Race(field, TRACK, seed) works without callers
 // having to manually set track.mini. Other tracks must set their own .mini before passing to Race.
