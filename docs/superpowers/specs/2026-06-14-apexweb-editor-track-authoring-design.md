@@ -164,3 +164,8 @@ unchanged by this work. Determinism/netcode are unaffected because nothing here 
 - Auto-generating zones from curvature for the full calendar.
 - FastF1 real-calendar wiring (TODO #3).
 - Applying edited tracks' character to the existing single-track race.
+- **(Noted Шаг-2 guardrail — balance safety)** an in-editor "balance check": run the Python corridor
+  harness on the edited track and surface overtakes/lap-spread/DNF, so a badly-authored *custom*
+  track is caught before it's raced competitively (TODO #3b). Built-in calibrated tracks stay
+  authoritative and are unaffected by editor edits — balance risk exists only for user-authored
+  tracks, and only once Шаг 2 wires the sim to read them.
