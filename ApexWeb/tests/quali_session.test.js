@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { newQuali, release, qualiStep, carView, advanceSegment, finalGrid, trafficFor, rollFlag, redFlag } from "../src/quali_session.js";
+import { newQuali, release, qualiStep, carView, advanceSegment, finalGrid, trafficFor, rollFlag, redFlag, qualiSnapshot } from "../src/quali_session.js";
 import { TEAMS, TRACK, QUALI2 } from "../src/data.js";
 import { driverAttrs, composeCar } from "../src/team.js";
 
@@ -80,4 +80,18 @@ test("rollFlag is deterministic and raised by attack push", () => {
   const cnt = (push) => { let n = 0; for (let i = 0; i < 400; i++) if (rollFlag(s, i, push)) n++; return n; };
   assert.ok(cnt("attack") >= cnt("steady"), "attack ≥ steady incident rate");
   assert.equal(rollFlag(s, 7, "attack"), rollFlag(s, 7, "attack"), "deterministic for same (lap, push)");
+});
+test("AI cars all set a time over a segment, and the snapshot exposes the tower", () => {
+  let s = newQuali(13, field()); s.paused = false; s.speed = 8;
+  let g = 0; while (s.clock > 0 && g++ < 5000) s = qualiStep(s, 2.0);
+  const aiCars = Object.values(s.cars).filter(c => c.player == null);
+  assert.ok(aiCars.every(c => c.segBest < Infinity), "every AI set a time in Q1");
+  const snap = qualiSnapshot(s);
+  assert.equal(snap.phase, "quali"); assert.equal(snap.segment, 1);
+  assert.equal(snap.tower.length, 22);
+  // tower is in running order: any car with a time is ahead of any car without one
+  const times = snap.tower.map(r => r.time);
+  const lastTimed = times.lastIndexOf(times.filter(t => t != null).slice(-1)[0]);
+  const firstNull = times.indexOf(null);
+  assert.ok(firstNull === -1 || lastTimed < firstNull || times.every(t => t != null), "timed cars sorted ahead of no-time cars");
 });

@@ -87,6 +87,29 @@ function completeLap(s, car) {
   if (car.phase === "inlap") { car.phase = "pit"; return; }
 }
 
+// host-simulated AI: each non-player car does a staggered banker run, then a final run on a faster track.
+// Release windows are jittered per car (stateless) so the field doesn't all run at once.
+// A safety run fires if a car still has no time set and the clock allows ≥2 laps; this covers
+// cars whose banker was wiped by a red flag.
+function aiReleases(s) {
+  const segLen = QUALI2.SEG_SEC[s.segment - 1];
+  const minClock = LAP_SEC() * 2.2;                                               // need at least 2 laps left
+  for (const idx in s.cars) {
+    const car = s.cars[idx];
+    if (car.player != null || car.eliminated || car.phase !== "pit") continue;
+    if (car._aiSeg !== s.segment) { car._aiSeg = s.segment; car._aiRuns = 0; }   // reset per segment
+    const jitter = lapRng(s, car.idx, s.segment * 13).unit();                     // 0..1, stateless per car/segment
+    const run1At = segLen * (0.92 - 0.12 * jitter);                               // banker, staggered 0.80..0.92 of the clock
+    const run2At = segLen * (0.42 - 0.18 * jitter);                               // final run, staggered 0.24..0.42
+    let go = false, push = "steady";
+    if (car._aiRuns === 0 && s.clock <= run1At) { go = true; push = "steady"; }
+    else if (car._aiRuns === 1 && s.clock <= run2At && s.clock > minClock) { go = true; push = "attack"; }
+    // safety run: no time set yet (red-flag victim) and clock still allows 2 laps
+    else if (car._aiRuns >= 1 && !isFinite(car.segBest) && s.clock > minClock) { go = true; push = "attack"; }
+    if (go) { car._aiRuns = (car._aiRuns || 0) + 1; startRun(s, car, car.softSets > 0 ? "fresh" : "used", push); }
+  }
+}
+
 export function qualiStep(s, dt) {
   if (s.paused) return s;
   if (s.flag && s.flag.type === "red") {                             // red: clock + cars frozen; freeze counts down
@@ -106,6 +129,7 @@ export function qualiStep(s, dt) {
     let guard = 0;
     while (car.lapAcc >= LAP_SEC() && car.phase !== "pit" && guard++ < 8) { car.lapAcc -= LAP_SEC(); completeLap(s, car); }
   }
+  aiReleases(s);
   return s;
 }
 
@@ -142,4 +166,28 @@ export function advanceSegment(s) {
 export function finalGrid(s) {
   const all = Object.values(s.cars).slice().sort((a, b) => a.gridPos - b.gridPos);
   return all.map((c, i) => ({ idx: c.idx, abbrev: c.abbrev, pos: i + 1, time: c.bestTime }));
+}
+
+// the live timing tower + per-player control blocks for the UI/netcode.
+export function qualiSnapshot(s) {
+  const all = Object.values(s.cars);
+  const ranked = all.slice().sort((a, b) => {
+    if (a.eliminated !== b.eliminated) return a.eliminated ? 1 : -1;              // active above eliminated
+    if (!a.eliminated) return (a.segBest - b.segBest) || (a.idx - b.idx);         // active by this-segment best
+    return a.gridPos - b.gridPos;                                                 // eliminated by their locked slot
+  });
+  const leader = ranked.find(c => isFinite(c.segBest));
+  const cut = QUALI2.IN[Math.min(s.segment, 3) - 1] - QUALI2.ELIM[Math.min(s.segment, 3) - 1];
+  const tower = ranked.map((c, i) => ({
+    idx: c.idx, abbrev: c.abbrev, pos: i + 1,
+    time: isFinite(c.bestTime) ? c.bestTime : null,
+    gap: (leader && isFinite(c.segBest) && isFinite(leader.segBest) && c !== leader) ? c.segBest - leader.segBest : null,
+    tyre: c.tyre, phase: c.phase, eliminated: c.eliminated, player: c.player,
+  }));
+  const posOf = idx => { const r = tower.find(t => t.idx === idx); return r ? r.pos : 0; };
+  const block = (player) => { const c = all.find(x => x.player === player); return c ? {
+    phase: c.phase, tyre: c.tyre, softSets: c.softSets, bestTime: isFinite(c.bestTime) ? c.bestTime : null,
+    pos: posOf(c.idx), eliminated: c.eliminated } : null; };
+  return { type: "snapshot", phase: "quali", segment: s.segment, clock: s.clock, speed: s.speed,
+    paused: s.paused, grip: s.grip, flag: s.flag, cut, tower, cars: { p1: block("p1"), p2: block("p2") } };
 }
