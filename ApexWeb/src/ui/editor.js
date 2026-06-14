@@ -1,6 +1,6 @@
 // ApexWeb/src/ui/editor.js — standalone top-down track editor. Drag/add/remove the control points;
 // the road repaints live via the SHARED track_paint (so the editor == the game). Save -> localStorage.
-import { buildCenterline, splinePath, bounds, tangentAt, offsetPoint, racingLineOffset, radiusAt } from "../geom3d.js";
+import { buildCenterline, splinePath, bounds, tangentAt, offsetPoint, racingLineOffset, radiusAt, pointAt, sectorCornerClasses, nearestFrac } from "../geom3d.js";
 import { TRACK_SHAPES, TRACK_NAMES } from "../track_shapes.js";
 import { paintTrack } from "../track_paint.js";
 import { saveTrack, clearTrack, loadAll } from "../track_store.js";
@@ -28,6 +28,15 @@ function computeBase() {
   base = { pad, sc: (cv.width - 2 * pad) / b.size, cx: b.cx, cy: b.cy, size: b.size };
 }
 
+const N_MINI = 18;                                      // mini-sectors = 18 equal lap-fraction spans (matches sim track.js)
+let mode = "edit";                                      // "edit" | "pit" | "zones"
+let pit = null, pitLoss = null;                         // pit-box marker {x,y} + pit-loss seconds
+const zones = [];                                       // [{sectors:[..], ease, type}]  == TRACK.overtake_zones
+let activeZone = -1;                                    // index of the zone being edited, or -1
+let cornerOverrides = {};                               // { sectorIndex: "straight"|"high"|"med"|"low" }
+const ZONE_COL = { brake: "#d83b3b", slip: "#3d7aa0" };
+const CLASS_COL = { straight: "#3a5a38", high: "#46d08a", med: "#ffd24a", low: "#e8453c" };
+
 const toPts = (flat) => { const p = []; for (let i = 0; i < flat.length; i += 2) p.push([flat[i], flat[i + 1]]); return p; };
 const toFlat = (p) => p.flatMap((q) => q);
 const presetFlat = (n) => (n === EMPTY ? OVAL : (TRACK_SHAPES[n] || TRACK_SHAPES[TRACK_NAMES[0]]));
@@ -43,10 +52,14 @@ function loadTrack(n) {
   if (saved && Array.isArray(saved.points) && saved.points.length >= 8) {
     pts = toPts(saved.points);
     objects.length = 0; for (const o of (saved.objects || [])) objects.push({ ...o });
+    pit = saved.pit || null; pitLoss = (typeof saved.pitLoss === "number") ? saved.pitLoss : null;
+    zones.length = 0; for (const z of (saved.zones || [])) zones.push({ sectors: [...z.sectors], ease: z.ease, type: z.type });
+    cornerOverrides = saved.cornerOverrides ? { ...saved.cornerOverrides } : {};
   } else {                                               // fresh preset: decimate the dense path to draggable points
     pts = n === EMPTY ? toPts(OVAL) : decimate(presetFlat(n), 48);
-    objects.length = 0;
+    objects.length = 0; pit = null; pitLoss = null; zones.length = 0; cornerOverrides = {};
   }
+  activeZone = -1;
   if (pts.length < 4) pts = decimate(presetFlat(n), 48);
   view = { zoom: 1, panX: 0, panY: 0 }; base = null;   // fresh fit per track (computed lazily in frame)
   render();
@@ -70,6 +83,8 @@ function render() {
     g.fillStyle = i === drag ? "#ffd24a" : "#7ad0ff"; g.fill(); g.lineWidth = 2; g.strokeStyle = "#0b0d12"; g.stroke();
   }
   for (const o of objects) drawObj(g, C([o.x, o.y]), o);   // placed objects on top
+  if (mode === "zones") drawSectors(g, cl, C, pxPerWorld);
+  if (pit) { const c = C([pit.x, pit.y]); g.fillStyle = "#ffd24a"; g.font = "bold 16px system-ui"; g.textAlign = "center"; g.fillText("⛽", c[0], c[1] + 5); }
   if (driving) for (const car of cars) {                 // kinematic cars riding the racing line (car.lat = eased offset, set in tick)
     const p = offsetPoint(cl, car.frac, car.lat), t = tangentAt(cl, car.frac);
     drawCar(C(p), Math.atan2(t[1], t[0]), car.col);
@@ -131,6 +146,29 @@ function segDist(p, a, b) {                               // distance point->seg
   let t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2; t = Math.max(0, Math.min(1, t));
   return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
 }
+// class of mini-sector m: manual override if set, else auto from curvature
+function sectorClass(cl, classesAuto, m) { return cornerOverrides[m] || classesAuto[m]; }
+// which mini-sector a canvas point falls in (via nearest centerline fraction)
+function sectorAt(mx, my) { return Math.floor(nearestFrac(buildCenterline(splinePath(toFlat(pts))), unproject(mx, my), 360) * N_MINI) % N_MINI; }
+// draw the 18 mini-sectors along the road: each sector tinted by corner class, zone sectors stroked
+// in their type colour (active zone brighter), + a sector number. `pxPerWorld` passed from render().
+function drawSectors(g, cl, C, pxPerWorld) {
+  const classesAuto = sectorCornerClasses(cl, N_MINI);
+  const zoneOf = (m) => { for (let zi = 0; zi < zones.length; zi++) if (zones[zi].sectors.includes(m)) return zi; return -1; };
+  for (let m = 0; m < N_MINI; m++) {
+    const a = m / N_MINI, b = (m + 1) / N_MINI, zi = zoneOf(m);
+    g.beginPath();
+    for (let s = 0; s <= 10; s++) { const c = C(pointAt(cl, a + (b - a) * s / 10)); s ? g.lineTo(c[0], c[1]) : g.moveTo(c[0], c[1]); }
+    g.lineWidth = HALF_W * 2 * 1.5 * pxPerWorld;           // a touch wider than the road, translucent
+    g.globalAlpha = zi >= 0 ? (zi === activeZone ? 0.7 : 0.45) : 0.30;
+    g.strokeStyle = zi >= 0 ? ZONE_COL[zones[zi].type] : CLASS_COL[sectorClass(cl, classesAuto, m)];
+    g.lineCap = "butt"; g.stroke(); g.globalAlpha = 1;
+    const mid = C(pointAt(cl, (a + b) / 2));               // sector number
+    g.fillStyle = "#e8e8ea"; g.font = "10px system-ui"; g.textAlign = "center"; g.fillText(String(m), mid[0], mid[1]);
+  }
+  g.lineCap = "round";
+}
+
 // draw an object's editor icon at canvas point c, rotated by o.rot
 function drawObj(g, c, o) {
   g.save(); g.translate(c[0], c[1]); g.rotate(o.rot || 0); g.lineWidth = 2;
@@ -189,7 +227,18 @@ for (const [t, label] of Object.entries(OBJ)) {
   btn.onclick = () => { armed = armed === t ? null : t; for (const b of pal.querySelectorAll("button")) b.classList.toggle("on", b.dataset.t === armed); };
   pal.appendChild(btn);
 }
-document.getElementById("save").onclick = () => { saveTrack(name, { points: toFlat(pts), objects }); toast("Сохранено: " + name); };
+function setMode(m) {
+  mode = m;
+  for (const b of document.querySelectorAll("#modes button")) b.classList.toggle("on", b.id === "m-" + m);
+  document.getElementById("pitctl").hidden = m !== "pit";
+  document.getElementById("zonectl").hidden = m !== "zones";
+  render();
+}
+document.getElementById("m-edit").onclick = () => setMode("edit");
+document.getElementById("m-pit").onclick = () => setMode("pit");
+document.getElementById("m-zones").onclick = () => setMode("zones");
+document.getElementById("pitloss").oninput = (e) => { const v = parseFloat(e.target.value); pitLoss = isNaN(v) ? null : v; };
+document.getElementById("save").onclick = () => { saveTrack(name, { points: toFlat(pts), objects, pit, pitLoss, zones, cornerOverrides }); toast("Сохранено: " + name); };
 document.getElementById("reset").onclick = () => { clearTrack(name); loadTrack(name); toast("Сброшено к пресету"); };
 document.getElementById("drive").onclick = toggleDrive;
 document.getElementById("export").onclick = () => {     // download the current track as JSON

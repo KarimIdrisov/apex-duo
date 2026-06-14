@@ -17,6 +17,10 @@
 <body><div id="wrap"><canvas id="cv"></canvas><div id="panel">
   <h2>Редактор трассы</h2>
   <div class="row"><select id="preset"></select></div>
+  <div class="row" id="modes"><button id="m-edit" class="on">Точки</button> <button id="m-pit">Пит</button> <button id="m-zones">Зоны</button></div>
+  <div class="row" id="pitctl" hidden>Потеря в питах, с: <input id="pitloss" type="number" step="0.1" style="width:64px"></div>
+  <div class="row" id="zonectl" hidden><button id="z-brake">+ тормозная</button> <button id="z-slip">+ слипстрим</button><br>
+    <span id="zonelist" style="font-size:12px"></span><br>ease: <input id="z-ease" type="range" min="0" max="1" step="0.05" value="0.5" style="width:120px"></div>
   <div class="row"><button id="drive">▶ Прокатить</button></div>
   <div class="row"><button id="fit">⊡ По размеру</button></div>
   <div class="row"><button id="save">💾 Сохранить</button> <button id="reset">↺ Сброс</button></div>
