@@ -10,7 +10,7 @@ const EMPTY = "Пустая";                                 // scratch option:
 const OVAL = (() => { const a = []; for (let i = 0; i < 16; i++) { const t = i / 16 * Math.PI * 2; a.push(0.5 + 0.34 * Math.cos(t), 0.5 + 0.22 * Math.sin(t)); } return a; })();
 const cv = document.getElementById("cv"), g = cv.getContext("2d");
 const sizeCanvas = () => { const s = Math.min(window.innerWidth - 300, window.innerHeight); cv.width = cv.height = Math.max(420, s); };
-sizeCanvas(); window.addEventListener("resize", () => { sizeCanvas(); render(); });
+sizeCanvas(); window.addEventListener("resize", () => { sizeCanvas(); base = null; render(); });
 
 let name = TRACK_NAMES[0];                               // current circuit (a TRACK_SHAPES key, or EMPTY)
 let pts = [];                                            // editable control points: [[x,y],...] normalized 0..1
@@ -20,6 +20,13 @@ const objects = [];                                     // placed objects {type,
 let driving = false, raf = 0, lastT = 0;                // car preview ("прокатить"): kinematic cars on the racing line
 const cars = [];                                        // [{frac, col}] while driving
 const CAR_COLS = ["#e8453c", "#3d7aa0", "#ffd24a", "#46d08a", "#b06fd0", "#e07a1a"];
+
+let view = { zoom: 1, panX: 0, panY: 0 };               // editor zoom/pan on top of the base fit
+let base = null;                                        // stable base fit {pad,sc,cx,cy,size}; recomputed only on load / "по размеру"
+function computeBase() {
+  const cl = buildCenterline(splinePath(toFlat(pts))), b = bounds(cl), pad = 0.12 * cv.width;
+  base = { pad, sc: (cv.width - 2 * pad) / b.size, cx: b.cx, cy: b.cy, size: b.size };
+}
 
 const toPts = (flat) => { const p = []; for (let i = 0; i < flat.length; i += 2) p.push([flat[i], flat[i + 1]]); return p; };
 const toFlat = (p) => p.flatMap((q) => q);
@@ -41,15 +48,18 @@ function loadTrack(n) {
     objects.length = 0;
   }
   if (pts.length < 4) pts = decimate(presetFlat(n), 48);
+  view = { zoom: 1, panX: 0, panY: 0 }; base = null;   // fresh fit per track (computed lazily in frame)
   render();
 }
 
 // world<->canvas mapping that fits the track (with margin) to the square canvas
 function frame() {
-  const cl = buildCenterline(splinePath(toFlat(pts))), b = bounds(cl), pad = 0.12 * cv.width;
-  const sc = (cv.width - 2 * pad) / b.size;
-  const C = (q) => [pad + (q[0] - b.cx + b.size / 2) * sc, pad + (q[1] - b.cy + b.size / 2) * sc];
-  return { cl, C, pxPerWorld: sc / (WORLD / b.size), hwN: HALF_W * b.size / WORLD };   // pxPerWorld: paint widths; hwN: road half-width (normalized)
+  if (!base) computeBase();
+  const cl = buildCenterline(splinePath(toFlat(pts)));   // cl still per-frame (pts move while dragging); fit stays stable
+  const { pad, sc, cx, cy, size } = base, z = view.zoom;
+  const baseC = (q) => [pad + (q[0] - cx + size / 2) * sc, pad + (q[1] - cy + size / 2) * sc];
+  const C = (q) => { const c = baseC(q); return [c[0] * z + view.panX, c[1] * z + view.panY]; };
+  return { cl, C, pxPerWorld: (sc / (WORLD / size)) * z, hwN: HALF_W * size / WORLD };
 }
 function render() {
   if (pts.length < 3) return;
@@ -74,8 +84,10 @@ function pick(mx, my) {
 }
 // invert the canvas mapping -> normalized track point
 function unproject(mx, my) {
-  const cl = buildCenterline(splinePath(toFlat(pts))), b = bounds(cl), pad = 0.12 * cv.width, sc = (cv.width - 2 * pad) / b.size;
-  return [(mx - pad) / sc - b.size / 2 + b.cx, (my - pad) / sc - b.size / 2 + b.cy];
+  if (!base) computeBase();
+  const { pad, sc, cx, cy, size } = base;
+  const bx = (mx - view.panX) / view.zoom, by = (my - view.panY) / view.zoom;   // undo zoom/pan
+  return [(bx - pad) / sc - size / 2 + cx, (by - pad) / sc - size / 2 + cy];      // undo base fit
 }
 const evtXY = (e) => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
 
@@ -102,7 +114,18 @@ cv.addEventListener("contextmenu", (e) => {              // right-click: delete 
   if (oi >= 0) { objects.splice(oi, 1); render(); return; }
   const i = pick(mx, my); if (i >= 0 && pts.length > 4) { pts.splice(i, 1); render(); }
 });
-cv.addEventListener("wheel", (e) => { const [mx, my] = evtXY(e), oi = pickObj(mx, my); if (oi >= 0) { e.preventDefault(); objects[oi].rot = (objects[oi].rot || 0) + (e.deltaY > 0 ? 0.2 : -0.2); render(); } }, { passive: false });
+cv.addEventListener("wheel", (e) => {
+  e.preventDefault(); const [mx, my] = evtXY(e), oi = pickObj(mx, my);
+  if (oi >= 0) { objects[oi].rot = (objects[oi].rot || 0) + (e.deltaY > 0 ? 0.2 : -0.2); render(); return; }   // over an object -> rotate it
+  const k = Math.max(1, Math.min(8, view.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1))) / view.zoom;   // zoom toward the cursor
+  view.panX = mx - (mx - view.panX) * k; view.panY = my - (my - view.panY) * k; view.zoom *= k;
+  render();
+}, { passive: false });
+let panning = null;                                     // middle-drag pan
+cv.addEventListener("mousedown", (e) => { if (e.button === 1) { e.preventDefault(); panning = { mx: e.clientX, my: e.clientY, px: view.panX, py: view.panY }; } });
+window.addEventListener("mousemove", (e) => { if (panning) { view.panX = panning.px + (e.clientX - panning.mx); view.panY = panning.py + (e.clientY - panning.my); render(); } });
+window.addEventListener("mouseup", (e) => { if (e.button === 1) panning = null; });
+document.getElementById("fit").onclick = () => { view = { zoom: 1, panX: 0, panY: 0 }; base = null; render(); };
 function segDist(p, a, b) {                               // distance point->segment in normalized space
   const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy || 1e-9;
   let t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2; t = Math.max(0, Math.min(1, t));
