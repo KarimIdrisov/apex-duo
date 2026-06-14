@@ -132,3 +132,12 @@ test("QUALI2 has a sane knockout structure + tuning", () => {
   assert.ok(QUALI2.SEG_SEC.length === 3 && QUALI2.SEG_SEC.every(s => s >= 240));
   assert.ok(QUALI2.GRIP_GAIN > 0.5 && QUALI2.QUALI_SOFT_SETS >= 2 && QUALI2.SPEEDS.includes(8));
 });
+
+test("QUALI2 carries live-lap push/risk/variance consts", () => {
+  assert.ok(QUALI2.PUSH_GAIN > 0, "push gain (save→max, s/lap)");
+  assert.ok(QUALI2.TRACK_SAFETY > 0 && QUALI2.TRACK_SAFETY <= 1, "track knowledge cuts risk");
+  assert.ok(QUALI2.OFF_BASE > 0 && QUALI2.OFF_BASE < 0.2, "per-sector off (delete) base chance");
+  assert.ok(QUALI2.LOCK_BASE > QUALI2.OFF_BASE, "lock-ups commoner than offs");
+  assert.ok(QUALI2.LOCK_MAX > QUALI2.LOCK_MIN && QUALI2.LOCK_MIN > 0, "lock-up time range");
+  assert.ok(QUALI2.SEC_VAR_PUSH >= QUALI2.SEC_VAR_BASE, "push widens sector variance");
+});
