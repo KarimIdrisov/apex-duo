@@ -8,6 +8,10 @@ export const DRIVER_AGE = {
   ALO: 44, STR: 27, GAS: 30, COL: 22, LAW: 24, LIN: 18, OCO: 29, BEA: 20, HUL: 38, BOR: 21, PER: 36, BOT: 36,
 };
 
+// abbrev -> display name (the dynamic roster no longer reads the static TEAMS roster, so it needs this).
+export const DRIVER_NAME = {};
+for (const t of TEAMS) for (const d of t.drivers) DRIVER_NAME[d.abbrev] = d.name;
+
 export const MORALE_PACE = 0.5;   // s/lap swing from morale extremes (centered on the 0.6 start)
 
 const clampOverall = v => Math.max(0.50, Math.min(0.99, v));
