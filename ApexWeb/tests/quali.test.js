@@ -1,8 +1,8 @@
 // ApexWeb/tests/quali.test.js
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { qualiLap, buildGrid } from "../src/quali.js";
-import { TEAMS, TRACK } from "../src/data.js";
+import { qualiLap, qualiLapClean, qualiSector, buildGrid } from "../src/quali.js";
+import { TEAMS, TRACK, QUALI2 } from "../src/data.js";
 import { RNG } from "../src/rng.js";
 import { driverAttrs } from "../src/team.js";
 
@@ -72,4 +72,24 @@ test("qualiLap modifiers: more grip faster, used slower than fresh, traffic + ye
   assert.ok(base({ grip: 0.5, tyre: "used" }) > base({ grip: 0.5, tyre: "fresh" }), "used slower than fresh");
   assert.ok(base({ grip: 0.5, traffic: 0.4 }) > base({ grip: 0.5, traffic: 0 }), "traffic adds time");
   assert.ok(base({ grip: 0.5, yellow: true }) > base({ grip: 0.5, yellow: false }), "yellow adds time");
+});
+
+test("qualiLapClean is the deterministic base (no risk/noise)", () => {
+  const drv = { skill: 0.8 }, car = { power: 0.8, aero: 0.8 };
+  const a = qualiLapClean(drv, car, TRACK, 0, 0, { grip: 0 });
+  const b = qualiLapClean(drv, car, TRACK, 0, 0, { grip: 0 });
+  assert.equal(a, b, "pure function, same inputs → same output");
+  assert.ok(a > 50 && a < 120, `sane lap base (${a})`);
+});
+
+test("qualiSector: higher push = faster mean; off deletes, lock-up adds time", () => {
+  const base = 90;
+  const mean = (push, tk) => { let sum = 0, n = 200;
+    for (let i = 0; i < n; i++) sum += qualiSector(base, 1/3, push, tk, new RNG(100 + i)).time; return sum / n; };
+  assert.ok(mean(3, 1) < mean(0, 1), "max push faster than save (clean driver)");
+  const offRate = (tk) => { let off = 0, n = 600;
+    for (let i = 0; i < n; i++) if (qualiSector(base, 1/3, 3, tk, new RNG(7000 + i)).event === "off") off++; return off / n; };
+  assert.ok(offRate(0) > offRate(1) * 2, `low track knowledge offs far more (${offRate(0)} vs ${offRate(1)})`);
+  let safeOff = 0; for (let i = 0; i < 600; i++) if (qualiSector(base, 1/3, 0, 0, new RNG(i)).event === "off") safeOff++;
+  assert.ok(safeOff === 0, "save push never offs");
 });
