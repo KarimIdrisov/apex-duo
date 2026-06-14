@@ -337,3 +337,26 @@ console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0
   console.log(`orders: DNF/race none=${none.dnf.toFixed(2)} attack=${atk.dnf.toFixed(2)} defend=${def.dnf.toFixed(2)} (a lock-up is NEVER a DNF; sustained all-defend nudges DNF up via more desperate bold lunges — rare in real mixed play)`);
   console.log(`orders: lockups/race attack=${atk.lockups.toFixed(1)} defend=${def.lockups.toFixed(1)} (present under a SUSTAINED order, ramp-capped — no near-certain lock-up)`);
 }
+
+// live-SC corridor: cautions emerge from incidents → variable 0/1/2+ per race, ~a quarter-to-third of
+// races see one (track.sc=0.25-driven), first-lap incidents are a visible minority, cap rarely binds.
+{
+  const N = 40;
+  const counts = {}; let withCaution = 0, lap1Incidents = 0, totalIncidents = 0, capHits = 0;
+  for (let s = 0; s < N; s++) {
+    const r = new Race(field(), TRACK, 70000 + s);
+    r.gridStart();
+    let cautions = 0, wasOn = false, g = 0;
+    while (!r.finished && g++ < 500000) { r.step(); const on = r.scActive || r.vscActive; if (on && !wasOn) cautions++; wasOn = on; }
+    counts[cautions] = (counts[cautions] || 0) + 1;
+    if (cautions > 0) withCaution++;
+    if (cautions >= 3) capHits++;
+    const inc = r.events.filter(e => e.type === "incident");
+    totalIncidents += inc.length;
+    lap1Incidents += inc.filter(e => e.lap <= 1).length;
+  }
+  console.log(`live-SC: caution-count distribution over ${N} races:`, counts, ` (expect a mix incl. 0 and >=2)`);
+  console.log(`live-SC: races with >=1 caution = ${(withCaution / N * 100).toFixed(0)}%  (target ~25-40)`);
+  console.log(`live-SC: incidents/race = ${(totalIncidents / N).toFixed(2)}, of which lap-1 = ${(lap1Incidents / N).toFixed(2)}  (first-lap chaos present)`);
+  console.log(`live-SC: races hitting the cap (>=3) = ${capHits}  (should be rare)`);
+}

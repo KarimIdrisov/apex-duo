@@ -126,11 +126,11 @@ export const EVENT = {
 // pre-scheduled roll. Per-lap per-car incident chance (elevated on lap 1, in traffic, when pushing /
 // for a nervy driver); an incident loses time, sometimes DNFs, and may draw an SC/VSC (×track.sc).
 export const INCIDENT = {
-  base:        0.0010, // per-lap per-car base incident chance
+  base:        0.0008, // per-lap per-car base incident chance — centres SC freq ~27% (design target 25-40%) + DNF ~2
   pressure:    0.8,    // ×(1 + pressure·(1−composure))
   traffic:     2.5,    // ×this while racing within COMBAT_GAP of another car
   lap1:        6.0,    // ×this on the opening lap (first-corner chaos)
-  dnfShare:    0.30,   // fraction of incidents that retire the car (else a recovered moment)
+  dnfShare:    0.15,   // fraction of incidents that retire the car (else a recovered moment) — keeps total DNF in the ~1-2 corridor
   timeScrub:   0.30,   // tyre-temp scrubbed on a NON-DNF incident — the spin is felt (organic pace loss)
   scDnf:       1.0,    // caution-roll weight when the incident was a DNF        (×track.sc)
   scMinor:     0.5,    // caution-roll weight when the incident was minor        (×track.sc)
