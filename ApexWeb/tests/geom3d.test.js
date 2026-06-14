@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath, radiusAt, cornerMask, cornerRuns, elevation, buildSpeedWarp, sampleWarp } from "../src/geom3d.js";
+import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath, radiusAt, cornerMask, cornerRuns, elevation, buildSpeedWarp, sampleWarp, nearestFrac, sectorCornerClasses } from "../src/geom3d.js";
 
 const SQUARE = [0, 0, 1, 0, 1, 1, 0, 1];   // unit-square loop, perimeter 4
 
@@ -188,4 +188,46 @@ test("sampleWarp: endpoints, lerp between entries, wraps integer laps", () => {
   assert.ok(Math.abs(sampleWarp(t, 0.375) - 0.375) < 1e-9, "lerps mid-bucket");
   assert.ok(Math.abs(sampleWarp(t, 1)) < 1e-9, "frac 1 wraps to 0 (== same start/finish point)");
   assert.ok(Math.abs(sampleWarp(t, 2.5) - 0.5) < 1e-9, "lap+fraction uses the fractional part");
+});
+
+// --- nearestFrac + sectorCornerClasses (editor authoring helpers) ---
+const ring = (rx, ry, n) => { const a = []; for (let i = 0; i < n; i++) { const t = (i / n) * 2 * Math.PI; a.push(0.5 + rx * Math.cos(t), 0.5 + ry * Math.sin(t)); } return a; };
+
+test("nearestFrac: a point ON the centerline returns ~its own fraction", () => {
+  const cl = buildCenterline(splinePath(ring(0.35, 0.35, 24)));
+  for (const f of [0.0, 0.25, 0.5, 0.8]) {
+    const p = pointAt(cl, f);
+    const got = nearestFrac(cl, p, 720);
+    const d = Math.min(Math.abs(got - f), 1 - Math.abs(got - f));   // circular distance
+    assert.ok(d < 0.01, `frac ${f} -> ${got} (circ dist ${d})`);
+  }
+});
+
+test("nearestFrac: an off-line point maps to the nearest centerline fraction", () => {
+  const cl = buildCenterline(splinePath(ring(0.35, 0.35, 24)));
+  const near = pointAt(cl, 0.3);
+  const p = [near[0] * 1.5 + 0.5 * (1 - 1.5), near[1] * 1.5 + 0.5 * (1 - 1.5)];   // push radially outward from center 0.5,0.5
+  const got = nearestFrac(cl, p, 720);
+  const d = Math.min(Math.abs(got - 0.3), 1 - Math.abs(got - 0.3));
+  assert.ok(d < 0.03, `off-line near frac 0.3 -> ${got}`);
+});
+
+test("sectorCornerClasses: returns n classes from the allowed set", () => {
+  const cl = buildCenterline(splinePath(ring(0.3, 0.3, 24)));
+  const cls = sectorCornerClasses(cl, 18);
+  assert.equal(cls.length, 18);
+  for (const c of cls) assert.ok(["straight", "high", "med", "low"].includes(c), `valid class: ${c}`);
+});
+
+test("sectorCornerClasses: a big gentle circle is all 'straight', a tight circle all 'low'", () => {
+  const big = sectorCornerClasses(buildCenterline(splinePath(ring(0.46, 0.46, 28))), 18);
+  assert.ok(big.every(c => c === "straight"), `big circle all straight: ${big.join(",")}`);
+  const tight = sectorCornerClasses(buildCenterline(splinePath(ring(0.05, 0.05, 28))), 18);
+  assert.ok(tight.every(c => c === "low"), `tight circle all low: ${tight.join(",")}`);
+});
+
+test("sectorCornerClasses: an elongated oval has tight ends ('low') and gentle sides", () => {
+  const cls = sectorCornerClasses(buildCenterline(splinePath(ring(0.42, 0.10, 20))), 18);
+  assert.ok(cls.includes("low"), `tight ends -> some 'low': ${cls.join(",")}`);
+  assert.ok(cls.some(c => c === "straight" || c === "high"), `gentle sides -> some straight/high: ${cls.join(",")}`);
 });

@@ -37,3 +37,39 @@ test("clearTrack: removes one entry", () => {
   clearTrack("Баку");
   assert.equal(loadAll()["Баку"], undefined);
 });
+
+test("track_store: round-trips pit / pitLoss / zones / cornerOverrides", () => {
+  localStorage.clear();
+  saveTrack("Барселона", {
+    points: [0, 0, 1, 0, 1, 1, 0, 1],
+    objects: [],
+    pit: { x: 0.2, y: 0.3 },
+    pitLoss: 24.5,
+    zones: [{ sectors: [0, 1, 2], ease: 0.55, type: "brake" }],
+    cornerOverrides: { 7: "low" },
+  });
+  const t = effectiveTrack("Барселона", [9, 9, 9, 9]);
+  assert.deepEqual(t.pit, { x: 0.2, y: 0.3 });
+  assert.equal(t.pitLoss, 24.5);
+  assert.equal(t.zones[0].type, "brake");
+  assert.deepEqual(t.zones[0].sectors, [0, 1, 2]);
+  assert.equal(t.cornerOverrides["7"], "low");
+});
+
+test("track_store: old records (no gameplay fields) default cleanly", () => {
+  localStorage.clear();
+  saveTrack("Стара", { points: [0, 0, 1, 0, 1, 1, 0, 1] });   // no pit/zones/etc.
+  const t = effectiveTrack("Стара", [9, 9, 9, 9]);
+  assert.equal(t.pit, null);
+  assert.equal(t.pitLoss, null);
+  assert.deepEqual(t.zones, []);
+  assert.equal(t.cornerOverrides, null);
+});
+
+test("effectiveTrack: preset fallback also carries default gameplay fields", () => {
+  localStorage.clear();
+  const t = effectiveTrack("НетТакой", [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.deepEqual(t.points, [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.deepEqual(t.zones, []);
+  assert.equal(t.pit, null);
+});

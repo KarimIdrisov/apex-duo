@@ -10,7 +10,15 @@ export function loadAll() {
 }
 export function saveTrack(name, data) {
   const s = ls(); if (!s) return;
-  const all = loadAll(); all[name] = { points: data.points, objects: data.objects || [] };
+  const all = loadAll();
+  all[name] = {
+    points: data.points,
+    objects: data.objects || [],
+    pit: data.pit || null,
+    pitLoss: (typeof data.pitLoss === "number") ? data.pitLoss : null,
+    zones: Array.isArray(data.zones) ? data.zones : [],
+    cornerOverrides: data.cornerOverrides || null,
+  };
   try { s.setItem(KEY, JSON.stringify(all)); } catch { /* quota/full -> ignore */ }
 }
 export function clearTrack(name) {
@@ -18,10 +26,17 @@ export function clearTrack(name) {
   const all = loadAll(); delete all[name];
   try { s.setItem(KEY, JSON.stringify(all)); } catch {}
 }
-// edited {points,objects} if a usable edit is saved for `name`, else the preset points + no objects.
+// edited {points,objects,pit,pitLoss,zones,cornerOverrides} if a usable edit is saved, else the
+// preset points with all gameplay fields defaulted.
 export function effectiveTrack(name, presetPoints) {
   const e = loadAll()[name];
-  return (e && Array.isArray(e.points) && e.points.length >= 8)
-    ? { points: e.points, objects: Array.isArray(e.objects) ? e.objects : [] }
-    : { points: presetPoints, objects: [] };
+  if (e && Array.isArray(e.points) && e.points.length >= 8) return {
+    points: e.points,
+    objects: Array.isArray(e.objects) ? e.objects : [],
+    pit: e.pit || null,
+    pitLoss: (typeof e.pitLoss === "number") ? e.pitLoss : null,
+    zones: Array.isArray(e.zones) ? e.zones : [],
+    cornerOverrides: e.cornerOverrides || null,
+  };
+  return { points: presetPoints, objects: [], pit: null, pitLoss: null, zones: [], cornerOverrides: null };
 }

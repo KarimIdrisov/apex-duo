@@ -244,3 +244,28 @@ export function sampleWarp(table, f) {
   const i = Math.min(n - 1, Math.floor(x)), fr = x - i;
   return table[i] + (table[i + 1] - table[i]) * fr;
 }
+
+// Lap-fraction of the centerline point nearest to a normalized point p (brute-force over `steps`
+// samples). Used by the editor to map a canvas click to a mini-sector (zone painting).
+export function nearestFrac(cl, p, steps = 360) {
+  let best = 0, bd = Infinity;
+  for (let k = 0; k < steps; k++) {
+    const f = k / steps, q = pointAt(cl, f), d = (q[0] - p[0]) ** 2 + (q[1] - p[1]) ** 2;
+    if (d < bd) { bd = d; best = f; }
+  }
+  return best;
+}
+
+// Corner speed-class per mini-sector from local curvature. For each of `n` equal lap-fraction
+// sectors, take the tightest radius across the sector (radiusAt over a wide window) and classify:
+// r >= straightR -> "straight"; >= highR -> "high"; >= lowR -> "med"; else "low". Thresholds are
+// normalized radii (tunable). Mirrors the editor's speed-warp curvature read.
+export function sectorCornerClasses(cl, n = 18, { straightR = 0.35, highR = 0.16, lowR = 0.07, w = 1 / 60, samples = 6 } = {}) {
+  const out = [];
+  for (let m = 0; m < n; m++) {
+    let minR = Infinity;
+    for (let s = 0; s < samples; s++) minR = Math.min(minR, radiusAt(cl, (m + (s + 0.5) / samples) / n, w));
+    out.push(minR >= straightR ? "straight" : minR >= highR ? "high" : minR >= lowR ? "med" : "low");
+  }
+  return out;
+}
