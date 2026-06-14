@@ -5,7 +5,7 @@
 // they catch the car ahead, so a train fans out instead of stacking on the centerline.
 import * as THREE from "https://esm.sh/three@0.160.0";
 import { TRACK_PATH } from "../data.js";
-import { buildCenterline, pointAt, tangentAt, bounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath, radiusAt, cornerRuns, RIBBON_CLAMP } from "../geom3d.js";
+import { buildCenterline, pointAt, tangentAt, bounds, sampleProg, racingLineOffset, offsetPoint, splinePath, cornerRuns } from "../geom3d.js";
 import { TRACK_SHAPES } from "../track_shapes.js";
 
 const WORLD = 120;                 // larger track axis spans ~120 world units
@@ -112,71 +112,39 @@ export function init(canvas, ctx) {
   const grass = new THREE.Mesh(grassGeo, grassMat); grass.rotation.x = -Math.PI / 2; grass.position.y = -0.15; grass.receiveShadow = true; scene.add(grass);
 
 
-  // --- track ribbon: a triangle strip between the left/right edges ---
-  const STEPS = 800;                 // ribbon cross-sections — high so corners read smooth from the close chase cam
-  const { left, right } = ribbonEdges(cl, HW_N, STEPS);   // edges in normalized space
-  const pos = new Float32Array(STEPS * 2 * 3);
-  for (let k = 0; k < STEPS; k++) {
-    const l = left[k], r = right[k];
-    pos[k * 6 + 0] = wx(l); pos[k * 6 + 1] = 0; pos[k * 6 + 2] = wz(l);
-    pos[k * 6 + 3] = wx(r); pos[k * 6 + 4] = 0; pos[k * 6 + 5] = wz(r);
-  }
-  const index = [];
-  for (let k = 0; k < STEPS; k++) {
-    const a = k * 2, bb = k * 2 + 1, c = ((k + 1) % STEPS) * 2, d = ((k + 1) % STEPS) * 2 + 1;
-    index.push(a, bb, c, bb, d, c);
-  }
-  const trackGeo = new THREE.BufferGeometry(); geos.push(trackGeo);
-  trackGeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  trackGeo.setIndex(index); trackGeo.computeVertexNormals();
-  const uv = new Float32Array(STEPS * 2 * 2);                          // u along the lap, v across the width
-  for (let k = 0; k < STEPS; k++) { uv[k * 4] = k / STEPS; uv[k * 4 + 1] = 0; uv[k * 4 + 2] = k / STEPS; uv[k * 4 + 3] = 1; }
-  trackGeo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
-  const asphaltMap = noiseTex("#e8e8e8", ["#d6d6d6", "#f2f2f2", "#dedede"], 128, 0.14); asphaltMap.repeat.set(50, 4); texs.push(asphaltMap);
-  const trackMat = new THREE.MeshStandardMaterial({ map: asphaltMap, color: ASPHALT, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }); mats.push(trackMat);
-  const trackMesh = new THREE.Mesh(trackGeo, trackMat); trackMesh.receiveShadow = true; scene.add(trackMesh);
-
-  // red/white rumble kerbs through corners only — one CONTINUOUS strip per cornerRuns span,
-  // flush to the ribbon edge and stepped slightly inward, with uniform red/white blocks by arc
-  // length. cornerRuns merges threshold flicker into solid spans so the strip has no gaps.
+  // --- painted track surface: ONE flat plane with a procedurally-painted CanvasTexture. The road,
+  // kerbs and run-off are smooth round-joined strokes, so corners can NEVER spike/fold/facet — even
+  // hairpins (overlapping paint is fine). Replaces the extruded ribbon/kerb/line meshes. The quad's
+  // UVs match the C() world->canvas mapping, so the painted road sits exactly under the cars. ---
   {
-    const runs = cornerRuns(cl, STEPS, CORNER_R);
-    const KERB_W = 0.5 / sc, BLOCK = 6, KY = 0.02;         // inward width; ~BLOCK-sample colour blocks, counted within each run
-    const inward = (p, c) => { const dx = c[0] - p[0], dy = c[1] - p[1], m = Math.hypot(dx, dy) || 1; return [p[0] + dx / m * KERB_W, p[1] + dy / m * KERB_W]; };
-    const kpos = [], kcol = [];
-    for (const edge of [left, right]) {
-      for (const run of runs) {
-        for (let s = 0; s < run.len; s++) {
-          const k = (run.start + s) % STEPS, k1 = (k + 1) % STEPS, a = edge[k], bb = edge[k1];
-          const ca = pointAt(cl, k / STEPS), cb = pointAt(cl, k1 / STEPS);
-          const ia = inward(a, ca), ib = inward(bb, cb);
-          const col = (Math.floor(s / BLOCK) % 2) ? KERB_RED : KERB_WHITE;   // counted WITHIN the run -> uniform, gap-free blocks
-          for (const pt of [a, bb, ib, a, ib, ia]) { kpos.push(wx(pt), KY, wz(pt)); kcol.push(col[0], col[1], col[2]); }
-        }
+    const SIZE = 2048, HALF = WORLD * 0.72, PXW = SIZE / (2 * HALF), STEPS = 600;   // canvas px; plane half-extent (world); px/world; lap samples
+    const cv = document.createElement("canvas"); cv.width = cv.height = SIZE;
+    const g = cv.getContext("2d"); g.lineJoin = "round"; g.lineCap = "round";
+    const C = (p) => [(wx(p) + HALF) * PXW, (wz(p) + HALF) * PXW];                  // normalized track point -> canvas px
+    const lap = (offN) => { g.beginPath(); for (let k = 0; k <= STEPS; k++) { const f = k / STEPS, pp = offN ? offsetPoint(cl, f, offN) : pointAt(cl, f), c = C(pp); k ? g.lineTo(c[0], c[1]) : g.moveTo(c[0], c[1]); } g.closePath(); };
+    g.fillStyle = "#213d28"; g.fillRect(0, 0, SIZE, SIZE);                          // grass
+    lap(0); g.lineWidth = (HALF_W * 2 + 8) * PXW; g.strokeStyle = "#2f4230"; g.stroke();    // run-off shoulder (subtle)
+    lap(0); g.lineWidth = (HALF_W * 2 + 1.6) * PXW; g.strokeStyle = "#c9c9cf"; g.stroke();  // light road edge
+    lap(0); g.lineWidth = HALF_W * 2 * PXW; g.strokeStyle = "#26262d"; g.stroke();          // asphalt
+    {                                                                              // red/white rumble kerbs along both edges through corners
+      const runs = cornerRuns(cl, STEPS, CORNER_R), CH = 6;
+      for (const sgn of [1, -1]) for (const run of runs) for (let s = 0; s < run.len; s += CH) {
+        g.beginPath();
+        for (let j = 0; j <= CH && s + j <= run.len; j++) { const k = (run.start + s + j) % STEPS, c = C(offsetPoint(cl, k / STEPS, sgn * HW_N)); j ? g.lineTo(c[0], c[1]) : g.moveTo(c[0], c[1]); }
+        g.lineWidth = 1.2 * PXW; g.strokeStyle = (Math.floor(s / CH) % 2) ? "#d23b3b" : "#eaeaea"; g.stroke();
       }
     }
-    const kerbGeo = new THREE.BufferGeometry(); geos.push(kerbGeo);
-    kerbGeo.setAttribute("position", new THREE.Float32BufferAttribute(kpos, 3));
-    kerbGeo.setAttribute("color", new THREE.Float32BufferAttribute(kcol, 3));
-    const kerbMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }); mats.push(kerbMat);
-    scene.add(new THREE.Mesh(kerbGeo, kerbMat));
-  }
-
-  // sector tint lines just above the asphalt
-  for (let s = 0; s < 3; s++) {
-    const v = [], lo = s / 3, hi = (s + 1) / 3;
-    for (let k = 0; k <= 48; k++) { const p = pointAt(cl, lo + (hi - lo) * (k / 48)); v.push(new THREE.Vector3(wx(p), 0.07, wz(p))); }
-    const lg = new THREE.BufferGeometry().setFromPoints(v); geos.push(lg);
-    const lm = new THREE.LineBasicMaterial({ color: SECTOR_COL[s] }); mats.push(lm);
-    scene.add(new THREE.Line(lg, lm));
-  }
-  // start/finish line across the track at frac 0
-  {
-    const p = pointAt(cl, 0), t = tangentAt(cl, 0), nx = -t[1], ny = t[0];
-    const a = [p[0] + nx * HW_N, p[1] + ny * HW_N], c = [p[0] - nx * HW_N, p[1] - ny * HW_N];
-    const sg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(wx(a), 0.08, wz(a)), new THREE.Vector3(wx(c), 0.08, wz(c))]); geos.push(sg);
-    const sm = new THREE.LineBasicMaterial({ color: 0xffffff }); mats.push(sm);
-    scene.add(new THREE.Line(sg, sm));
+    { const t = tangentAt(cl, 0), nx = -t[1], ny = t[0], p = pointAt(cl, 0);       // start/finish stripe
+      const A = C([p[0] + nx * HW_N, p[1] + ny * HW_N]), B = C([p[0] - nx * HW_N, p[1] - ny * HW_N]);
+      g.beginPath(); g.moveTo(A[0], A[1]); g.lineTo(B[0], B[1]); g.lineWidth = 1.6 * PXW; g.strokeStyle = "#ffffff"; g.stroke(); }
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.flipY = false; tex.anisotropy = 8; texs.push(tex);
+    const pg = new THREE.BufferGeometry(); geos.push(pg);
+    pg.setAttribute("position", new THREE.Float32BufferAttribute([-HALF, 0, -HALF, HALF, 0, -HALF, HALF, 0, HALF, -HALF, 0, HALF], 3));
+    pg.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
+    pg.setAttribute("normal", new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
+    pg.setIndex([0, 1, 2, 0, 2, 3]);
+    const pm = new THREE.MeshStandardMaterial({ map: tex, roughness: 1, metalness: 0, side: THREE.DoubleSide }); mats.push(pm);   // camera is always above; DoubleSide so the down-facing quad still renders
+    const pmesh = new THREE.Mesh(pg, pm); pmesh.receiveShadow = true; scene.add(pmesh);
   }
 
   // --- cars: a stylized low-poly F1 silhouette. Geometry is shared across all 22 cars
@@ -313,8 +281,7 @@ export function init(canvas, ctx) {
       }
       const tlat = racingLineOffset(cl, prog, LANE_LAT) + side;
       car.lat += (tlat - car.lat) * 0.12;                        // ease toward target (smooth)
-      const hwLocal = Math.min(HW_N, radiusAt(cl, prog, 1 / STEPS) * RIBBON_CLAMP);   // local road half-width (matches the ribbon clamp)
-      const maxLat = Math.max(0, hwLocal - CAR_HALF * HW_N);     // keep the car body on the asphalt at narrowed hairpins
+      const maxLat = Math.max(0, HW_N - CAR_HALF * HW_N);        // keep the car body on the painted constant-width road
       car.lat = Math.max(-maxLat, Math.min(maxLat, car.lat));
       const p = offsetPoint(cl, prog, car.lat), t = tangentAt(cl, prog);
       const txp = wx(p), tzp = wz(p);                            // low-pass the rendered position to smooth micro-judder
@@ -326,7 +293,6 @@ export function init(canvas, ctx) {
       car.ring.material.opacity = (c.player || leader) ? 1 : 0;
       car.ring.material.color.set(leader ? 0xffd000 : 0xffffff);
     }
-    trackMat.color.set(ctx.snapshot && ctx.snapshot.scActive ? ASPHALT_SC : ASPHALT);
     updateCam();
     if (composer) composer.render(); else renderer.render(scene, cam);
   }
