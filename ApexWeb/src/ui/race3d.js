@@ -122,18 +122,18 @@ export function init(canvas, ctx) {
     const g = cv.getContext("2d"); g.lineJoin = "round"; g.lineCap = "round";
     const C = (p) => [(wx(p) + HALF) * PXW, (wz(p) + HALF) * PXW];                  // normalized track point -> canvas px
     const lap = (offN) => { g.beginPath(); for (let k = 0; k <= STEPS; k++) { const f = k / STEPS, pp = offN ? offsetPoint(cl, f, offN) : pointAt(cl, f), c = C(pp); k ? g.lineTo(c[0], c[1]) : g.moveTo(c[0], c[1]); } g.closePath(); };
-    g.fillStyle = "#213d28"; g.fillRect(0, 0, SIZE, SIZE);                          // grass
-    lap(0); g.lineWidth = (HALF_W * 2 + 8) * PXW; g.strokeStyle = "#2f4230"; g.stroke();    // run-off shoulder (subtle)
-    lap(0); g.lineWidth = (HALF_W * 2 + 1.6) * PXW; g.strokeStyle = "#c9c9cf"; g.stroke();  // light road edge
-    lap(0); g.lineWidth = HALF_W * 2 * PXW; g.strokeStyle = "#26262d"; g.stroke();          // asphalt
-    {                                                                              // red/white rumble kerbs along both edges through corners
-      const runs = cornerRuns(cl, STEPS, CORNER_R), CH = 6;
-      for (const sgn of [1, -1]) for (const run of runs) for (let s = 0; s < run.len; s += CH) {
+    g.fillStyle = "#2f5236"; g.fillRect(0, 0, SIZE, SIZE);                          // grass (brighter for contrast)
+    lap(0); g.lineWidth = (HALF_W * 2 + 9) * PXW; g.strokeStyle = "#3a5a38"; g.stroke();    // run-off shoulder (subtle, lighter green)
+    lap(0); g.lineWidth = (HALF_W * 2 + 0.8) * PXW; g.strokeStyle = "#5a5a64"; g.stroke();  // thin subtle road edge
+    {                                                                              // red/white kerb RIM along the CENTERLINE through corners — wider than the asphalt, so a clean even
+      const runs = cornerRuns(cl, STEPS, CORNER_R), CH = 7, KW = (HALF_W * 2 + 2.6) * PXW;  // rim peeks out BOTH edges. centerline is smooth -> no folding-offset-edge mess, no overlapping chunks.
+      for (const run of runs) for (let s = 0; s < run.len; s += CH) {
         g.beginPath();
-        for (let j = 0; j <= CH && s + j <= run.len; j++) { const k = (run.start + s + j) % STEPS, c = C(offsetPoint(cl, k / STEPS, sgn * HW_N)); j ? g.lineTo(c[0], c[1]) : g.moveTo(c[0], c[1]); }
-        g.lineWidth = 1.2 * PXW; g.strokeStyle = (Math.floor(s / CH) % 2) ? "#d23b3b" : "#eaeaea"; g.stroke();
+        for (let j = 0; j <= CH && s + j <= run.len; j++) { const k = (run.start + s + j) % STEPS, c = C(pointAt(cl, k / STEPS)); j ? g.lineTo(c[0], c[1]) : g.moveTo(c[0], c[1]); }
+        g.lineWidth = KW; g.strokeStyle = (Math.floor(s / CH) % 2) ? "#d83b3b" : "#ededed"; g.stroke();
       }
     }
+    lap(0); g.lineWidth = HALF_W * 2 * PXW; g.strokeStyle = "#30303a"; g.stroke();          // asphalt on top -> the kerb rim peeks out ~1.3 world each side at corners
     { const t = tangentAt(cl, 0), nx = -t[1], ny = t[0], p = pointAt(cl, 0);       // start/finish stripe
       const A = C([p[0] + nx * HW_N, p[1] + ny * HW_N]), B = C([p[0] - nx * HW_N, p[1] - ny * HW_N]);
       g.beginPath(); g.moveTo(A[0], A[1]); g.lineTo(B[0], B[1]); g.lineWidth = 1.6 * PXW; g.strokeStyle = "#ffffff"; g.stroke(); }
