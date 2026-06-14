@@ -4,6 +4,8 @@
 import { CALENDAR, constructorStandings, driverStandings, boardOutcome } from "../career.js";
 import { objectiveLabel } from "../sponsors.js";
 import { INDICATORS, INDICATOR_LABEL, PROJECT_SIZE, effectiveCar } from "../development.js";
+import { availableDrivers } from "../market.js";
+import { DRIVER_NAME } from "../drivers.js";
 import { STAFF_ROLES, ROLE_LABEL, FACILITIES, FAC_LABEL, FAC_MAX, STAFF_UPGRADE_COST, FAC_UPGRADE_BASE, upkeep } from "../staff.js";
 import { TEAM_LOGO, TEAMS } from "../data.js";
 
@@ -72,6 +74,15 @@ export function render(root, ctx) {
       `<button class="ready stf" data-kind="facility" data-key="${fk}" ${lvl >= FAC_MAX || c.money < cost ? "disabled" : ""} style="padding:3px 8px;font-size:12px">+ (${m$(cost)})</button>`]); }).join("")}
     </table></div>` : "";
 
+  // transfer panel — top available drivers; swap one in for one of yours
+  const mineAbbrevs = mine.map(([ab]) => ab);
+  const avail = c.drivers ? availableDrivers(c).slice(0, 6) : [];
+  const transferPanel = (mineAbbrevs.length && avail.length) ? `<div class="panel"><p class="label">Трансферы — подписать пилота (обмен)</p>
+    <table style="width:100%;border-collapse:collapse">
+    ${avail.map(d => row([`<b>${d.abbrev}</b> ${DRIVER_NAME[d.abbrev] || ""}`, `ovr ${d.overall.toFixed(3)}`, `${d.age} л.`, m$(d.value),
+      mineAbbrevs.map(ab => `<button class="ready sign" data-in="${d.abbrev}" data-out="${ab}" ${c.money < d.value ? "disabled" : ""} style="padding:3px 6px;font-size:11px;margin-left:4px">↔${ab}</button>`).join("")])).join("")}
+    </table></div>` : "";
+
   // season-start title-sponsor choice
   let offers = "";
   if (c.pendingOffers && c.pendingOffers.length) {
@@ -106,6 +117,7 @@ export function render(root, ctx) {
     ${devPanel}
     ${driversPanel}
     ${staffPanel}
+    ${transferPanel}
     ${offers}
     <div style="display:flex;gap:12px;flex-wrap:wrap">
       <div class="panel" style="flex:1;min-width:240px"><p class="label">Кубок конструкторов</p>
@@ -119,6 +131,7 @@ export function render(root, ctx) {
   root.querySelectorAll("button.devbtn").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_project", player: ctx.myPlayer, indicator: b.dataset.k, size: b.dataset.sz }); });
   root.querySelectorAll("button.resign").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_resign", player: ctx.myPlayer, abbrev: b.dataset.ab }); });
   root.querySelectorAll("button.stf").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_upgrade", player: ctx.myPlayer, kind: b.dataset.kind, key: b.dataset.key }); });
+  root.querySelectorAll("button.sign").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_sign", player: ctx.myPlayer, inAbbrev: b.dataset.in, outAbbrev: b.dataset.out }); });
   const sw = root.querySelector("#startwknd");
   if (sw) sw.onclick = () => { sw.disabled = true; ctx.send({ cmd: "career_start_weekend", player: ctx.myPlayer }); };
   const ns = root.querySelector("#newseason");
