@@ -228,13 +228,15 @@ for (const t of TEAMS) for (const d of t.drivers) {
 // Real-time practice tuning (spec 2026-06-14). See practice_session.js / setup.js.
 export const PRAC2 = {
   AXES: 6,
-  KNOW_PER_LAP: 0.06,     // knowledge banked per completed flying lap (per axis)
   IQ_LEARN: 0.5,          // feedbackMult = 0.75 + IQ_LEARN*race_iq  (sharp driver learns faster)
-  MAX_HALF: 0.45,         // ideal-window half-width at knowledge 0 (≈ whole range)
-  MIN_HALF: 0.02,         // half-width floor at knowledge 1
-  WIN_P: 1.5,             // half = MIN + (MAX-MIN)*(1-knowledge)^WIN_P
-  WIN_JITTER: 0.30,       // window-centre offset at knowledge 0 (shrinks to 0 with knowledge)
-  KNOW_VAGUE: 0.25,       // below this knowledge the axis reads "мало кругов" (no usable window)
+  TRACK_PER_LAP: 0.022,   // track knowledge banked per completed lap (×feedbackMult) → ~0.4/0.7/1.0 over P1/P2/P3
+  TRACK_PACE: -0.08,      // race pace buff (s/lap) at full track knowledge (driver confidence)
+  AI_TRACK_KNOW: 0.7,     // assumed track knowledge for AI cars → player practice is a delta, not free
+  MAX_HALF: 0.45,         // ideal-window half-width at track knowledge 0 (≈ whole range)
+  MIN_HALF: 0.02,         // half-width floor at track knowledge 1
+  WIN_P: 1.5,             // half = MIN + (MAX-MIN)*(1-trackKnow)^WIN_P
+  WIN_JITTER: 0.40,       // window-centre offset at track knowledge 0 (shrinks to 0); 0.40 → P1 setup ≈ 60%
+  KNOW_VAGUE: 0.25,       // below this track knowledge the axis reads "мало кругов"
   CONFIRM_LAPS: 2,        // flying laps on a value before its satisfaction is confirmed
   SAT_TOL: 0.18,          // axisSat = clamp(1-(|v-opt|/SAT_TOL)^2,0,1)
   SESSION_SEC: 1800,      // 30 game-minutes per session
@@ -242,8 +244,10 @@ export const PRAC2 = {
   AUTOSIM_MULT: 0.8,      // auto-sim banks knowledge at 0.8× (simulating underperforms)
   TYRE_SETS: 6,           // tyre sets per car across all three sessions
   ACCL_PER_LAP: 0.01,     // acclimatisation per lap (cap 1) → tiny race buff
-  PIT_PREP_SEC: 45,       // garage time charged to the clock on every run: tyre change + refuel (flat)
-  SETUP_APPLY_SEC: 35,    // + mechanic time per unit of total setup change (Σ|Δaxis|, 0..6) since last run
+  TYRE_CHANGE_SEC: 30,    // pit-prep: fitting a DIFFERENT compound than the last stint
+  TYRE_REFIT_SEC: 12,     // pit-prep: a fresh set of the same compound
+  FUEL_PER_LAP: 2,        // pit-prep: fuel-load time per requested stint lap
+  SETUP_APPLY_SEC: 35,    // pit-prep: mechanic time per unit of setup change (Σ|Δaxis|, 0..6) since last run
 };
 
 // Real-time qualifying tuning (spec 2026-06-14). See quali_session.js / quali.js.

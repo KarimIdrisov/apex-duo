@@ -112,6 +112,17 @@ test("PRAC2 has sane knowledge/session tuning", () => {
   assert.ok(PRAC2.SESSION_SEC >= 600 && PRAC2.SPEEDS.includes(8) && PRAC2.AUTOSIM_MULT < 1);
 });
 
+test("PRAC2 carries track-knowledge + dynamic pit-prep tuning", () => {
+  assert.ok(PRAC2.TRACK_PER_LAP > 0 && PRAC2.TRACK_PER_LAP < 0.1, "track knowledge per lap");
+  assert.ok(PRAC2.TRACK_PACE < 0, "track pace buff is negative (faster)");
+  assert.ok(PRAC2.AI_TRACK_KNOW >= 0 && PRAC2.AI_TRACK_KNOW <= 1, "AI baseline track knowledge");
+  assert.ok(PRAC2.TYRE_CHANGE_SEC > PRAC2.TYRE_REFIT_SEC, "new compound costs more than a re-fit");
+  assert.ok(PRAC2.FUEL_PER_LAP > 0, "fuel load scales with laps");
+  assert.equal(PRAC2.WIN_JITTER, 0.40, "window jitter bumped so P1 setup isn't ~100%");
+  assert.equal(PRAC2.PIT_PREP_SEC, undefined, "flat prep retired");
+  assert.equal(PRAC2.KNOW_PER_LAP, undefined, "per-axis knowledge retired");
+});
+
 import { QUALI2 } from "../src/data.js";
 test("QUALI2 has a sane knockout structure + tuning", () => {
   assert.deepEqual(QUALI2.IN, [22, 15, 10]);
