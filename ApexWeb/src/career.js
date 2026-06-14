@@ -3,13 +3,14 @@
 import { TEAMS } from "./data.js";
 import { defaultSponsors, titleOffers, evaluateSponsor } from "./sponsors.js";
 import { tickDevelopment } from "./development.js";
+import { initDrivers, developDrivers, updateMorale } from "./drivers.js";
 
 // championship points for the top 10 finishers (current F1 system).
 export const POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
 // prize money ($k) by race-finish position — a simple per-race payout (M2 deepens income).
 export const PRIZE = [1200, 1000, 850, 720, 620, 540, 470, 410, 360, 320, 280, 250, 220, 200, 180, 160, 150, 140, 130, 120, 110, 100];
 
-export const CAREER_V = 3;            // career save schema version
+export const CAREER_V = 4;            // career save schema version
 export const RUNNING_COST = 800;      // $k per-race operating cost (M5 facilities refine it)
 
 // the season calendar: each round picks a real circuit shape (a track_shapes.js key) for the
@@ -56,6 +57,7 @@ export function newCareer({ teamIdx = 0, seed = 1, coop = false } = {}) {
     board: { targetPos: Math.min(TEAMS.length, teamIdx + 1) },  // meet your tier (P{teamIdx+1})
     sponsors: defaultSponsors(teamIdx, s), costCap: false, pendingOffers: titleOffers(teamIdx, s),
     carDev: {}, project: null, devSpentThisSeason: 0,
+    drivers: initDrivers(),
     lastResult: null, history: [], done: false,
   };
 }
@@ -88,11 +90,19 @@ export function applyResult(career, classification) {
     sponsorIncome += r.payout;
     sp.happiness = Math.max(0, Math.min(1, sp.happiness + r.dHappiness));
   }
-  const net = prize + sponsorIncome - RUNNING_COST;
+  // driver morale (whole field) from finish vs the team-tier expectation; salaries (player team) as expense.
+  let salaries = 0;
+  classification.forEach((c, i) => {
+    const dr = career.drivers && career.drivers[c.abbrev];
+    if (!dr) return;
+    updateMorale(dr, i + 1, 1 + dr.teamIdx * 2);
+    if (dr.teamIdx === career.teamIdx) salaries += dr.salary;
+  });
+  const net = prize + sponsorIncome - RUNNING_COST - salaries;
   career.money += net;
   const summary = {
     round: career.round, gp: CALENDAR[career.round].name, podium, bestPos,
-    prize, sponsorIncome, runningCost: RUNNING_COST, net,
+    prize, sponsorIncome, runningCost: RUNNING_COST, salaries, net,
     classification: classification.map((c, i) => ({ pos: i + 1, abbrev: c.abbrev, team: c.team, retired: !!c.retired })),
   };
   career.lastResult = summary;
@@ -115,6 +125,10 @@ export function migrate(career) {
     career.devSpentThisSeason = career.devSpentThisSeason ?? 0;
     career.v = 3;
   }
+  if (career.v < 4) {
+    career.drivers = career.drivers || initDrivers();
+    career.v = 4;
+  }
   return career;
 }
 // accept a season-start title-sponsor offer: replace the title deal, clear the offers.
@@ -125,6 +139,7 @@ export function chooseTitleSponsor(career, offerIdx) {
   career.sponsors = [{ ...chosen, kind: "title" }, ...secondaries];
   career.pendingOffers = [];
 }
+export { reSign } from "./drivers.js";
 
 // advance to the next round. Returns true if a next round exists, false if the season ended.
 export function advanceRound(career) {
@@ -153,7 +168,10 @@ export function newSeason(career) {
   const fresh = newCareer({ teamIdx: career.teamIdx, seed: career.seed, coop: career.coop });
   fresh.season = career.season + 1;
   fresh.money = career.money;
-  fresh.carDev = career.carDev || {};        // development carries into the new season (M8 adds regulation resets)
+  // deep-copy carried state so the prior season's career object stays immutable
+  fresh.carDev = JSON.parse(JSON.stringify(career.carDev || {}));   // development carries over (M8 adds regulation resets)
   fresh.devSpentThisSeason = 0;
+  fresh.drivers = JSON.parse(JSON.stringify(career.drivers || initDrivers()));
+  developDrivers(fresh.drivers);             // age up, develop/decline, tick contracts
   return fresh;
 }

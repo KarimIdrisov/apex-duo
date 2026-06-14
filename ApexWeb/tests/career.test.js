@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { TEAMS } from "../src/data.js";
 import { CALENDAR, POINTS, newCareer, applyResult, advanceRound, isSeasonOver,
-  constructorStandings, driverStandings, boardOutcome, currentRound } from "../src/career.js";
+  constructorStandings, driverStandings, boardOutcome, currentRound, newSeason } from "../src/career.js";
 
 // a finishing order putting the player team's two drivers P1/P2, rest in TEAMS order.
 function classify(career) {
@@ -81,7 +81,8 @@ test("applyResult books prize + sponsor income minus running cost into a net led
   const before = c.money;
   const sum = applyResult(c, order);
   assert.ok(sum.prize > 0 && sum.sponsorIncome > 0 && sum.runningCost === RUNNING_COST);
-  assert.equal(sum.net, sum.prize + sum.sponsorIncome - sum.runningCost);
+  assert.ok(sum.salaries >= 0);
+  assert.equal(sum.net, sum.prize + sum.sponsorIncome - sum.runningCost - sum.salaries);
   assert.equal(c.money, before + sum.net);
   assert.equal(sum.bestPos, 1);
 });
@@ -130,4 +131,36 @@ test("migrate upgrades a v2 save to v3 (adds carDev/project)", () => {
   assert.equal(up.v, CAREER_V);
   assert.deepEqual(up.project, null);
   assert.ok(up.carDev && typeof up.carDev === "object");
+});
+
+// --- M4 drivers ---
+test("newCareer at v4 carries a driver registry", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  assert.ok(c.v >= 4);
+  assert.ok(c.drivers && c.drivers["NOR"] && c.drivers["NOR"].overall > 0.9);
+});
+
+test("applyResult books driver salaries as an expense + updates driver morale", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  const order = [...TEAMS[0].drivers.map(d => ({ abbrev: d.abbrev, team: "McLaren" })),
+    ...TEAMS.flatMap((t, i) => i === 0 ? [] : t.drivers.map(d => ({ abbrev: d.abbrev, team: t.name })))];
+  const sum = applyResult(c, order);
+  assert.ok(sum.salaries > 0, "player driver salaries charged");
+  assert.equal(sum.net, sum.prize + sum.sponsorIncome - sum.runningCost - sum.salaries);
+  assert.ok(c.drivers["NOR"].morale > 0.6, "a P1 finish (beats expected) lifts morale");
+});
+
+test("newSeason develops drivers (a teenager improves) and carries the registry", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  const antBefore = c.drivers["ANT"].overall;
+  const c2 = newSeason(c);
+  assert.ok(c2.drivers["ANT"].overall > antBefore);
+  assert.equal(c2.drivers["ANT"].age, c.drivers["ANT"].age + 1);
+});
+
+test("migrate upgrades a v3 save to v4 (adds drivers)", () => {
+  const v3 = { v: 3, teamIdx: 1, seed: 3, season: 1, round: 0, money: 0, driverPts: {}, teamPts: {}, board: { targetPos: 2 }, sponsors: [], costCap: false, pendingOffers: [], carDev: {}, project: null, devSpentThisSeason: 0, lastResult: null, history: [], done: false };
+  const up = migrate(v3);
+  assert.equal(up.v, CAREER_V);
+  assert.ok(up.drivers && up.drivers["VER"]);
 });
