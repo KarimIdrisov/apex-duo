@@ -240,6 +240,7 @@ function setMode(m) {
   for (const b of document.querySelectorAll("#modes button")) b.classList.toggle("on", b.id === "m-" + m);
   document.getElementById("pitctl").hidden = m !== "pit";
   document.getElementById("zonectl").hidden = m !== "zones";
+  if (m === "pit") document.getElementById("pitloss").value = (pitLoss == null ? "" : pitLoss);
   refreshZoneList(); render();
 }
 document.getElementById("m-edit").onclick = () => setMode("edit");
@@ -269,7 +270,7 @@ document.getElementById("file").onchange = (e) => {     // load a track JSON bac
   r.onload = () => { try { const d = JSON.parse(r.result); pts = toPts(d.points); objects.length = 0; for (const o of (d.objects || [])) objects.push({ ...o }); render(); toast("Импортировано"); } catch { toast("Битый JSON"); } };
   r.readAsText(f);
 };
-document.getElementById("hint").innerHTML = "ЛКМ-тащи — точку/объект<br>2× клик по дороге — добавить точку<br>Объект: выбери тип → клик по холсту<br>Колесо над объектом — повернуть<br>ПКМ — удалить точку/объект<br>▶ Прокатить — пустить машинки по трассе<br>💾 Сохранить → откроется в 3D";
+document.getElementById("hint").innerHTML = "Колесо — зум к курсору · средняя-кнопка — пан · ⊡ по размеру<br><b>Точки:</b> ЛКМ-тащи точку/объект · 2× клик — добавить · ПКМ — удалить · объект: тип→клик · колесо над объектом — повернуть<br><b>Пит:</b> клик по холсту — поставить боксы + поле потери<br><b>Зоны:</b> создай зону → кликай сектора · ПКМ по сектору — класс поворота<br>▶ Прокатить — пустить машинки · 💾 Сохранить → 3D";
 function toast(t) { const el = document.getElementById("toast"); el.textContent = t; el.style.opacity = 1; setTimeout(() => el.style.opacity = 0, 1400); }
 
 loadTrack(name);
