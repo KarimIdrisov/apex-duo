@@ -229,6 +229,8 @@ for (const t of TEAMS) for (const d of t.drivers) {
 export const PRAC2 = {
   AXES: 6,
   IQ_LEARN: 0.5,          // feedbackMult = 0.75 + IQ_LEARN*race_iq  (sharp driver learns faster)
+  ENG_LEARN: 0.4,         // ×(1 + ENG_LEARN*(teamStrategy-ENG_REF)) — better facility banks knowledge faster (~±5-7%)
+  ENG_REF: 0.78,          // reference midfield facility → neutral (1.0) there, so the convergence corridor stays calibrated
   TRACK_PER_LAP: 0.017,   // track knowledge banked per completed lap (×feedbackMult) → ~0.4/0.7/1.0 over P1/P2/P3
   TRACK_PACE: -0.08,      // race pace buff (s/lap) at full track knowledge (driver confidence)
   AI_TRACK_KNOW: 0.7,     // assumed track knowledge for AI cars → player practice is a delta, not free

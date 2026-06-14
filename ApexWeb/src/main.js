@@ -206,7 +206,8 @@ function analyzeStrategy(strategy) {
 // driver+car per player for the live practice session (the session carries the hidden ideal).
 function practiceCars() {
   const t = TEAMS[ctx.teamIdx] || TEAMS[0];
-  const mk = di => ({ drv: { skill: t.drivers[di].skill, attrs: driverAttrs(t.drivers[di].abbrev, t.drivers[di].skill) }, car: composeCar(t.car) });
+  const personnel = genPersonnel(t.facility, ctx.teamIdx || 0);   // shared crew/facility → speeds setup learning a little
+  const mk = di => ({ drv: { skill: t.drivers[di].skill, attrs: driverAttrs(t.drivers[di].abbrev, t.drivers[di].skill) }, car: composeCar(t.car), personnel });
   return { p1: mk(0), p2: mk(1) };
 }
 // broadcast the live practice-session snapshot (clock + per-car setup/knowledge) to both screens.

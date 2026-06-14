@@ -103,6 +103,25 @@ test("track knowledge banks per lap and gates the ideal window", () => {
   assert.ok(wEarly > wLate * 3, `window narrows with track knowledge (${wEarly} vs ${wLate})`);
 });
 
+test("team facility (engineering) speeds setup learning; neutral at ENG_REF", () => {
+  // same driver + car, two engineering levels → the stronger facility banks more knowledge over identical laps
+  const t = TEAMS[0];
+  const drv = { skill: t.drivers[0].skill, attrs: driverAttrs(t.drivers[0].abbrev, t.drivers[0].skill) };
+  const car = composeCar(t.car);
+  const bank = personnel => {
+    let s = newSession(5, { p1: { drv, car, personnel }, p2: { drv, car, personnel } });
+    s.paused = false; s.speed = 8; s = sendRun(s, "p1", "soft", 6);
+    for (let i = 0; i < 200; i++) s = step(s, 1.0);
+    return carView(s, "p1").trackKnow;
+  };
+  const top = bank({ strategy: 0.95 }), back = bank({ strategy: 0.68 });
+  assert.ok(top > back, `better facility banks faster (${top} vs ${back})`);
+  // a car at the reference facility (or with no personnel at all) is the neutral baseline → identical learning
+  const ref = bank({ strategy: PRAC2.ENG_REF });
+  const none = bank(undefined);
+  assert.equal(ref, none, "ENG_REF facility == no personnel (neutral, calibration preserved)");
+});
+
 test("snapshot exposes scalar trackKnow and axes no longer carry per-axis knowledge", () => {
   let s = newSession(4, mkCars()); s = sendRun(s, "p1", "soft", 6); s.paused = false; s.speed = 8;
   for (let i = 0; i < 200; i++) s = step(s, 1.0);

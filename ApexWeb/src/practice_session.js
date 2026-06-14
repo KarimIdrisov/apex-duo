@@ -12,7 +12,7 @@ const PLAYERS = ["p1", "p2"];
 function newCar(seed, driverSeed, drvCar) {
   const ideal = idealFor(seed, driverSeed);
   return {
-    drv: drvCar.drv, car: drvCar.car, ideal,
+    drv: drvCar.drv, car: drvCar.car, personnel: drvCar.personnel, ideal,
     setup: Array.from({ length: PRAC2.AXES }, () => 0.5),
     lastRunSetup: Array.from({ length: PRAC2.AXES }, () => 0.5),   // setup applied at the last run → setup-change prep cost
     trackKnow: 0,                                                  // per-driver track knowledge → gates the window
@@ -32,7 +32,14 @@ export function newSession(seed, cars, session = 1) {
   };
 }
 
-function feedbackMult(car) { return 0.75 + PRAC2.IQ_LEARN * (car.drv.attrs?.race_iq ?? 0.7); }
+// per-lap learning rate: a sharp driver (race_iq) learns faster, and a stronger team facility
+// (personnel.strategy) banks knowledge a little faster — neutral at the midfield ENG_REF so a car
+// without personnel (tests/corridor) is byte-identical to the calibrated baseline.
+function feedbackMult(car) {
+  const iq = 0.75 + PRAC2.IQ_LEARN * (car.drv.attrs?.race_iq ?? 0.7);
+  const eng = 1 + PRAC2.ENG_LEARN * ((car.personnel?.strategy ?? PRAC2.ENG_REF) - PRAC2.ENG_REF);
+  return iq * eng;
+}
 
 export function setAxis(s, player, i, value) {
   const car = s.cars[player]; if (!car) return s;
@@ -114,7 +121,7 @@ export function autoSim(s, player) {
   const laps = Math.floor(Math.max(0, s.clock - PRAC2.TYRE_CHANGE_SEC) / LAP_SEC());   // one pit-out to get going
   car.onTrack = true; car.stintLeft = Math.max(car.stintLeft, laps);
   for (let n = 0; n < laps; n++) {
-    const fm = (0.75 + PRAC2.IQ_LEARN * (car.drv.attrs?.race_iq ?? 0.7)) * PRAC2.AUTOSIM_MULT;
+    const fm = feedbackMult(car) * PRAC2.AUTOSIM_MULT;   // same driver+engineering rate, auto-sim underperforms
     car.trackKnow = Math.min(1, car.trackKnow + PRAC2.TRACK_PER_LAP * fm);
     for (let i = 0; i < PRAC2.AXES; i++) {
       car.lapsOnVal[i] += 1;
