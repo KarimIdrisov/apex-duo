@@ -99,7 +99,8 @@ export function render(root, ctx) {
       <div class="seg comp-seg" id="pw-compound">${compSeg}</div>
       <p class="label" style="margin:12px 0 4px">Кругов в стинте</p>
       <div class="pw-laps" id="pw-laps">${lapBtns}</div>
-      <button class="primary" id="pw-run" style="margin-top:12px" ${me.onTrack ? "disabled" : ""}>Выпустить болид</button>
+      <button class="primary" id="pw-run" style="margin-top:12px" ${me.onTrack || snap.clock <= 0 ? "disabled" : ""}>Выпустить болид · −${Math.round(me.prepCost)}с</button>
+      <p class="label" style="margin:6px 0 0">боксы: шины + топливо + применение настроек тратят время сессии</p>
     </div>`;
 
   // ---- 4. strategy: shared deg curve (reuse preserved chart) ----

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { newSession, sendRun, step, carView, setSpeed, setPaused, autoSim, sessionSnapshot } from "../src/practice_session.js";
-import { TEAMS, TRACK } from "../src/data.js";
+import { newSession, sendRun, step, carView, setSpeed, setPaused, autoSim, setAxis, prepCostFor, sessionSnapshot } from "../src/practice_session.js";
+import { TEAMS, TRACK, PRAC2 } from "../src/data.js";
 import { driverAttrs, composeCar } from "../src/team.js";
 
 function mkCars() {
@@ -52,7 +52,7 @@ test("autoSim banks less knowledge than the same number of laps run hands-on", (
   const LAPS = 5;   // well under the ~14-lap knowledge cap, so the 0.8x rate is visible
   const hands = () => { let s = newSession(9, mkCars()); s.paused = false; s.speed = 8; s = sendRun(s, "p1", "soft", LAPS);
     for (let i = 0; i < 200; i++) s = step(s, 1.0); return carView(s, "p1"); };
-  const auto = () => { let s = newSession(9, mkCars()); s.clock = LAPS * TRACK.lt;   // cap auto to the same lap count
+  const auto = () => { let s = newSession(9, mkCars()); s.clock = LAPS * TRACK.lt + PRAC2.PIT_PREP_SEC;   // cap auto to the same lap count (+ its one pit-out)
     s = autoSim(s, "p1"); return carView(s, "p1"); };
   const h = hands(), a = auto();
   assert.equal(h.totalLaps, LAPS, `hands ran the stint (${h.totalLaps})`);
@@ -68,4 +68,22 @@ test("sessionSnapshot exposes per-car windows + feedback + satisfaction", () => 
   assert.equal(snap.cars.p1.axes.length, 6);
   assert.ok(snap.cars.p1.axes[0].window && snap.cars.p1.axes[0].feedback, "axis carries window+feedback");
   assert.ok(typeof snap.cars.p1.satisfaction === "number");
+});
+
+test("a run charges pit-prep time to the clock: flat base + setup-change", () => {
+  let s = newSession(7, mkCars());
+  const c0 = s.clock;
+  // first run on the default setup → only the flat base (tyre change + refuel)
+  s = sendRun(s, "p1", "soft", 5);
+  assert.ok(Math.abs((c0 - s.clock) - PRAC2.PIT_PREP_SEC) < 1e-6, `base prep only (${c0 - s.clock})`);
+  // back to the garage, move one axis by 0.5 → base + 0.5*rate next time out
+  s.cars.p1.onTrack = false;
+  s = setAxis(s, "p1", 0, 1.0);                 // 0.5 -> 1.0
+  const c1 = s.clock, expect = PRAC2.PIT_PREP_SEC + PRAC2.SETUP_APPLY_SEC * 0.5;
+  assert.ok(Math.abs(prepCostFor(s.cars.p1) - expect) < 1e-6, "prepCostFor previews the upcoming cost");
+  s = sendRun(s, "p1", "soft", 5);
+  assert.ok(Math.abs((c1 - s.clock) - expect) < 1e-6, `setup change adds time (${c1 - s.clock})`);
+  // an unchanged setup costs only the base again (lastRunSetup now matches)
+  s.cars.p1.onTrack = false;
+  assert.ok(Math.abs(prepCostFor(s.cars.p1) - PRAC2.PIT_PREP_SEC) < 1e-6, "no change → base only");
 });

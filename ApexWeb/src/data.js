@@ -242,6 +242,8 @@ export const PRAC2 = {
   AUTOSIM_MULT: 0.8,      // auto-sim banks knowledge at 0.8× (simulating underperforms)
   TYRE_SETS: 6,           // tyre sets per car across all three sessions
   ACCL_PER_LAP: 0.01,     // acclimatisation per lap (cap 1) → tiny race buff
+  PIT_PREP_SEC: 45,       // garage time charged to the clock on every run: tyre change + refuel (flat)
+  SETUP_APPLY_SEC: 35,    // + mechanic time per unit of total setup change (Σ|Δaxis|, 0..6) since last run
 };
 
 // Real-time qualifying tuning (spec 2026-06-14). See quali_session.js / quali.js.
