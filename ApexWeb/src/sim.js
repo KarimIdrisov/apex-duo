@@ -7,7 +7,9 @@ import { miniSplits, N_MINI, sampleAt } from "./track.js";
 import { slipstream, dirtyWear, passAccrual, zoneFor } from "./overtake.js";
 import { PASS_CREDIT_CAP, PASS_CREDIT_DECAY, DIRTY_PACE_K, LAP1_CAUTION,
   AGGR_PASS_EDGE, AGGR_PASS_ATTR, AGGR_PASS_REF, AGGR_PASS_K, AGGR_PASS_DNF, AGGR_PASS_SCRUB,
-  BLUE_GAP, BLUE_PACE, BLUE_COST } from "./data.js";
+  BLUE_GAP, BLUE_PACE, BLUE_COST, ATTACK_CREDIT_K, DEFEND_ORDER_K,
+  ATTACK_WEAR_MULT, ATTACK_SCRUB, DEFEND_WEAR_MULT, DEFEND_SCRUB,
+  ORDER_MISTAKE_BASE, ORDER_MISTAKE_RAMP, ORDER_MISTAKE_SCRUB_MIN, ORDER_MISTAKE_SCRUB_MAX } from "./data.js";
 import { scheduleSC } from "./events.js";
 import { scheduleWeather, wetnessAt, weatherTerm } from "./weather.js";
 import { planRace, pitDecision, engineMode, paceMode } from "./ai_strategy.js";
@@ -237,7 +239,7 @@ export class Race {
   // Writes ONLY lapFrac (relative to the car's own lap). Never assigns lap.
   _resolveCombat() {
     const ord = this.order(); // sorted leaders-first; pos set
-    for (const c of this.cars) c._dirtyPace = 0;   // fresh each green tick — dirty-air pace penalty is instantaneous
+    for (const c of this.cars) { c._dirtyPace = 0; c._inFight = false; }   // fresh each green tick
     for (let i = 1; i < ord.length; i++) {
       const ahead = ord[i - 1], me = ord[i];
       if (me.retired || ahead.retired || me.pitTimer > 0 || ahead.pitTimer > 0) continue;  // a car in the pits isn't racing
@@ -250,6 +252,9 @@ export class Race {
       }
       // close combat: hold-up + pass-credit, with slipstream and braking-zone concentration
       if (gapSec > 0 && gapSec < COMBAT_GAP && me.lap === ahead.lap) {
+        me._inFight = true; ahead._inFight = true;                 // both are racing (incident-traffic + HUD)
+        if (me.order === "attack") me._orderBit = true;            // attacking this lap → pays the cost at lap end
+        if (ahead.order === "defend") ahead._orderBit = true;      // defender pays too
         const edge = this._lapTime(ahead) - (this._lapTime(me) - (me._dirtyPace || 0));   // >0 => me faster on CLEAN pace; dirty air slows me on track but must not zero my passing intent (audit r3)
         const tow = slipstream(s, me.car.power);
         // recency bleed + accrual, then cap: the draft can't be banked over a whole straight and
@@ -257,8 +262,9 @@ export class Race {
         if (me._creditVs !== ahead.idx) { me._passCredit = 0; me._creditVs = ahead.idx; }   // credit is earned vs a SPECIFIC rival — don't carry a bank onto a newly-ahead car (audit r3)
         const cautious = me.lap === 0 ? LAP1_CAUTION : 1;   // opening-lap caution: let the launch/grid order settle through T1 (§18.3)
         const aggr = 1 + ATTRW.aggression * (A(me).aggression - 0.5) * 2;   // a braver driver commits harder to the move (§18.7)
+        const atk = me.order === "attack" ? ATTACK_CREDIT_K : 1;   // attack amplifies the accrual (race depth)
         const cr = (me._passCredit ?? 0) * PASS_CREDIT_DECAY
-                 + passAccrual(edge, tow, me.engine, s) * (0.7 + ATTRW.overtaking * A(me).overtaking) * cautious * aggr;
+                 + passAccrual(edge, tow, me.engine, s) * (0.7 + ATTRW.overtaking * A(me).overtaking) * cautious * aggr * atk;
         me._passCredit = Math.min(cr, PASS_CREDIT_CAP);
         const zone = zoneFor(this.track.overtake_zones, sampleAt(this.track, me.lapFrac).mini);   // follower's local zone (or null)
         // bold out-of-zone lunge (§18.2): a much-faster, aggressive driver tries a move where you "can't pass".

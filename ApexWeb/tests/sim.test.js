@@ -605,3 +605,21 @@ test("_keyRng is deterministic and decorrelates by idx/lap/kind", () => {
   assert.notEqual(r._keyRng(2, 5, 1).unit(), r._keyRng(2, 5, 2).unit(), "different kind → different stream");
   assert.notEqual(r._keyRng(2, 5, 1).unit(), r._keyRng(3, 5, 1).unit(), "different car → different stream");
 });
+
+// Attack makes a following car build pass-credit faster than running neutral.
+test("attack order builds pass-credit faster than neutral", () => {
+  function creditAfter(order) {
+    const r = new Race(field(), TRACK, 3);
+    const lead = r.cars[0], chase = r.cars[1];
+    lead.lap = 1; lead.lapFrac = 0.30;
+    chase.lap = 1; chase.lapFrac = 0.30 - (COMBAT_GAP * 0.5) / TRACK.lt;
+    chase.car = { ...chase.car, power: 0.99, aero: 0.99, rel: 1 };
+    chase.attrs = { ...chase.attrs, overtaking: 0.9, aggression: 0.9 };
+    chase.order = order;
+    // 1 tick: attack accrues more per tick than neutral (ATTACK_CREDIT_K amplifier);
+    // 12 ticks would saturate PASS_CREDIT_CAP for both, masking the difference.
+    r._resolveCombat();
+    return chase._passCredit || 0;
+  }
+  assert.ok(creditAfter("attack") > creditAfter("none"), "attacking accrues more credit");
+});
