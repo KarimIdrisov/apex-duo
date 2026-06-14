@@ -22,6 +22,7 @@ import { newCareer, newSeason, currentRound, applyResult, advanceRound, chooseTi
 import { careerTrack } from "./track_build.js";
 import { effectiveCar, startProject } from "./development.js";
 import { moraleMod, reSign } from "./drivers.js";
+import { composePersonnel, upgradeStaff, upgradeFacility } from "./staff.js";
 import { saveCareer } from "./career_store.js";
 
 const SCREENS = { lobby, practice1: practice, practice2: practice, practice3: practice, quali, race, result: race };
@@ -122,6 +123,13 @@ function onCommand(cmd) {
     case "career_resign":
       if (ctx.career) { reSign(ctx.career, cmd.abbrev); saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
+    case "career_upgrade":
+      if (ctx.career) {
+        if (cmd.kind === "staff") upgradeStaff(ctx.career, cmd.key);
+        else if (cmd.kind === "facility") upgradeFacility(ctx.career, cmd.key);
+        saveCareer(ctx.career); publishCareer(); rerender();
+      }
+      break;
     case "career_start_weekend":
       if (ctx.career && !ctx.career.done && !(ctx.career.pendingOffers && ctx.career.pendingOffers.length)) {
         ctx.careerReady[cmd.player] = true; publishCareer(); rerender();
@@ -214,7 +222,7 @@ function buildField() {
     return {
       idx: idx++, name: d.name, abbrev: d.abbrev, skill: overall,
       car: composeCar(ctx.career ? effectiveCar(t.car, ctx.career.carDev[t.name]) : t.car), color: t.color, team: t.name, isPlayer: isPlayerTeam, player,
-      attrs: driverAttrs(d.abbrev, overall), personnel: genPersonnel(t.facility, ti),
+      attrs: driverAttrs(d.abbrev, overall), personnel: (ctx.career && isPlayerTeam) ? composePersonnel(ctx.career.staff) : genPersonnel(t.facility, ti),
       setup, setupBonus: (player
         ? pracSetupBonus(player) + PRAC2.TRACK_PACE * pracTrackKnow(player)
         : paceBonus(closeness(setup, ideal)) + PRAC2.TRACK_PACE * PRAC2.AI_TRACK_KNOW) + mMod, startTyre: "medium",
@@ -245,7 +253,7 @@ function analyzeStrategy(strategy) {
 // driver+car per player for the live practice session (the session carries the hidden ideal).
 function practiceCars() {
   const t = TEAMS[ctx.teamIdx] || TEAMS[0];
-  const personnel = genPersonnel(t.facility, ctx.teamIdx || 0);   // shared crew/facility → speeds setup learning a little
+  const personnel = ctx.career ? composePersonnel(ctx.career.staff) : genPersonnel(t.facility, ctx.teamIdx || 0);   // staff crew/facility → personnel
   const car = composeCar(ctx.career ? effectiveCar(t.car, ctx.career.carDev[t.name]) : t.car);
   const mk = di => ({ drv: { skill: t.drivers[di].skill, attrs: driverAttrs(t.drivers[di].abbrev, t.drivers[di].skill) }, car, personnel });
   return { p1: mk(0), p2: mk(1) };
