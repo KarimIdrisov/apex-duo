@@ -5,6 +5,7 @@ import { defaultSponsors, titleOffers, evaluateSponsor } from "./sponsors.js";
 import { tickDevelopment } from "./development.js";
 import { initDrivers, developDrivers, updateMorale } from "./drivers.js";
 import { initStaff, upkeep } from "./staff.js";
+import { aiChurn } from "./market.js";
 
 // championship points for the top 10 finishers (current F1 system).
 export const POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
@@ -180,6 +181,7 @@ export function newSeason(career) {
   fresh.devSpentThisSeason = 0;
   fresh.drivers = JSON.parse(JSON.stringify(career.drivers || initDrivers()));
   developDrivers(fresh.drivers);             // age up, develop/decline, tick contracts
+  aiChurn(fresh, (fresh.seed >>> 0) + fresh.season * 2246822519);   // deterministic AI silly-season
   fresh.staff = JSON.parse(JSON.stringify(career.staff || initStaff((TEAMS[career.teamIdx] || TEAMS[0]).facility, career.seed || 1)));
   return fresh;
 }

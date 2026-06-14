@@ -190,3 +190,15 @@ test("migrate upgrades a v4 save to v5 (adds staff)", () => {
   assert.equal(up.v, CAREER_V);
   assert.ok(up.staff && up.staff.facilities);
 });
+
+// --- M6 transfer market ---
+test("newSeason runs AI churn but keeps every team at 2 drivers and the player team intact", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  const c2 = newSeason(c);
+  const counts = {};
+  for (const a in c2.drivers) counts[c2.drivers[a].teamIdx] = (counts[c2.drivers[a].teamIdx] || 0) + 1;
+  for (const k in counts) assert.equal(counts[k], 2);
+  assert.equal(c2.drivers["NOR"].teamIdx, 0);            // player team not churned
+  let moved = 0; for (const a in c.drivers) if (c.drivers[a].teamIdx !== c2.drivers[a].teamIdx) moved++;
+  assert.ok(moved >= 2, "AI churn moved at least one pair");
+});
