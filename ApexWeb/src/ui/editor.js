@@ -60,6 +60,7 @@ function loadTrack(n) {
     objects.length = 0; pit = null; pitLoss = null; zones.length = 0; cornerOverrides = {};
   }
   activeZone = -1;
+  if (document.getElementById("zonelist")) refreshZoneList();
   if (pts.length < 4) pts = decimate(presetFlat(n), 48);
   view = { zoom: 1, panX: 0, panY: 0 }; base = null;   // fresh fit per track (computed lazily in frame)
   render();
@@ -108,6 +109,13 @@ const evtXY = (e) => { const r = cv.getBoundingClientRect(); return [e.clientX -
 
 cv.addEventListener("mousedown", (e) => {
   if (e.button !== 0) return; const [mx, my] = evtXY(e);
+  if (mode === "pit") { pit = unproject(mx, my); render(); return; }                      // place the pit marker (Task 6 adds the loss UI)
+  if (mode === "zones") {                                                                  // toggle a sector in the active zone
+    if (activeZone < 0) { toast("Сначала создай зону"); return; }
+    const sec = sectorAt(mx, my), z = zones[activeZone], i = z.sectors.indexOf(sec);
+    if (i >= 0) z.sectors.splice(i, 1); else z.sectors.push(sec);
+    z.sectors.sort((a, b) => a - b); render(); return;
+  }
   if (armed) { const p = unproject(mx, my); objects.push({ type: armed, x: p[0], y: p[1], rot: 0 }); render(); return; }   // place an armed object
   objDrag = pickObj(mx, my); if (objDrag >= 0) { render(); return; }   // grab an existing object before a point
   drag = pick(mx, my); render();
@@ -232,11 +240,21 @@ function setMode(m) {
   for (const b of document.querySelectorAll("#modes button")) b.classList.toggle("on", b.id === "m-" + m);
   document.getElementById("pitctl").hidden = m !== "pit";
   document.getElementById("zonectl").hidden = m !== "zones";
-  render();
+  refreshZoneList(); render();
 }
 document.getElementById("m-edit").onclick = () => setMode("edit");
 document.getElementById("m-pit").onclick = () => setMode("pit");
 document.getElementById("m-zones").onclick = () => setMode("zones");
+function refreshZoneList() {
+  const el = document.getElementById("zonelist");
+  el.innerHTML = zones.map((z, i) => `<a href="#" data-z="${i}" style="color:${i === activeZone ? "#ffd24a" : "#7ad0ff"}">${z.type === "brake" ? "тормозн." : "слип"} [${z.sectors.join(",")}]</a> <a href="#" data-del="${i}" style="color:#e8453c">✕</a>`).join("<br>") || "(нет зон)";
+  for (const a of el.querySelectorAll("a[data-z]")) a.onclick = (e) => { e.preventDefault(); activeZone = +a.dataset.z; document.getElementById("z-ease").value = zones[activeZone].ease; refreshZoneList(); render(); };
+  for (const a of el.querySelectorAll("a[data-del]")) a.onclick = (e) => { e.preventDefault(); zones.splice(+a.dataset.del, 1); activeZone = -1; refreshZoneList(); render(); };
+}
+function addZone(type) { zones.push({ sectors: [], ease: parseFloat(document.getElementById("z-ease").value) || 0.5, type }); activeZone = zones.length - 1; refreshZoneList(); render(); }
+document.getElementById("z-brake").onclick = () => addZone("brake");
+document.getElementById("z-slip").onclick = () => addZone("slip");
+document.getElementById("z-ease").oninput = (e) => { if (activeZone >= 0) { zones[activeZone].ease = parseFloat(e.target.value); } };
 document.getElementById("pitloss").oninput = (e) => { const v = parseFloat(e.target.value); pitLoss = isNaN(v) ? null : v; };
 document.getElementById("save").onclick = () => { saveTrack(name, { points: toFlat(pts), objects, pit, pitLoss, zones, cornerOverrides }); toast("Сохранено: " + name); };
 document.getElementById("reset").onclick = () => { clearTrack(name); loadTrack(name); toast("Сброшено к пресету"); };
