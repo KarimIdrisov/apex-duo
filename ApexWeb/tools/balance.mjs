@@ -265,7 +265,7 @@ console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0
   let spread = 0, gripGain = 0, ok = 0; const NQ = 6;
   for (let k = 0; k < NQ; k++) {
     const { grid, gripGain: gg } = runQuali(2000 + k);
-    const classified = grid.length === 22 && new Set(grid.map(x => x.idx)).size === 22 && grid.every(x => x.time != null);
+    const classified = grid.length === 22 && new Set(grid.map(x => x.idx)).size === 22 && grid.every(x => isFinite(x.time));
     if (classified) { ok++; spread += grid[21].time - grid[0].time; }
     gripGain += gg;
   }

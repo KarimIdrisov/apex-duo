@@ -42,6 +42,28 @@ test("a full knockout yields a 22-car grid: Q1 drops 7, Q2 drops 5, Q3 sets P1..
   assert.ok(grid[21].pos === 22, "P22 is the slowest Q1 car");
 });
 
+test("a full UNPAUSED knockout runs all three segments (Q2/Q3 eliminations actually fire)", () => {
+  // advanceSegment pauses the next segment (players plan their out-lap); press play each time, like the
+  // host loop does, so the clock keeps draining and Q2/Q3 actually run to the post-Q3 sentinel.
+  let s = newQuali(11, field()); s.paused = false; s.speed = 8;
+  let g = 0;
+  while (s.segment <= 3 && g++ < 30000) {
+    s = qualiStep(s, 2.0);
+    if (s.clock <= 0 && s.segment <= 3) { s = advanceSegment(s); s.paused = false; }
+  }
+  assert.equal(s.segment, 4, "reached the post-Q3 sentinel (not stalled mid-quali)");
+  // every grid slot assigned exactly once, by the real per-segment elimination path
+  const gp = Object.values(s.cars).map(c => c.gridPos).sort((a, b) => a - b);
+  assert.deepEqual(gp, Array.from({ length: 22 }, (_, i) => i + 1), "grid slots 1..22 each assigned once");
+  const q1out = Object.values(s.cars).filter(c => c.gridPos >= 16);   // Q1 dropped 7 → P16..P22
+  const q2out = Object.values(s.cars).filter(c => c.gridPos >= 11 && c.gridPos <= 15);   // Q2 dropped 5 → P11..P15
+  const q3 = Object.values(s.cars).filter(c => c.gridPos <= 10);      // Q3 set the top 10
+  assert.equal(q1out.length, 7, "Q1 eliminated 7");
+  assert.equal(q2out.length, 5, "Q2 eliminated 5");
+  assert.equal(q3.length, 10, "Q3 set the top 10");
+  assert.ok(q3.every(c => isFinite(c.bestTime)), "every top-10 car has a real lap time");
+});
+
 test("a fresh release consumes a soft set; out of fresh sets falls back to used", () => {
   let s = newQuali(5, field()); s.paused = false; s.speed = 8;
   const car = () => Object.values(s.cars).find(c => c.player === "p1");

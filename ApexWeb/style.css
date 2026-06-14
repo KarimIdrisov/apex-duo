@@ -238,3 +238,6 @@ input[type=range].pw-range{position:absolute;inset:0;width:100%;height:100%;marg
 .q-tyre-seg button:disabled{color:var(--muted);opacity:.45}
 .q-set-lbl{margin:12px 0 0;text-align:center}
 .q-partner{margin:0 0 10px;text-align:center}
+/* live "traffic ahead" read on the control card */
+.q-traffic{font-size:13px;font-weight:600;padding:7px 10px;border-radius:var(--r-sm);background:var(--content2)}
+.q-traffic.good{color:var(--good)} .q-traffic.warn{color:var(--warn)} .q-traffic.bad{color:var(--bad)}

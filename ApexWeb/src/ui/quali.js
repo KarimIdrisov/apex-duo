@@ -5,7 +5,7 @@
 // (ctx.qTyre / ctx.qPush); every committed action is sent to the host (quali_release / quali_abort /
 // quali_speed / quali_pause / ready). The host pushes a fresh snapshot ~15 Hz, so we just repaint the
 // whole subtree each tick — the controls are buttons/segments (no drag), so a full re-render is fine.
-import { DRIVER_INFO } from "../data.js";
+import { DRIVER_INFO, QUALI2 } from "../data.js";
 
 // mm:ss for the game-seconds session clock.
 const fmtClock = sec => { const s = Math.max(0, Math.floor(sec)); const m = Math.floor(s / 60); return `${m}:${(s - m * 60).toString().padStart(2, "0")}`; };
@@ -55,7 +55,7 @@ export function render(root, ctx) {
         <div>
           <div class="q-seg">${segLabel}</div>
           <div class="q-grip-wrap">
-            <span class="label q-grip-lbl">трасса +${(snap.grip * 1.2).toFixed(1)}с</span>
+            <span class="label q-grip-lbl">трасса +${(snap.grip * QUALI2.GRIP_GAIN).toFixed(1)}с</span>
             <div class="q-grip"><i style="width:${Math.round(snap.grip * 100)}%"></i></div>
           </div>
         </div>
@@ -123,11 +123,15 @@ export function render(root, ctx) {
         </div>`;
       const canRelease = me.phase === "pit";
       const canAbort = me.phase === "outlap" || me.phase === "flying";
+      const d = me.traffic ?? 0;                                    // live traffic density (0 clear .. 1 packed)
+      const traf = d < 0.2 ? { t: "чисто — окно открыто", c: "good" } : d < 0.5 ? { t: "средне", c: "warn" } : { t: "плотно — рискуешь", c: "bad" };
       body = `
         <p class="label" style="margin:0 0 4px">Резина</p>
         ${tyreSeg}
         <p class="label" style="margin:12px 0 4px">Темп круга</p>
         ${pushSeg}
+        <p class="label" style="margin:12px 0 4px">Трафик на трассе</p>
+        <div class="q-traffic ${traf.c}">${traf.t}</div>
         <button class="primary" id="q-release" style="margin-top:12px" ${canRelease ? "" : "disabled"}>Выпустить на круг</button>
         <button class="btn q-abort" id="q-abort" style="margin-top:8px;width:100%" ${canAbort ? "" : "disabled"}>Прервать круг</button>
         <p class="label q-set-lbl">комплектов софта: ${me.softSets}</p>`;

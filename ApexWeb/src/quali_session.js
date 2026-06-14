@@ -42,12 +42,17 @@ export function abort(s, player) {
   return s;
 }
 
-// time lost to traffic when starting a flying lap: scales with the share of the field on track,
-// jittered by a stateless per-lap roll so a clear window can still be unlucky (and vice-versa).
-export function trafficFor(s, car, lapIdx) {
+// share of the field on track right now (excluding self): 0 (clear) .. 1 (everyone out).
+// the live "traffic ahead" read the player sees before choosing when to release.
+export function trafficDensity(s, car) {
   let onTrack = 0, total = 0;
   for (const c of Object.values(s.cars)) { if (c.eliminated) continue; total++; if (c.idx !== car.idx && (c.phase === "flying" || c.phase === "outlap")) onTrack++; }
-  const density = total > 1 ? onTrack / (total - 1) : 0;             // 0 (clear) .. 1 (everyone out)
+  return total > 1 ? onTrack / (total - 1) : 0;
+}
+// time lost to traffic when starting a flying lap: scales with the density, jittered by a stateless
+// per-lap roll so a clear window can still be unlucky (and vice-versa).
+export function trafficFor(s, car, lapIdx) {
+  const density = trafficDensity(s, car);
   const roll = lapRng(s, car.idx, lapIdx * 3 + 1).unit();            // 0..1, stateless
   return QUALI2.TRAFFIC_MAX * density * (0.4 + 0.6 * roll);
 }
@@ -187,7 +192,7 @@ export function qualiSnapshot(s) {
   const posOf = idx => { const r = tower.find(t => t.idx === idx); return r ? r.pos : 0; };
   const block = (player) => { const c = all.find(x => x.player === player); return c ? {
     phase: c.phase, tyre: c.tyre, softSets: c.softSets, bestTime: isFinite(c.bestTime) ? c.bestTime : null,
-    pos: posOf(c.idx), eliminated: c.eliminated } : null; };
+    pos: posOf(c.idx), eliminated: c.eliminated, traffic: trafficDensity(s, c) } : null; };
   return { type: "snapshot", phase: "quali", segment: s.segment, clock: s.clock, speed: s.speed,
     paused: s.paused, grip: s.grip, flag: s.flag, cut, tower, cars: { p1: block("p1"), p2: block("p2") } };
 }
