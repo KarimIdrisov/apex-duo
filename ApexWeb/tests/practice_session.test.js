@@ -71,22 +71,24 @@ test("sessionSnapshot exposes per-car windows + feedback + satisfaction", () => 
   assert.ok(typeof snap.cars.p1.satisfaction === "number");
 });
 
-test("a run charges pit-prep time to the clock: flat base + setup-change", () => {
+test("dynamic pit-prep: tyre change + fuel-by-laps + setup change", () => {
   let s = newSession(7, mkCars());
   const c0 = s.clock;
-  // first run on the default setup → only the flat base (tyre change + refuel; lastCompound=null → TYRE_CHANGE_SEC)
+  // first run: lastCompound null → counts as a change; soft, 5 laps, no setup move
   s = sendRun(s, "p1", "soft", 5);
-  assert.ok(Math.abs((c0 - s.clock) - PRAC2.TYRE_CHANGE_SEC) < 1e-6, `base prep only (${c0 - s.clock})`);
-  // back to the garage, move one axis by 0.5 → refit (same compound) + 0.5*rate next time out
+  const expect1 = PRAC2.TYRE_CHANGE_SEC + PRAC2.FUEL_PER_LAP * 5;
+  assert.ok(Math.abs((c0 - s.clock) - expect1) < 1e-6, `change+fuel (${c0 - s.clock} vs ${expect1})`);
+  // same compound next run, longer stint, one axis moved 0.5
   s.cars.p1.onTrack = false;
-  s = setAxis(s, "p1", 0, 1.0);                 // 0.5 -> 1.0
-  const c1 = s.clock, expect = PRAC2.TYRE_REFIT_SEC + PRAC2.SETUP_APPLY_SEC * 0.5;
-  assert.ok(Math.abs(prepCostFor(s.cars.p1) - expect) < 1e-6, "prepCostFor previews the upcoming cost");
-  s = sendRun(s, "p1", "soft", 5);
-  assert.ok(Math.abs((c1 - s.clock) - expect) < 1e-6, `setup change adds time (${c1 - s.clock})`);
-  // an unchanged setup costs only the refit base (lastRunSetup now matches, same compound)
+  s = setAxis(s, "p1", 0, 1.0);
+  const c1 = s.clock;
+  s = sendRun(s, "p1", "soft", 10);
+  const expect2 = PRAC2.TYRE_REFIT_SEC + PRAC2.FUEL_PER_LAP * 10 + PRAC2.SETUP_APPLY_SEC * 0.5;
+  assert.ok(Math.abs((c1 - s.clock) - expect2) < 1e-6, `refit+fuel+setup (${c1 - s.clock} vs ${expect2})`);
+  // prepCostFor preview matches what a launch would charge for a chosen compound/laps
   s.cars.p1.onTrack = false;
-  assert.ok(Math.abs(prepCostFor(s.cars.p1) - PRAC2.TYRE_REFIT_SEC) < 1e-6, "no change → refit only");
+  assert.ok(Math.abs(prepCostFor(s.cars.p1, "medium", 8) - (PRAC2.TYRE_CHANGE_SEC + PRAC2.FUEL_PER_LAP * 8)) < 1e-6,
+    "preview: new compound + fuel, no setup change");
 });
 
 test("track knowledge banks per lap and gates the ideal window", () => {

@@ -41,21 +41,19 @@ export function setAxis(s, player, i, value) {
   return s;
 }
 
-// pit-prep time a run costs the session clock: a flat tyre-change (TYRE_CHANGE_SEC) or refit
-// (TYRE_REFIT_SEC if same compound as last stint), plus mechanic time proportional to how far the
-// setup moved since the car was last out (Σ|Δaxis|). Telegraphed in the snapshot so the UI can
-// show "−Xс" before launch; converging setups cost less (smaller moves).
-export function prepCostFor(car) {
-  const delta = car.setup.reduce((a, v, i) => a + Math.abs(v - car.lastRunSetup[i]), 0);
-  const base = (car.lastCompound && car.lastCompound === car.compound) ? PRAC2.TYRE_REFIT_SEC : PRAC2.TYRE_CHANGE_SEC;
-  return base + PRAC2.SETUP_APPLY_SEC * delta;
+// pit-prep time a run costs the session clock: a tyre change (more for a different compound), fuel load
+// proportional to the stint length, plus mechanic time for setup changes since the car was last out.
+export function prepCostFor(car, compound, laps) {
+  const setupDelta = car.setup.reduce((a, v, i) => a + Math.abs(v - car.lastRunSetup[i]), 0);
+  const tyre = (compound !== car.lastCompound) ? PRAC2.TYRE_CHANGE_SEC : PRAC2.TYRE_REFIT_SEC;
+  return tyre + PRAC2.FUEL_PER_LAP * laps + PRAC2.SETUP_APPLY_SEC * setupDelta;
 }
 
 export function sendRun(s, player, compound, laps) {
   const car = s.cars[player]; if (!car) return s;
-  s.clock = Math.max(0, s.clock - prepCostFor(car));   // garage work eats the session clock
-  car.lastRunSetup = car.setup.slice();                // this setup is now "applied"
-  car.lastCompound = compound;                         // record for tyre-change prep cost
+  s.clock = Math.max(0, s.clock - prepCostFor(car, compound, laps));   // garage work eats the session clock
+  car.lastRunSetup = car.setup.slice();                                // this setup is now "applied"
+  car.lastCompound = compound;                                         // remember the fitted compound
   car.compound = compound; car.stintLeft = laps; car.onTrack = true;
   car.wear = 0; car.temp = TYRE.pitTemp; car.fuel = startFuel(TRACK);
   return s;
@@ -102,7 +100,7 @@ export function carView(s, player) {
   return {
     setup: car.setup.slice(), trackKnow: car.trackKnow, confirmedSat: car.confirmedSat.slice(),
     ideal: car.ideal.slice(), onTrack: car.onTrack, compound: car.compound, stintLeft: car.stintLeft,
-    totalLaps: car.totalLaps, accl: car.accl, strategy: car.strategy, prepCost: prepCostFor(car),
+    totalLaps: car.totalLaps, accl: car.accl, strategy: car.strategy,
     satisfaction: car.confirmedSat.reduce((a, b) => a + b, 0) / PRAC2.AXES,
   };
 }
