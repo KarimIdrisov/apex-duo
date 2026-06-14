@@ -35,6 +35,7 @@ function computeBase() {
 const N_MINI = 18;                                      // mini-sectors = 18 equal lap-fraction spans (matches sim track.js)
 let mode = "edit";                                      // "edit" | "pit" | "zones"
 let pit = null, pitLoss = null;                         // pit-box marker {x,y} + pit-loss seconds
+let pitLane = null, pitNext = "entry";                  // {entry,exit,side,width} authored lane + which end the next click sets
 const zones = [];                                       // [{sectors:[..], ease, type}]  == TRACK.overtake_zones
 let activeZone = -1;                                    // index of the zone being edited, or -1
 let cornerOverrides = {};                               // { sectorIndex: "straight"|"high"|"med"|"low" }
@@ -56,12 +57,12 @@ function loadTrack(n) {
   if (saved && Array.isArray(saved.points) && saved.points.length >= 8) {
     pts = toPts(saved.points);
     objects.length = 0; for (const o of (saved.objects || [])) objects.push({ ...o });
-    pit = saved.pit || null; pitLoss = (typeof saved.pitLoss === "number") ? saved.pitLoss : null;
+    pit = saved.pit || null; pitLoss = (typeof saved.pitLoss === "number") ? saved.pitLoss : null; pitLane = saved.pitLane || null;
     zones.length = 0; for (const z of (saved.zones || [])) zones.push({ sectors: [...z.sectors], ease: z.ease, type: z.type });
     cornerOverrides = saved.cornerOverrides ? { ...saved.cornerOverrides } : {};
   } else {                                               // fresh preset: decimate the dense path to draggable points
     pts = n === EMPTY ? toPts(OVAL) : decimate(presetFlat(n), 48);
-    objects.length = 0; pit = null; pitLoss = null; zones.length = 0; cornerOverrides = {};
+    objects.length = 0; pit = null; pitLoss = null; zones.length = 0; cornerOverrides = {}; pitLane = null;
   }
   activeZone = -1;
   if (document.getElementById("zonelist")) refreshZoneList();
@@ -90,7 +91,14 @@ function render() {
   }
   for (const o of objects) drawObj(g, C([o.x, o.y]), o);   // placed objects on top
   if (mode === "zones") drawSectors(g, cl, C, pxPerWorld);
-  if (pit) { const c = C([pit.x, pit.y]); g.fillStyle = "#ffd24a"; g.font = "bold 16px system-ui"; g.textAlign = "center"; g.fillText("⛽", c[0], c[1] + 5); }
+  if (mode === "pit" && pitLane) {                                                         // draw the authored lane: offset of the track entry->0->exit
+    const cl = buildCenterline(splinePath(toFlat(pts))), off = (pitLane.side || 1) * (pitLane.width || 2.5) * (HALF_W * base.size / WORLD);
+    const segFwd = (a, b) => { const d = ((b - a) % 1 + 1) % 1; const out = []; for (let k = 0; k <= 12; k++) out.push(C(offsetPoint(cl, ((a + d * k / 12) % 1 + 1) % 1, off))); return out; };
+    const lane = [...segFwd(pitLane.entry ?? 0.95, 0), ...segFwd(0, pitLane.exit ?? 0.06)];
+    g.beginPath(); lane.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]));
+    g.lineWidth = 5; g.strokeStyle = "rgba(255,210,74,.8)"; g.lineCap = "round"; g.stroke();
+    const box = C(offsetPoint(cl, 0, off)); g.fillStyle = "#ffd24a"; g.font = "bold 15px system-ui"; g.textAlign = "center"; g.fillText("⛽", box[0], box[1] + 5);
+  }
   if (driving) for (const car of cars) {                 // kinematic cars riding the racing line (car.lat = eased offset, set in tick)
     const p = offsetPoint(cl, car.frac, car.lat), t = tangentAt(cl, car.frac);
     drawCar(C(p), Math.atan2(t[1], t[0]), car.col);
@@ -114,7 +122,15 @@ const evtXY = (e) => { const r = cv.getBoundingClientRect(); return [e.clientX -
 
 cv.addEventListener("mousedown", (e) => {
   if (e.button !== 0) return; const [mx, my] = evtXY(e);
-  if (mode === "pit") { pit = unproject(mx, my); render(); return; }                      // place the pit marker (Task 6 adds the loss UI)
+  if (mode === "pit") {                                                                    // author the pit lane: alternate entry / exit
+    if (pts.length < 3) { toast("Мало точек"); return; }
+    pit = unproject(mx, my);
+    const cl = buildCenterline(splinePath(toFlat(pts))), f = nearestFrac(cl, pit, 360);
+    pitLane = pitLane || { entry: 0.95, exit: 0.06, side: 1, width: parseFloat(document.getElementById("pit-width").value) || 2.5 };
+    pitLane[pitNext] = f; pitNext = pitNext === "entry" ? "exit" : "entry";
+    document.getElementById("pithint").textContent = "клик ставит: " + (pitNext === "entry" ? "вход" : "выход");
+    render(); return;
+  }
   if (mode === "zones") {                                                                  // toggle a sector in the active zone
     if (activeZone < 0) { toast("Сначала создай зону"); return; }
     const sec = sectorAt(mx, my), z = zones[activeZone], i = z.sectors.indexOf(sec);
@@ -258,7 +274,11 @@ function setMode(m) {
   for (const b of document.querySelectorAll("#modes button")) b.classList.toggle("on", b.id === "m-" + m);
   document.getElementById("pitctl").hidden = m !== "pit";
   document.getElementById("zonectl").hidden = m !== "zones";
-  if (m === "pit") document.getElementById("pitloss").value = (pitLoss == null ? "" : pitLoss);
+  if (m === "pit") {
+    document.getElementById("pitloss").value = (pitLoss == null ? "" : pitLoss);
+    document.getElementById("pit-width").value = (pitLane && pitLane.width) || 2.5;
+    document.getElementById("pithint").textContent = "клик ставит: " + (pitNext === "entry" ? "вход" : "выход");
+  }
   refreshZoneList(); render();
 }
 document.getElementById("m-edit").onclick = () => setMode("edit");
@@ -284,8 +304,10 @@ document.getElementById("autozones").onclick = () => {   // suggest zones from t
 };
 document.getElementById("z-ease").oninput = (e) => { if (activeZone >= 0) { zones[activeZone].ease = parseFloat(e.target.value); } };
 document.getElementById("pitloss").oninput = (e) => { const v = parseFloat(e.target.value); pitLoss = isNaN(v) ? null : v; };
+document.getElementById("pit-side").onclick = () => { pitLane = pitLane || { entry: 0.95, exit: 0.06, side: 1, width: 2.5 }; pitLane.side = -pitLane.side; render(); };
+document.getElementById("pit-width").oninput = (e) => { if (pitLane) { pitLane.width = parseFloat(e.target.value) || 2.5; render(); } };
 document.getElementById("save").onclick = async () => {
-  const rec = { name, points: toFlat(pts), objects, pit, pitLoss, zones, cornerOverrides };
+  const rec = { name, points: toFlat(pts), objects, pit, pitLoss, zones, cornerOverrides, pitLane };
   saveTrack(name, rec);                                   // local cache (and offline fallback)
   const r = await saveToRepo(rec);                        // repo file via the node helper
   toast(r.ok ? ("В репо: tracks/" + r.slug + ".json") : "Сохранено локально (нет node-сервера для записи в репо)");
@@ -298,12 +320,12 @@ document.getElementById("publish").onclick = async () => {
   toast(r.ok ? "Опубликовано на гит" : ("Не вышло: " + r.message));
 };
 document.getElementById("race").onclick = () => {       // race the current track in the sim
-  saveTrack(name, { points: toFlat(pts), objects, pit, pitLoss, zones, cornerOverrides });   // persist first
+  saveTrack(name, { points: toFlat(pts), objects, pit, pitLoss, zones, cornerOverrides, pitLane });   // persist first
   localStorage.setItem("apexweb_race_track", name);     // main.js picks this up on boot
   location.href = "index.html";                          // go to the game -> it boots straight into the race
 };
 document.getElementById("export").onclick = () => {     // download the current track as JSON
-  const blob = new Blob([JSON.stringify({ name, points: toFlat(pts), objects, pit, pitLoss, zones, cornerOverrides }, null, 0)], { type: "application/json" });
+  const blob = new Blob([JSON.stringify({ name, points: toFlat(pts), objects, pit, pitLoss, zones, cornerOverrides, pitLane }, null, 0)], { type: "application/json" });
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name + ".json"; a.click(); URL.revokeObjectURL(a.href);
 };
 document.getElementById("import").onclick = () => document.getElementById("file").click();
@@ -312,7 +334,7 @@ document.getElementById("file").onchange = (e) => {     // load a track JSON bac
   r.onload = () => { try { const d = JSON.parse(r.result); pts = toPts(d.points); objects.length = 0; for (const o of (d.objects || [])) objects.push({ ...o });
     pit = d.pit || null; pitLoss = (typeof d.pitLoss === "number") ? d.pitLoss : null;
     zones.length = 0; for (const z of (d.zones || [])) zones.push({ sectors: [...z.sectors], ease: z.ease, type: z.type });
-    cornerOverrides = d.cornerOverrides ? { ...d.cornerOverrides } : {};
+    cornerOverrides = d.cornerOverrides ? { ...d.cornerOverrides } : {}; pitLane = d.pitLane || null;
     activeZone = -1; view = { zoom: 1, panX: 0, panY: 0 }; base = null; refreshZoneList();
     render(); toast("Импортировано"); } catch { toast("Битый JSON"); } };
   r.readAsText(f);

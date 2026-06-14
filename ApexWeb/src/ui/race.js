@@ -7,6 +7,8 @@ import { describe } from "../commentary.js";
 import { sfx } from "../audio.js";
 import * as screen3d from "./race3d_screen.js";
 import { TRACK_SHAPES } from "../track_shapes.js";
+import { effectiveTrack } from "../track_store.js";
+import { pitLaneSample, advancePitPhase } from "../pitlane.js";
 
 const PACE = ["conserve", "balanced", "push"], ENGINE = ["save", "standard", "push"];
 const PACE_L = { conserve: "Save", balanced: "Norm", push: "Push" };
@@ -60,11 +62,16 @@ function tickLine(frac, len, stroke, w, dash = "") {                 // perpendi
   return `<line x1="${(px - nx * len).toFixed(2)}" y1="${(py - ny * len).toFixed(2)}" x2="${(px + nx * len).toFixed(2)}" y2="${(py + ny * len).toFixed(2)}" stroke="${stroke}" stroke-width="${w}"${dash ? ` stroke-dasharray="${dash}"` : ""}/>`;
 }
 function pitPos(frac, depth) { const { nx, ny, px, py } = normalAt(frac); return [px + nx * depth, py + ny * depth]; }
+const DEFAULT_PIT_LANE = { entry: 0.95, exit: 0.06, side: 1, width: 2.5 };
+let _pitLane = DEFAULT_PIT_LANE;
+const MINIMAP_HW = 2.6;   // minimap units per track-half-width (default width 2.5 -> ~6.5, today's spur depth)
+const _pitAnim = {};      // idx -> { phase, active }
 let _curTrack = "__none__";
 function ensureTrack(name) {                                         // (re)bind the map geometry when the race's circuit is known
   if (name === _curTrack) return;
   _curTrack = name;
   setTrack((name && TRACK_SHAPES[name]) || TRACK_PATH);
+  _pitLane = (effectiveTrack(name, (name && TRACK_SHAPES[name]) || TRACK_PATH).pitLane) || DEFAULT_PIT_LANE;
 }
 setTrack(TRACK_PATH);                                                // default until a race snapshot names a circuit
 
@@ -109,6 +116,7 @@ function startMapLoop(root, ctx) {
     const phase = ctx.weekend && ctx.weekend.phase;
     if (!ctx._buf || (phase !== "race" && phase !== "result")) return;
     const now = nowMs(), renderT = now - DELAY, xy = {};
+    const dt = Math.min(0.05, (now - (ctx._pitLast || now)) / 1000); ctx._pitLast = now;
     for (const idx in ctx._buf) {
       const meta = ctx._meta[idx];
       const dot = root.querySelector(`#car-${idx}`), lbl = root.querySelector(`#lbl-${idx}`);
@@ -116,7 +124,9 @@ function startMapLoop(root, ctx) {
       if (meta.retired) { dot.style.display = "none"; if (lbl) lbl.style.display = "none"; continue; }
       dot.style.display = ""; if (lbl) lbl.style.display = "";
       let x, y;
-      if (meta.inPit || (ctx._pit[idx] && now < ctx._pit[idx])) { [x, y] = PIT_STOP; }  // in the box (or just-pitted tail)
+      const inPit = meta.inPit || (ctx._pit[idx] && now < ctx._pit[idx]);
+      const pa = _pitAnim[idx] = advancePitPhase(_pitAnim[idx], inPit, dt);
+      if (pa.active) { const s = pitLaneSample(pa.phase, _pitLane); [x, y] = pitPos(s.frac, s.latUnit * _pitLane.width * MINIMAP_HW); }
       else { [x, y] = pointAt(sampleBuf(ctx._buf[idx], renderT)); }
       xy[idx] = [x, y];
       const baseR = meta.isPlayer ? 2.5 : 1.8;

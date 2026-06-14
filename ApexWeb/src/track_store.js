@@ -18,6 +18,7 @@ export function saveTrack(name, data) {
     pitLoss: (typeof data.pitLoss === "number") ? data.pitLoss : null,
     zones: Array.isArray(data.zones) ? data.zones : [],
     cornerOverrides: data.cornerOverrides || null,
+    pitLane: data.pitLane || null,
   };
   try { s.setItem(KEY, JSON.stringify(all)); } catch { /* quota/full -> ignore */ }
 }
@@ -37,6 +38,7 @@ export function effectiveTrack(name, presetPoints) {
     pitLoss: (typeof e.pitLoss === "number") ? e.pitLoss : null,
     zones: Array.isArray(e.zones) ? e.zones : [],
     cornerOverrides: e.cornerOverrides || null,
+    pitLane: e.pitLane || null,
   };
-  return { points: presetPoints, objects: [], pit: null, pitLoss: null, zones: [], cornerOverrides: null };
+  return { points: presetPoints, objects: [], pit: null, pitLoss: null, zones: [], cornerOverrides: null, pitLane: null };
 }

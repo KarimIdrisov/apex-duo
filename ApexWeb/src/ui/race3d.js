@@ -9,6 +9,7 @@ import { buildCenterline, pointAt, tangentAt, bounds, sampleProg, racingLineOffs
 import { TRACK_SHAPES } from "../track_shapes.js";
 import { paintTrack } from "../track_paint.js";
 import { effectiveTrack } from "../track_store.js";
+import { pitLaneSample, advancePitPhase } from "../pitlane.js";
 
 const WORLD = 120;                 // larger track axis spans ~120 world units
 const HALF_W = 3.8;                // track half-width (world units) — wider for a real-track feel
@@ -42,6 +43,7 @@ export function init(canvas, ctx) {
   const edited = (ctx.snapshot && ctx.snapshot.points)                                              // editor preview passes live geometry
     ? { points: ctx.snapshot.points, objects: ctx.snapshot.objects || [] }
     : effectiveTrack(trackName, (trackName && TRACK_SHAPES[trackName]) || TRACK_PATH);               // else owner's editor edits / preset
+  const pitLane = (edited.pitLane) || { entry: 0.95, exit: 0.06, side: 1, width: 2.5 };
   const cl = buildCenterline(splinePath(edited.points));   // Catmull-Rom-smoothed: soft corners, no per-vertex snapping
   const b = bounds(cl);
   const speedWarp = buildSpeedWarp(cl);            // corner-aware visual speed (render-only; redistributes within the lap, preserves lap times)
@@ -238,7 +240,7 @@ export function init(canvas, ctx) {
   }
   resize(); window.addEventListener("resize", resize);
 
-  let raf = 0, alive = true;
+  let raf = 0, alive = true, lastFrame = 0;
   function dispose() {
     if (!alive) return; alive = false;
     cancelAnimationFrame(raf);
@@ -258,6 +260,7 @@ export function init(canvas, ctx) {
     if (!canvas.isConnected) return dispose();   // screen changed -> self-teardown
     raf = requestAnimationFrame(frame);
     const rt = nowMs() - DELAY;
+    const dt = Math.min(0.05, (nowMs() - (lastFrame || nowMs())) / 1000); lastFrame = nowMs();
     const buf = ctx._buf || {};
     const snapCars = (ctx.snapshot && ctx.snapshot.cars) || [];   // position order (P1..)
     for (let i = 0; i < snapCars.length; i++) {
@@ -265,8 +268,12 @@ export function init(canvas, ctx) {
       if (!car) continue;
       if (c.retired) { car.group.visible = false; continue; }
       car.group.visible = true;
-      if (c.inPit) {
-        car.group.position.set(wx(PIT), 0, wz(PIT));
+      car._pit = advancePitPhase(car._pit, c.inPit, dt);
+      if (car._pit.active) {
+        const s = pitLaneSample(car._pit.phase, pitLane);
+        const p = offsetPoint(cl, s.frac, s.latUnit * pitLane.width * HW_N), t = tangentAt(cl, s.frac);
+        car.group.position.set(wx(p), 0, wz(p));
+        car.group.rotation.y = Math.atan2(t[0], t[1]);
         car.ring.material.opacity = 0; car.lat = 0; car.px = null;   // re-snap when it rejoins the track
         continue;
       }

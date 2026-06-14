@@ -73,3 +73,12 @@ test("effectiveTrack: preset fallback also carries default gameplay fields", () 
   assert.deepEqual(t.zones, []);
   assert.equal(t.pit, null);
 });
+
+test("track_store: round-trips pitLane (+ default null for old records)", () => {
+  localStorage.clear();
+  saveTrack("Питовая", { points: [0, 0, 1, 0, 1, 1, 0, 1], pitLane: { entry: 0.9, exit: 0.08, side: -1, width: 2.5 } });
+  assert.deepEqual(effectiveTrack("Питовая", [9, 9, 9, 9]).pitLane, { entry: 0.9, exit: 0.08, side: -1, width: 2.5 });
+  saveTrack("Старая", { points: [0, 0, 1, 0, 1, 1, 0, 1] });
+  assert.equal(effectiveTrack("Старая", [9, 9, 9, 9]).pitLane, null);
+  assert.equal(effectiveTrack("НетТакой", [1, 2, 3, 4]).pitLane, null);
+});
