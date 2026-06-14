@@ -4,6 +4,7 @@ import { buildCenterline, splinePath, bounds, tangentAt, offsetPoint, racingLine
 import { TRACK_SHAPES, TRACK_NAMES } from "../track_shapes.js";
 import { paintTrack } from "../track_paint.js";
 import { saveTrack, clearTrack, loadAll } from "../track_store.js";
+import { fitOutline } from "../editor_preview.js";   // pure, THREE-free — safe to import statically
 import { hydratePack } from "../track_pack.js";
 import { saveToRepo, publish } from "../track_repo.js";
 
@@ -66,6 +67,7 @@ function loadTrack(n) {
   if (pts.length < 4) pts = decimate(presetFlat(n), 48);
   view = { zoom: 1, panX: 0, panY: 0 }; base = null;   // fresh fit per track (computed lazily in frame)
   render();
+  drawSvgRef(name);   // refresh the original-outline reference for the picked circuit
 }
 
 // world<->canvas mapping that fits the track (with margin) to the square canvas
@@ -308,4 +310,29 @@ document.getElementById("file").onchange = (e) => {     // load a track JSON bac
 document.getElementById("hint").innerHTML = "Колесо — зум к курсору · средняя-кнопка — пан · ⊡ по размеру<br><b>Точки:</b> ЛКМ-тащи точку/объект · 2× клик — добавить · ПКМ — удалить · объект: тип→клик · колесо над объектом — повернуть<br><b>Пит:</b> клик по холсту — поставить боксы + поле потери<br><b>Зоны:</b> создай зону → кликай сектора · ПКМ по сектору — класс поворота<br>▶ Прокатить — пустить машинки · 💾 Сохранить → 3D";
 function toast(t) { const el = document.getElementById("toast"); el.textContent = t; el.style.opacity = 1; setTimeout(() => el.style.opacity = 0, 1400); }
 
+// --- 3D preview (reuses the game renderer; loaded on demand so the editor works offline) + svg reference ---
+let preview = null;
+async function refresh3d() {
+  if (preview) { preview.dispose(); preview = null; }
+  if (pts.length < 3) { toast("Мало точек"); return; }
+  try {
+    const { startPreview } = await import("../editor3d.js");   // dynamic: a missing CDN/THREE won't break 2D editing
+    preview = startPreview(document.getElementById("preview3d"), { points: toFlat(pts), objects });
+  } catch { toast("3D-движок недоступен (нет сети?)"); }
+}
+function drawSvgRef(n) {
+  const cv = document.getElementById("svgref"); if (!cv) return;
+  const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  cv.width = Math.max(1, r.width * dpr); cv.height = Math.max(1, r.height * dpr);
+  const g = cv.getContext("2d"); g.clearRect(0, 0, cv.width, cv.height);
+  const flat = TRACK_SHAPES[n];
+  if (!flat) { g.fillStyle = "#8a909c"; g.font = `${13 * dpr}px system-ui`; g.textAlign = "center"; g.fillText("(нет эталона)", cv.width / 2, cv.height / 2); return; }
+  const pp = fitOutline(flat, cv.width, cv.height, 12 * dpr);
+  g.beginPath();
+  for (let i = 0; i < pp.length; i++) { const p = pp[i]; i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); }
+  g.closePath(); g.lineWidth = 2 * dpr; g.strokeStyle = "#7ad0ff"; g.stroke();
+}
+document.getElementById("refresh3d").onclick = refresh3d;
+
 loadTrack(name);
+refresh3d();        // initial 3D preview (dynamic import; degrades gracefully offline)
