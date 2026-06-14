@@ -290,7 +290,8 @@ export class Race {
         }
         const ease = zone ? zone.ease : 0;   // ease is only read in the in-zone resist below; 0 is a dead-safe fallback
         // outside any zone a pass cannot complete (resist = Infinity): stay pinned, credit keeps building
-        const resist = zone ? (1 - ease) * 2.0 * (0.7 + ATTRW.defending * A(ahead).defending) : Infinity;
+        const def = ahead.order === "defend" ? DEFEND_ORDER_K : 1;   // defend amplifies the resist (race depth)
+        const resist = zone ? (1 - ease) * 2.0 * (0.7 + ATTRW.defending * A(ahead).defending) * def : Infinity;
         // defence roll: at the threshold a strong defender can repel the move THIS tick — credit is KEPT,
         // so a genuinely faster car still gets by within a few ticks (bounded; makes defending/overtaking matter, §18.7).
         const repelled = me._passCredit >= resist && me.lap >= 1

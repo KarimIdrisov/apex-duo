@@ -623,3 +623,24 @@ test("attack order builds pass-credit faster than neutral", () => {
   }
   assert.ok(creditAfter("attack") > creditAfter("none"), "attacking accrues more credit");
 });
+
+test("defend order makes a follower pass less often than a neutral leader", () => {
+  function passes(order) {
+    let count = 0;
+    for (let seed = 0; seed < 24; seed++) {
+      const r = new Race(field(), TRACK, 200 + seed);
+      const lead = r.cars[0], chase = r.cars[1];
+      lead.lap = 1; lead.lapFrac = 0.015;                      // in the Turn-1 brake zone (mini 0-2)
+      chase.lap = 1; chase.lapFrac = 0.015 - (COMBAT_GAP * 0.4) / TRACK.lt;
+      chase.car = { ...chase.car, power: 0.99, aero: 0.99, rel: 1 };
+      chase.attrs = { ...chase.attrs, overtaking: 0.9, aggression: 0.6 };
+      lead.attrs = { ...lead.attrs, defending: 0.9 };
+      lead.order = order;
+      let passed = false;
+      for (let i = 0; i < 30 && !passed; i++) { r._resolveCombat(); if ((chase.lap + chase.lapFrac) > (lead.lap + lead.lapFrac)) passed = true; }
+      if (passed) count++;
+    }
+    return count;
+  }
+  assert.ok(passes("defend") <= passes("none"), "defending holds the position at least as often");
+});
