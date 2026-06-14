@@ -112,10 +112,12 @@ export function render(root, ctx) {
   let footer;
   if (c.done) {
     const bo = boardOutcome(c);
+    const champD = drv[0], champC = cons[0];
     footer = `<div class="panel"><h3>Сезон ${c.season} завершён</h3>
-      <p class="label">Цель совета: не ниже P${bo.target} в Кубке конструкторов.</p>
-      <p style="font-size:18px;font-weight:700;color:${bo.met ? "var(--good)" : "var(--bad)"}">${bo.met ? "✅ Цель выполнена" : "❌ Цель не выполнена"} — итог P${bo.finalPos}</p>
-      <button class="primary" id="newseason">Новый сезон ▶</button></div>`;
+      <p class="label">Цель: не ниже P${bo.target} · доверие совета ${Math.round(bo.confidence * 100)}%</p>
+      <p style="font-size:18px;font-weight:700;color:${bo.met ? "var(--good)" : "var(--bad)"}">${bo.met ? "✅ Цель выполнена" : (bo.sacked ? "❌ Совет уволил вас" : "❌ Цель не выполнена")} — итог P${bo.finalPos}</p>
+      <p class="label">🏆 Чемпион: ${champD ? champD.abbrev : "-"} · Кубок конструкторов: ${champC ? champC.team : "-"}</p>
+      <button class="primary" id="newseason">${bo.sacked ? "Начать заново ▶" : "Новый сезон ▶"}</button></div>`;
   } else {
     const nextR = CALENDAR[c.round];
     const blocked = !!(c.pendingOffers && c.pendingOffers.length);
@@ -127,7 +129,9 @@ export function render(root, ctx) {
 
   root.innerHTML = `
     <div class="panel"><h2>Сезон ${c.season} · ${me ? me.team : ""} (P${me ? me.pos : "-"})</h2>
+      <p class="label">Доверие совета: ${Math.round((c.board && c.board.confidence != null ? c.board.confidence : 0.5) * 100)}% · цель P${c.board ? c.board.targetPos : "-"}</p>
       ${lr ? `<p class="label">${lr.gp}: ${podium}</p>` : ""}</div>
+    ${(c.news && c.news.length) ? `<div class="panel"><p class="label">📰 Новости</p>${c.news.slice(0, 8).map(n => `<p class="label" style="margin:2px 0">• ${n}</p>`).join("")}</div>` : ""}
     <div style="display:flex;gap:12px;flex-wrap:wrap">${finances}${spons}</div>
     ${devPanel}
     ${driversPanel}
