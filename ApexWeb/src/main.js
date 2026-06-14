@@ -21,8 +21,9 @@ import * as seasonUI from "./ui/season.js";
 import { newCareer, newSeason, currentRound, applyResult, advanceRound, chooseTitleSponsor } from "./career.js";
 import { careerTrack } from "./track_build.js";
 import { effectiveCar, startProject } from "./development.js";
-import { moraleMod, reSign } from "./drivers.js";
+import { moraleMod, reSign, DRIVER_NAME } from "./drivers.js";
 import { composePersonnel, upgradeStaff, upgradeFacility } from "./staff.js";
+import { signDriver } from "./market.js";
 import { saveCareer } from "./career_store.js";
 
 const SCREENS = { lobby, practice1: practice, practice2: practice, practice3: practice, quali, race, result: race };
@@ -130,6 +131,9 @@ function onCommand(cmd) {
         saveCareer(ctx.career); publishCareer(); rerender();
       }
       break;
+    case "career_sign":
+      if (ctx.career) { signDriver(ctx.career, cmd.inAbbrev, cmd.outAbbrev); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
     case "career_start_weekend":
       if (ctx.career && !ctx.career.done && !(ctx.career.pendingOffers && ctx.career.pendingOffers.length)) {
         ctx.careerReady[cmd.player] = true; publishCareer(); rerender();
@@ -206,12 +210,21 @@ function startRaceHost() {
   ctx.speed = ctx.speed || 1;
   ctx.practiceFindings = ctx.pracSession ? analyzeStrategy(ctx.pracSession.cars[ctx.myPlayer].strategy) : null;   // race-HUD aid
 }
+// a team's drivers as [{abbrev, name, skill}], lead first. Career mode reads the dynamic registry
+// (transfers/churn change teamIdx); otherwise the static TEAMS roster.
+function teamRoster(ti) {
+  if (!ctx.career || !ctx.career.drivers) return TEAMS[ti].drivers.map(d => ({ abbrev: d.abbrev, name: d.name, skill: d.skill }));
+  return Object.keys(ctx.career.drivers)
+    .filter(ab => ctx.career.drivers[ab].teamIdx === ti)
+    .sort((a, b) => ctx.career.drivers[b].overall - ctx.career.drivers[a].overall)
+    .map(ab => ({ abbrev: ab, name: DRIVER_NAME[ab] || ab, skill: ctx.career.drivers[ab].overall }));
+}
 // build the full 22-car field: player team's two drivers flagged, rest AI.
 // Reused by quali grid and the race start (Task 15).
 function buildField() {
   let idx = 0;
   const ideal = trackIdeal((ctx.track || TRACK).laps * 1000 + Math.round((ctx.track || TRACK).lt));
-  return TEAMS.flatMap((t, ti) => t.drivers.map((d, di) => {
+  return TEAMS.flatMap((t, ti) => teamRoster(ti).map((d, di) => {
     const isPlayerTeam = ti === ctx.teamIdx;
     // solo: only p1 is human, the teammate car runs as AI (player null)
     const player = isPlayerTeam ? (di === 0 ? "p1" : (ctx.solo ? null : "p2")) : null;
@@ -255,7 +268,8 @@ function practiceCars() {
   const t = TEAMS[ctx.teamIdx] || TEAMS[0];
   const personnel = ctx.career ? composePersonnel(ctx.career.staff) : genPersonnel(t.facility, ctx.teamIdx || 0);   // staff crew/facility → personnel
   const car = composeCar(ctx.career ? effectiveCar(t.car, ctx.career.carDev[t.name]) : t.car);
-  const mk = di => ({ drv: { skill: t.drivers[di].skill, attrs: driverAttrs(t.drivers[di].abbrev, t.drivers[di].skill) }, car, personnel });
+  const roster = teamRoster(ctx.teamIdx);
+  const mk = di => { const d = roster[di] || roster[0]; return { drv: { skill: d.skill, attrs: driverAttrs(d.abbrev, d.skill) }, car, personnel }; };
   return { p1: mk(0), p2: mk(1) };
 }
 // broadcast the live practice-session snapshot (clock + per-car setup/knowledge) to both screens.
