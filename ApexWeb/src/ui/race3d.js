@@ -16,7 +16,6 @@ const CAR_L = 2.8;                  // overall car length (used for the highligh
 const DELAY = 120;                 // render this many ms behind the newest snapshot
 const POS_EASE = 0.35;             // low-pass the rendered car position — kills snapshot-interp micro-judder up close
 const CLOSE_PROG = 0.012;          // gap (lap-fractions) under which a follower side-steps to pass
-const CORNER_R = 0.10;             // centerline radius (normalized) below which a sample counts as a corner (kerbs)
 const CAR_HALF = 0.30;             // car half-width as a fraction of the track half-width (bigger cars -> keep them on the road)
 const SECTOR_COL = [0x5aa0ff, 0xffce47, 0x46d08a];
 const ASPHALT = 0x2c2c33, ASPHALT_SC = 0x4a4626, GRASS = 0x1f3a22;
