@@ -13,6 +13,7 @@ import { driverAttrs, composeCar, genPersonnel } from "./team.js";
 import { pickTrack } from "./track_shapes.js";
 import { fuelLaps } from "./fuel.js";
 import { newSession, step as pracStep, sessionSnapshot, setAxis, sendRun, setSpeed, setPaused, autoSim } from "./practice_session.js";
+import { newQuali, qualiStep, advanceSegment, qualiSnapshot, release as qRelease, abort as qAbort, setSpeed as qSetSpeed, setPaused as qSetPaused, finalGrid } from "./quali_session.js";
 import { sfx } from "./audio.js";
 
 const SCREENS = { lobby, practice1: practice, practice2: practice, practice3: practice, quali, race, result: race };
@@ -64,11 +65,10 @@ function onCommand(cmd) {
     case "prac_speed": if (ctx.pracSession) { setSpeed(ctx.pracSession, cmd.value); pushPractice(); } break;
     case "prac_pause": if (ctx.pracSession) { setPaused(ctx.pracSession, !ctx.pracSession.paused); pushPractice(); } break;
     case "prac_auto":  if (ctx.pracSession) { autoSim(ctx.pracSession, cmd.player); pushPractice(); } break;
-    case "quali_risk":
-      ctx.qrisk = ctx.qrisk || {};
-      ctx.qrisk[cmd.player] = cmd.risk;
-      broadcastQualiGrid();
-      break;
+    case "quali_release": if (ctx.qualiSession) { qRelease(ctx.qualiSession, cmd.player, cmd.tyre, cmd.push); pushQuali(); } break;
+    case "quali_abort":   if (ctx.qualiSession) { qAbort(ctx.qualiSession, cmd.player); pushQuali(); } break;
+    case "quali_speed":   if (ctx.qualiSession) { qSetSpeed(ctx.qualiSession, cmd.value); pushQuali(); } break;
+    case "quali_pause":   if (ctx.qualiSession) { qSetPaused(ctx.qualiSession, !ctx.qualiSession.paused); pushQuali(); } break;
   }
 }
 function onPhaseHost() {
@@ -80,6 +80,12 @@ function onPhaseHost() {
            ctx.pracSession.cars.p1.onTrack = false; ctx.pracSession.cars.p2.onTrack = false; }   // new session: reset clock, keep knowledge
     ctx._pracFrame = 0; ctx._pracLastTs = 0;
     pushPractice();
+  }
+  if (ctx.weekend.phase === "quali") {
+    if (ctx.seed == null) ctx.seed = 1000 + Math.floor(Math.random() * 100000);
+    ctx.qualiSession = newQuali(ctx.seed, qualiField());
+    ctx._qFrame = 0; ctx._qLastTs = 0;
+    pushQuali();
   }
   if (ctx.weekend.phase === "race") startRaceHost();
 }
@@ -151,6 +157,17 @@ function pushPractice() {
   if (ctx.net) ctx.net.send(snap);
   rerender();
 }
+// the 22-car field for the quali session, mapped from buildField() to the newQuali shape.
+function qualiField() {
+  return buildField().map(f => ({ idx: f.idx, abbrev: f.abbrev, drv: { skill: f.skill, attrs: f.attrs }, car: f.car, setupBonus: f.setupBonus, player: f.player }));
+}
+// broadcast the live quali snapshot (timing tower + per-car controls) to both screens.
+function pushQuali() {
+  const snap = qualiSnapshot(ctx.qualiSession);
+  ctx.snapshot = snap;
+  if (ctx.net) ctx.net.send(snap);
+  rerender();
+}
 // run every car's flying lap and broadcast the resulting grid to the client.
 function broadcastQualiGrid() {
   const field = buildField().map(f => ({ ...f, risk: f.player ? (ctx.qrisk?.[f.player] ?? 0.5) : 0.5 }));
@@ -206,6 +223,13 @@ function hostLoop(ts) {
     pracStep(ctx.pracSession, dt * SIM_RATE);
     if ((++ctx._pracFrame % 4) === 0) pushPractice();
   }
+  if (ctx.role === "host" && ctx.weekend.phase === "quali" && ctx.qualiSession && !ctx.qualiSession.paused) {
+    const dt = Math.min(0.1, ctx._qLastTs ? (ts - ctx._qLastTs) / 1000 : 0);
+    qualiStep(ctx.qualiSession, dt * SIM_RATE);
+    if (ctx.qualiSession.clock <= 0 && ctx.qualiSession.segment <= 3) advanceSegment(ctx.qualiSession);
+    if ((++ctx._qFrame % 4) === 0) pushQuali();
+  }
+  ctx._qLastTs = ts;
   ctx._pracLastTs = ts;
   ctx._lastTs = ts;
   requestAnimationFrame(hostLoop);
