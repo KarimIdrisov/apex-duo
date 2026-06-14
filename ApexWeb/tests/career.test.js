@@ -227,3 +227,46 @@ test("migrate upgrades a v5 save to v6 (adds academy)", () => {
   assert.equal(up.v, CAREER_V);
   assert.deepEqual(up.academy, []);
 });
+
+// --- M8 board, news, regulation ---
+test("newCareer at v7 has board confidence + an empty news inbox", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  assert.ok(c.v >= 7);
+  assert.equal(c.board.confidence, 0.5);
+  assert.deepEqual(c.news, []);
+});
+
+test("applyResult moves confidence and posts a board news line", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  const order = [...TEAMS[0].drivers.map(d => ({ abbrev: d.abbrev, team: "McLaren" })),
+    ...TEAMS.flatMap((t, i) => i === 0 ? [] : t.drivers.map(d => ({ abbrev: d.abbrev, team: t.name })))];
+  applyResult(c, order);
+  assert.ok(c.board.confidence > 0.5, "a P1 lifts confidence");
+  assert.ok(c.news.length >= 1 && /Совет/.test(c.news[0]));
+});
+
+test("newSeason applies a regulation reset that reduces car development", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  c.carDev["McLaren"] = { power: 0.10, aero: 0.08, tyre: 0, fuel: 0, rel: 0 };
+  const c2 = newSeason(c);
+  assert.ok(c2.carDev["McLaren"].power < 0.10, "regs reset trims development");
+  assert.ok(c2.news.some(n => /регламент/i.test(n)), "a regs-change news line is posted");
+});
+
+test("boardOutcome reports confidence + a sacked flag when target missed and confidence low", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  c.teamPts["Mercedes"] = 100;                              // a rival leads -> player misses P1
+  c.board.confidence = 0.1;
+  const bo = boardOutcome(c);
+  assert.equal(bo.met, false);
+  assert.equal(bo.sacked, true);
+  assert.ok(bo.confidence <= 0.2);
+});
+
+test("migrate upgrades a v6 save to v7 (adds confidence + news)", () => {
+  const v6 = { v: 6, teamIdx: 1, seed: 3, season: 1, round: 0, money: 0, driverPts: {}, teamPts: {}, board: { targetPos: 2 }, sponsors: [], costCap: false, pendingOffers: [], carDev: {}, project: null, devSpentThisSeason: 0, drivers: {}, staff: {}, academy: [], lastResult: null, history: [], done: false };
+  const up = migrate(v6);
+  assert.equal(up.v, CAREER_V);
+  assert.equal(up.board.confidence, 0.5);
+  assert.deepEqual(up.news, []);
+});
