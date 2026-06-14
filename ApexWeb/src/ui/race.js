@@ -11,6 +11,8 @@ import { TRACK_SHAPES } from "../track_shapes.js";
 const PACE = ["conserve", "balanced", "push"], ENGINE = ["save", "standard", "push"];
 const PACE_L = { conserve: "Save", balanced: "Norm", push: "Push" };
 const ENGINE_L = { save: "Save", standard: "Std", push: "Push" };
+const ORDER = ["attack", "defend", "none"];
+const ORDER_L = { attack: "⚔ Атака", defend: "🛡 Защита", none: "Нейтр" };
 const SPEEDS = [1, 2, 4];
 
 const logo = (a, s = 18) => { const l = DRIVER_INFO[a] && DRIVER_INFO[a].logo; return l ? `<img src="assets/teams/${l}.png" alt="" style="height:${s}px;width:${s}px;object-fit:contain;vertical-align:middle;margin-right:6px">` : ""; };
@@ -225,6 +227,8 @@ function buildHud(root, ctx) {
         <div class="seg" id="d-pace">${PACE.map(p => `<button data-v="${p}">${PACE_L[p]}</button>`).join("")}</div>
         <p class="label" style="margin-top:8px">Мотор</p>
         <div class="seg" id="d-engine">${ENGINE.map(e => `<button data-v="${e}">${ENGINE_L[e]}</button>`).join("")}</div>
+        <p class="label" style="margin-top:8px">Приказ <span id="d-order-hint" class="label" style="margin:0;opacity:.7"></span></p>
+        <div class="seg" id="d-order">${ORDER.map(o => `<button data-v="${o}">${ORDER_L[o]}</button>`).join("")}</div>
         <p class="label" style="margin-top:8px">Пит — компаунд <span id="d-weather"></span></p>
         <div class="seg" id="d-compound">${["soft","medium","hard","inter","wet"].map(t => `<button data-v="${t}">${tyreIcon(t, 18)}</button>`).join("")}</div>
         <button class="primary" id="d-pit" style="margin-top:8px;background:var(--bad)">⛽ В боксы</button>
@@ -250,6 +254,7 @@ function buildHud(root, ctx) {
   root.querySelector("#d-wear").style.background = "linear-gradient(90deg,#3ddc84,#e7c84b 70%,#e7553b)";
   root.querySelector("#d-pace").onclick = e => { const v = e.target.dataset && e.target.dataset.v; if (v) ctx.send({ cmd: "set_pace", car: myIdx(), mode: v }); };
   root.querySelector("#d-engine").onclick = e => { const v = e.target.dataset && e.target.dataset.v; if (v) ctx.send({ cmd: "set_engine", car: myIdx(), mode: v }); };
+  root.querySelector("#d-order").onclick = e => { const v = e.target.dataset && e.target.dataset.v; if (v) ctx.send({ cmd: "set_order", car: myIdx(), mode: v }); };
   root.querySelector("#d-compound").onclick = e => { const b = e.target.closest("button"); if (b && b.dataset.v) { ctx.nextCompound = b.dataset.v; updateHud(root, ctx, ctx.snapshot); } };
   root.querySelector("#d-pit").onclick = () => { sfx.pit(); ctx.send({ cmd: "request_pit", car: myIdx(), compound: ctx.nextCompound || "medium" }); };
   root.querySelector("#d-pause").onclick = () => ctx.send({ cmd: "toggle_pause" });
@@ -312,6 +317,9 @@ function updateHud(root, ctx, snap) {
   $("#d-fuel-txt").textContent = `${(me.fuelLaps || 0).toFixed(1)} кр запас`;
   for (const b of $("#d-pace").children) b.classList.toggle("on", b.dataset.v === me.pace);
   for (const b of $("#d-engine").children) b.classList.toggle("on", b.dataset.v === me.engine);
+  for (const b of $("#d-order").children) b.classList.toggle("on", b.dataset.v === me.order);
+  const oh = $("#d-order-hint"); if (oh) oh.textContent = me.inFight ? "в борьбе" : "—";
+  const og = $("#d-order"); if (og) og.style.opacity = me.inFight ? "1" : "0.6";   // dim when not racing anyone
   const wet = snap.wetness || 0;
   $("#d-weather").innerHTML = wet < 0.1 ? "☀️ сухо" : wet < 0.45 ? "🌦️ сыро " + Math.round(wet * 100) + "%" : "🌧️ дождь " + Math.round(wet * 100) + "%";
   const nc = ctx.nextCompound || "medium";
