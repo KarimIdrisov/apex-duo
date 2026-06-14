@@ -135,8 +135,8 @@ function aiReleases(s) {
     let go = false, push = "steady";
     if (car._aiRuns === 0 && s.clock <= run1At) { go = true; push = "steady"; }
     else if (car._aiRuns === 1 && s.clock <= run2At && s.clock > minClock) { go = true; push = "attack"; }
-    // safety run: no time set yet (red-flag victim) and clock still allows 2 laps
-    else if (car._aiRuns >= 1 && !isFinite(car.segBest) && s.clock > minClock) { go = true; push = "attack"; }
+    // safety run: still no time (deleted every lap / red-flag victim) → go on SAVE to bank a clean lap (don't gamble the grid slot)
+    else if (car._aiRuns >= 1 && !isFinite(car.segBest) && s.clock > minClock) { go = true; push = "save"; }
     if (go) { car._aiRuns = (car._aiRuns || 0) + 1; startRun(s, car, car.softSets > 0 ? "fresh" : "used", push); }
   }
 }
