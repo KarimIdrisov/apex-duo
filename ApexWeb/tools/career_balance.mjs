@@ -7,6 +7,7 @@ import { driverAttrs, composeCar, genPersonnel } from "../src/team.js";
 import { POINTS, newCareer, applyResult, advanceRound, isSeasonOver, constructorStandings, boardOutcome, CALENDAR, newSeason } from "../src/career.js";
 import { careerTrack } from "../src/track_build.js";
 import { effectiveCar, startProject } from "../src/development.js";
+import { composePersonnel, upgradeStaff, upgradeFacility, upkeep } from "../src/staff.js";
 import { moraleMod } from "../src/drivers.js";
 
 function field() {
@@ -17,7 +18,7 @@ function field() {
     return {
       idx: idx++, name: d.name, abbrev: d.abbrev, skill: overall,
       car: composeCar(effectiveCar(t.car, career.carDev && career.carDev[t.name])), color: t.color, team: t.name,
-      attrs: driverAttrs(d.abbrev, overall), personnel: genPersonnel(t.facility, ti),
+      attrs: driverAttrs(d.abbrev, overall), personnel: (ti === career.teamIdx && career.staff) ? composePersonnel(career.staff) : genPersonnel(t.facility, ti),
       setup: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5], setupBonus: dr ? moraleMod(dr.morale) : 0, startTyre: "medium",
     };
   }));
@@ -36,6 +37,7 @@ const expectedPerRace = POINTS.reduce((a, b) => a + b, 0);
 while (!isSeasonOver(career)) {
   const round = CALENDAR[career.round];
   if (!career.project && career.money > 2000) startProject(career, ["power", "aero", "tyre"][career.round % 3], "small");
+  if (career.round < 6 && career.money > 8000) { upgradeStaff(career, "designer"); upgradeFacility(career, "design"); }
   const { order, passes } = runRace(careerTrack(round), 1000 + career.round);
   const before = Object.values(career.driverPts).reduce((a, b) => a + b, 0);
   applyResult(career, order);
@@ -65,4 +67,5 @@ const antBefore = career.drivers["ANT"].overall, aloBefore = career.drivers["ALO
 const next = newSeason(career);
 console.log(`drivers: ANT ${antBefore.toFixed(3)}->${next.drivers["ANT"].overall.toFixed(3)} (age ${next.drivers["ANT"].age}), ALO ${aloBefore.toFixed(3)}->${next.drivers["ALO"].overall.toFixed(3)}; player morale ${TEAMS[0].drivers.map(d => Math.round(career.drivers[d.abbrev].morale * 100) + "%").join("/")}`);
 if (!(next.drivers["ANT"].overall > antBefore && next.drivers["ALO"].overall < aloBefore)) { console.error("driver development curve broken (young should rise, veteran fall)"); process.exit(1); }
+console.log(`staff: designer ${Math.round(career.staff.designer * 100)}, design office L${career.staff.facilities.design}, upkeep ${upkeep(career.staff).toFixed(0)}k/race`);
 console.log("CAREER CORRIDOR OK");
