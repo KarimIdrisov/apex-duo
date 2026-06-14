@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { newQuali, release, qualiStep, carView, advanceSegment, finalGrid } from "../src/quali_session.js";
+import { newQuali, release, qualiStep, carView, advanceSegment, finalGrid, trafficFor } from "../src/quali_session.js";
 import { TEAMS, TRACK, QUALI2 } from "../src/data.js";
 import { driverAttrs, composeCar } from "../src/team.js";
 
@@ -52,4 +52,15 @@ test("a fresh release consumes a soft set; out of fresh sets falls back to used"
   for (let k = 0; k < QUALI2.QUALI_SOFT_SETS + 2; k++) { car().phase = "pit"; s = release(s, "p1", "fresh", "steady"); }
   assert.ok(car().softSets >= 0, "never negative");
   assert.equal(car().tyre, "used", "falls back to used when out of fresh");
+});
+
+test("traffic loss rises with the number of cars on track", () => {
+  let s = newQuali(9, field());
+  const car = Object.values(s.cars)[0];
+  const lone = trafficFor(s, car, 0);
+  // mark 12 other cars as on a flying/out lap
+  let n = 0; for (const c of Object.values(s.cars)) { if (c.idx !== car.idx && n < 12) { c.phase = "flying"; n++; } }
+  const crowded = trafficFor(s, car, 0);
+  assert.ok(crowded > lone, `crowded track loses more (${crowded} > ${lone})`);
+  assert.ok(crowded <= QUALI2.TRAFFIC_MAX + 1e-9, "capped at TRAFFIC_MAX");
 });
