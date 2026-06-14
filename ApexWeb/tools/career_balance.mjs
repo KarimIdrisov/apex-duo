@@ -10,6 +10,7 @@ import { effectiveCar, startProject } from "../src/development.js";
 import { composePersonnel, upgradeStaff, upgradeFacility, upkeep } from "../src/staff.js";
 import { moraleMod, DRIVER_NAME } from "../src/drivers.js";
 import { signDriver, availableDrivers } from "../src/market.js";
+import { signJunior, promoteJunior, SUPERLICENSE } from "../src/academy.js";
 
 function field() {
   let idx = 0;
@@ -36,6 +37,8 @@ function runRace(track, seed) {
 const career = newCareer({ teamIdx: 0, seed: 1 });
 { const av = availableDrivers(career)[0]; const out = Object.keys(career.drivers).find(a => career.drivers[a].teamIdx === 0);
   const ok = signDriver(career, av.abbrev, out); console.log(`transfer: signed ${av.abbrev} (ovr ${av.overall.toFixed(3)}) for ${out} -> ${ok}`); }
+{ signJunior(career, "HIR"); const out = Object.keys(career.drivers).find(a => career.drivers[a].teamIdx === 0);
+  const ok = promoteJunior(career, "HIR", out); console.log(`academy: signed+promoted HIR for ${out} -> ${ok} (gate ${SUPERLICENSE})`); }
 let totalPts = 0, minPass = 1e9, maxPass = 0, races = 0;
 const expectedPerRace = POINTS.reduce((a, b) => a + b, 0);
 while (!isSeasonOver(career)) {
@@ -69,11 +72,13 @@ if (!(myDev.power > 0 || myDev.aero > 0 || myDev.tyre > 0)) { console.error("pla
 if (spread > 0.45) { console.error(`grid spread ${spread.toFixed(3)} too wide — development ran away`); process.exit(1); }
 const antBefore = career.drivers["ANT"].overall, aloBefore = career.drivers["ALO"].overall;
 const next = newSeason(career);
-console.log(`drivers: ANT ${antBefore.toFixed(3)}->${next.drivers["ANT"].overall.toFixed(3)} (age ${next.drivers["ANT"].age}), ALO ${aloBefore.toFixed(3)}->${next.drivers["ALO"].overall.toFixed(3)}; player morale ${TEAMS[0].drivers.map(d => Math.round(career.drivers[d.abbrev].morale * 100) + "%").join("/")}`);
+console.log(`drivers: ANT ${antBefore.toFixed(3)}->${next.drivers["ANT"].overall.toFixed(3)} (age ${next.drivers["ANT"].age}), ALO ${aloBefore.toFixed(3)}->${next.drivers["ALO"].overall.toFixed(3)}; player morale ${Object.keys(career.drivers).filter(a => career.drivers[a].teamIdx === 0).map(a => Math.round(career.drivers[a].morale * 100) + "%").join("/")}`);
 if (!(next.drivers["ANT"].overall > antBefore && next.drivers["ALO"].overall < aloBefore)) { console.error("driver development curve broken (young should rise, veteran fall)"); process.exit(1); }
 console.log(`staff: designer ${Math.round(career.staff.designer * 100)}, design office L${career.staff.facilities.design}, upkeep ${upkeep(career.staff).toFixed(0)}k/race`);
 const counts = {}; for (const a in career.drivers) counts[career.drivers[a].teamIdx] = (counts[career.drivers[a].teamIdx] || 0) + 1;
 const badTeams = Object.entries(counts).filter(([, n]) => n !== 2);
 console.log(`grid integrity: ${Object.keys(counts).length} teams, ${badTeams.length === 0 ? "all 2 drivers" : "BAD " + JSON.stringify(badTeams)}`);
 if (badTeams.length) { console.error("a team does not have exactly 2 drivers after transfers/churn"); process.exit(1); }
+if (!career.drivers["HIR"] || career.drivers["HIR"].teamIdx !== 0) { console.error("promoted junior is not racing for the player"); process.exit(1); }
+console.log(`academy: HIR racing for player (ovr ${career.drivers["HIR"].overall.toFixed(3)})`);
 console.log("CAREER CORRIDOR OK");
