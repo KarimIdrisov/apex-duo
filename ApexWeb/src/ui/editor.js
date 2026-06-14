@@ -132,8 +132,14 @@ cv.addEventListener("dblclick", (e) => {                 // add a point on the n
   for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i + 1) % pts.length], d = segDist(p, a, b); if (d < bd) { bd = d; bi = i; } }
   pts.splice(bi + 1, 0, p); render();
 });
-cv.addEventListener("contextmenu", (e) => {              // right-click: delete the object under the cursor, else the nearest point (min 4)
-  e.preventDefault(); const [mx, my] = evtXY(e); const oi = pickObj(mx, my);
+cv.addEventListener("contextmenu", (e) => {
+  e.preventDefault(); const [mx, my] = evtXY(e);
+  if (mode === "zones") {                                // cycle the corner class of the sector under the cursor
+    const seq = ["straight", "high", "med", "low"], sec = sectorAt(mx, my);
+    const cur = cornerOverrides[sec] || sectorCornerClasses(buildCenterline(splinePath(toFlat(pts))), N_MINI)[sec];
+    cornerOverrides[sec] = seq[(seq.indexOf(cur) + 1) % seq.length]; render(); return;
+  }
+  const oi = pickObj(mx, my);
   if (oi >= 0) { objects.splice(oi, 1); render(); return; }
   const i = pick(mx, my); if (i >= 0 && pts.length > 4) { pts.splice(i, 1); render(); }
 });
