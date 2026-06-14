@@ -95,7 +95,7 @@ export function applyResult(career, classification) {
   classification.forEach((c, i) => {
     const dr = career.drivers && career.drivers[c.abbrev];
     if (!dr) return;
-    updateMorale(dr, i + 1, 1 + dr.teamIdx * 2);
+    updateMorale(dr, i + 1, 2 + dr.teamIdx * 2);   // a 2-car expectation band (lead + teammate), so the #2 isn't perma-unhappy
     if (dr.teamIdx === career.teamIdx) salaries += dr.salary;
   });
   const net = prize + sponsorIncome - RUNNING_COST - salaries;
