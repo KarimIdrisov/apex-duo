@@ -215,6 +215,7 @@ console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0
   // REVEALED window centre (from the snapshot — NOT the hidden ideal). Repeat across 3 sessions.
   function goodPolicy(seed) {
     let s = newSession(seed, pracCars()); s.paused = false; s.speed = 8;
+    const out = { sat: [0, 0, 0], track: [0, 0, 0] };
     for (let sess = 1; sess <= 3; sess++) {
       for (let round = 0; round < 4 && s.clock > 0; round++) {
         s = sendRun(s, "p1", "soft", 10);
@@ -222,12 +223,13 @@ console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0
         const snap = sessionSnapshot(s);
         for (let i = 0; i < PRAC2.AXES; i++) setAxis(s, "p1", i, snap.cars.p1.axes[i].window.center);
       }
-      s.session = sess + 1; s.clock = PRAC2.SESSION_SEC; s.cars.p1.onTrack = false;  // next session: reset clock, keep knowledge
+      s = sendRun(s, "p1", "soft", PRAC2.CONFIRM_LAPS + 1); let g = 0;
+      while (s.cars.p1.onTrack && s.clock > 0 && g++ < 500) s = pracStep(s, 1.0);
+      out.sat[sess - 1] = carView(s, "p1").satisfaction;
+      out.track[sess - 1] = carView(s, "p1").trackKnow;
+      s.session = sess + 1; s.clock = PRAC2.SESSION_SEC; s.cars.p1.onTrack = false;
     }
-    // confirm the final setup with one short run
-    s = sendRun(s, "p1", "soft", PRAC2.CONFIRM_LAPS + 1); let g = 0;
-    while (s.cars.p1.onTrack && g++ < 500) s = pracStep(s, 1.0);
-    return carView(s, "p1").satisfaction;
+    return out;
   }
 
   // lazy: never tune, just auto-sim all three sessions on the default 0.5 setup.
@@ -237,11 +239,17 @@ console.log(`fuel run-outs over 10 races: push=${fuelRunouts("push")} (expect >0
     return carView(s, "p1").satisfaction;
   }
 
-  let good = 0, auto = 0; const NP = 6;
-  for (let k = 0; k < NP; k++) { good += goodPolicy(1000 + k); auto += autoPolicy(1000 + k); }
-  good = good / NP; auto = auto / NP;
-  console.log(`practice: good-policy satisfaction after 3 sessions = ${(good*100).toFixed(0)}%  (target >=75%, achievable)`);
-  console.log(`practice: no-tune auto-sim satisfaction      = ${(auto*100).toFixed(0)}%  (target < good-policy: hands-on rewarded)`);
+  let s1 = 0, s3 = 0, t1 = 0, t3 = 0, auto = 0; const NP = 6;
+  for (let k = 0; k < NP; k++) {
+    const g = goodPolicy(1000 + k);
+    s1 += g.sat[0]; s3 += g.sat[2]; t1 += g.track[0]; t3 += g.track[2];
+    auto += autoPolicy(1000 + k);
+  }
+  s1 /= NP; s3 /= NP; t1 /= NP; t3 /= NP; auto /= NP;
+  console.log(`practice: setup sat after 1 session = ${(s1*100).toFixed(0)}%  (target ~55-70: NOT solved in one)`);
+  console.log(`practice: setup sat after 3 sessions = ${(s3*100).toFixed(0)}%  (target >=90: reachable by P3)`);
+  console.log(`practice: track knowledge P1/P3 = ${(t1*100).toFixed(0)}% / ${(t3*100).toFixed(0)}%  (target ~40 / ~100)`);
+  console.log(`practice: no-tune auto-sim sat    = ${(auto*100).toFixed(0)}%  (target < 1-session good policy)`);
 }
 
 // quali grid-realism corridor: every session should classify all 22 cars with unique grid positions,

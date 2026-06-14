@@ -229,13 +229,13 @@ for (const t of TEAMS) for (const d of t.drivers) {
 export const PRAC2 = {
   AXES: 6,
   IQ_LEARN: 0.5,          // feedbackMult = 0.75 + IQ_LEARN*race_iq  (sharp driver learns faster)
-  TRACK_PER_LAP: 0.022,   // track knowledge banked per completed lap (×feedbackMult) → ~0.4/0.7/1.0 over P1/P2/P3
+  TRACK_PER_LAP: 0.017,   // track knowledge banked per completed lap (×feedbackMult) → ~0.4/0.7/1.0 over P1/P2/P3
   TRACK_PACE: -0.08,      // race pace buff (s/lap) at full track knowledge (driver confidence)
   AI_TRACK_KNOW: 0.7,     // assumed track knowledge for AI cars → player practice is a delta, not free
   MAX_HALF: 0.45,         // ideal-window half-width at track knowledge 0 (≈ whole range)
   MIN_HALF: 0.02,         // half-width floor at track knowledge 1
   WIN_P: 1.5,             // half = MIN + (MAX-MIN)*(1-trackKnow)^WIN_P
-  WIN_JITTER: 0.40,       // window-centre offset at track knowledge 0 (shrinks to 0); 0.40 → P1 setup ≈ 60%
+  WIN_JITTER: 0.28,       // window-centre offset at track knowledge 0 (shrinks to 0); 0.40 → P1 setup ≈ 60%
   KNOW_VAGUE: 0.25,       // below this track knowledge the axis reads "мало кругов"
   CONFIRM_LAPS: 2,        // flying laps on a value before its satisfaction is confirmed
   SAT_TOL: 0.18,          // axisSat = clamp(1-(|v-opt|/SAT_TOL)^2,0,1)
