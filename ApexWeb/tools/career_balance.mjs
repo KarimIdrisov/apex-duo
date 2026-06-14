@@ -81,4 +81,10 @@ console.log(`grid integrity: ${Object.keys(counts).length} teams, ${badTeams.len
 if (badTeams.length) { console.error("a team does not have exactly 2 drivers after transfers/churn"); process.exit(1); }
 if (!career.drivers["HIR"] || career.drivers["HIR"].teamIdx !== 0) { console.error("promoted junior is not racing for the player"); process.exit(1); }
 console.log(`academy: HIR racing for player (ovr ${career.drivers["HIR"].overall.toFixed(3)})`);
+console.log(`board: confidence ${Math.round((career.board.confidence ?? 0.5) * 100)}%, news ${(career.news || []).length} items; latest "${(career.news || [])[0] || "-"}"`);
+if (!(career.news && career.news.length > 0)) { console.error("no board/paddock news generated over the season"); process.exit(1); }
+const regBefore = (career.carDev["McLaren"] && career.carDev["McLaren"].power) || 0;
+const regAfter = (next.carDev["McLaren"] && next.carDev["McLaren"].power) || 0;
+console.log(`regulation reset: McLaren carDev.power ${regBefore.toFixed(3)} -> ${regAfter.toFixed(3)} (new season)`);
+if (!(regAfter <= regBefore)) { console.error("regulation reset did not trim development"); process.exit(1); }
 console.log("CAREER CORRIDOR OK");
