@@ -256,3 +256,16 @@ input[type=range].pw-range:disabled{opacity:.4;cursor:not-allowed}
 /* live "traffic ahead" read on the control card */
 .q-traffic{font-size:13px;font-weight:600;padding:7px 10px;border-radius:var(--r-sm);background:var(--content2)}
 .q-traffic.good{color:var(--good)} .q-traffic.warn{color:var(--warn)} .q-traffic.bad{color:var(--bad)}
+
+/* qualifying desktop dashboard: tower left, live-lap card right; collapses on narrow screens */
+.q-grid{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:14px;align-items:start}
+.q-side{display:flex;flex-direction:column;gap:14px}
+@media (max-width:760px){ .q-grid{grid-template-columns:1fr} }
+.q-sectors{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.q-sec{background:var(--content2);border-radius:var(--r-sm);padding:8px;text-align:center}
+.q-sec.live{outline:2px solid var(--accent)}
+.q-sec.good .q-sec-d{color:var(--good)} .q-sec.warn .q-sec-d{color:var(--warn)}
+.q-sec-n{display:block;font-size:11px;color:var(--muted);font-weight:600}
+.q-sec-d{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
+.q-deleted{margin-top:8px;color:var(--bad);font-weight:700;font-size:13px;text-align:center}
+.q-push-seg button.on{background:var(--accent);color:#fff}
