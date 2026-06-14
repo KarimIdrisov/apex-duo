@@ -202,3 +202,28 @@ test("newSeason runs AI churn but keeps every team at 2 drivers and the player t
   let moved = 0; for (const a in c.drivers) if (c.drivers[a].teamIdx !== c2.drivers[a].teamIdx) moved++;
   assert.ok(moved >= 2, "AI churn moved at least one pair");
 });
+
+// --- M7 academy ---
+import { signJunior } from "../src/academy.js";
+
+test("newCareer at v6 carries an empty academy", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  assert.ok(c.v >= 6);
+  assert.deepEqual(c.academy, []);
+});
+
+test("newSeason develops academy juniors (and keeps them across seasons)", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  signJunior(c, "VIL");
+  const before = c.academy[0].overall;
+  const c2 = newSeason(c);
+  assert.ok(c2.academy.length === 1 && c2.academy[0].overall > before);
+  assert.equal(c.academy[0].overall, before, "the prior career is untouched (deep-copied)");
+});
+
+test("migrate upgrades a v5 save to v6 (adds academy)", () => {
+  const v5 = { v: 5, teamIdx: 1, seed: 3, season: 1, round: 0, money: 0, driverPts: {}, teamPts: {}, board: { targetPos: 2 }, sponsors: [], costCap: false, pendingOffers: [], carDev: {}, project: null, devSpentThisSeason: 0, drivers: {}, staff: {}, lastResult: null, history: [], done: false };
+  const up = migrate(v5);
+  assert.equal(up.v, CAREER_V);
+  assert.deepEqual(up.academy, []);
+});

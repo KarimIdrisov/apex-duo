@@ -6,13 +6,14 @@ import { tickDevelopment } from "./development.js";
 import { initDrivers, developDrivers, updateMorale } from "./drivers.js";
 import { initStaff, upkeep } from "./staff.js";
 import { aiChurn } from "./market.js";
+import { developAcademy } from "./academy.js";
 
 // championship points for the top 10 finishers (current F1 system).
 export const POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
 // prize money ($k) by race-finish position — a simple per-race payout (M2 deepens income).
 export const PRIZE = [1200, 1000, 850, 720, 620, 540, 470, 410, 360, 320, 280, 250, 220, 200, 180, 160, 150, 140, 130, 120, 110, 100];
 
-export const CAREER_V = 5;            // career save schema version
+export const CAREER_V = 6;            // career save schema version
 export const RUNNING_COST = 800;      // $k per-race operating cost (M5 facilities refine it)
 
 // the season calendar: each round picks a real circuit shape (a track_shapes.js key) for the
@@ -61,6 +62,7 @@ export function newCareer({ teamIdx = 0, seed = 1, coop = false } = {}) {
     carDev: {}, project: null, devSpentThisSeason: 0,
     drivers: initDrivers(),
     staff: initStaff(TEAMS[teamIdx].facility, s),
+    academy: [],
     lastResult: null, history: [], done: false,
   };
 }
@@ -137,6 +139,10 @@ export function migrate(career) {
     career.staff = career.staff || initStaff((TEAMS[career.teamIdx] || TEAMS[0]).facility, career.seed || 1);
     career.v = 5;
   }
+  if (career.v < 6) {
+    career.academy = career.academy || [];
+    career.v = 6;
+  }
   return career;
 }
 // accept a season-start title-sponsor offer: replace the title deal, clear the offers.
@@ -183,5 +189,7 @@ export function newSeason(career) {
   developDrivers(fresh.drivers);             // age up, develop/decline, tick contracts
   aiChurn(fresh, (fresh.seed >>> 0) + fresh.season * 2246822519);   // deterministic AI silly-season
   fresh.staff = JSON.parse(JSON.stringify(career.staff || initStaff((TEAMS[career.teamIdx] || TEAMS[0]).facility, career.seed || 1)));
+  fresh.academy = JSON.parse(JSON.stringify(career.academy || []));
+  developAcademy(fresh);                       // juniors grow toward potential each season
   return fresh;
 }
