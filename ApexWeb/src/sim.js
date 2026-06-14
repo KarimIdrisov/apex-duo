@@ -3,7 +3,7 @@ import { RNG, mix32 } from "./rng.js";
 import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, CAR_PACE_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP, TYRE, DIRTY_GAP, EVENT, ATTRW, AI_HANDICAP, AI_NOISE, AI_FORM, RACE_FORM, DEFEND_ROLL, DEFEND_MAX, DNF_CONSIST } from "./data.js";
 import { startFuel, burnFor, weightTerm, engineTerm, fuelLaps } from "./fuel.js";
 import { tyreTerm, warmStep } from "./tyres.js";
-import { miniSplits, MINI, N_MINI, sampleAt } from "./track.js";
+import { miniSplits, N_MINI, sampleAt } from "./track.js";
 import { slipstream, dirtyWear, passAccrual, zoneFor } from "./overtake.js";
 import { PASS_CREDIT_CAP, PASS_CREDIT_DECAY, DIRTY_PACE_K, LAP1_CAUTION,
   AGGR_PASS_EDGE, AGGR_PASS_ATTR, AGGR_PASS_REF, AGGR_PASS_K, AGGR_PASS_DNF, AGGR_PASS_SCRUB,
@@ -230,7 +230,7 @@ export class Race {
       const ahead = ord[i - 1], me = ord[i];
       if (me.retired || ahead.retired || me.pitTimer > 0 || ahead.pitTimer > 0) continue;  // a car in the pits isn't racing
       const gapSec = ((ahead.lap + ahead.lapFrac) - (me.lap + me.lapFrac)) * this.track.lt;
-      const s = sampleAt(me.lapFrac).straightness;          // local track character at the follower
+      const s = sampleAt(this.track, me.lapFrac).straightness;          // local track character at the follower
       // dirty air: sitting close (even outside passing range) costs the follower tyre life AND pace, worse in corners
       if (gapSec > 0 && gapSec < DIRTY_GAP) {
         me._dirtyWear += dirtyWear(s) * (1 - ATTRW.discipline * (A(me).discipline - 0.5) * 2);   // a disciplined driver runs cleaner in traffic (§18.7)
@@ -248,7 +248,7 @@ export class Race {
         const cr = (me._passCredit ?? 0) * PASS_CREDIT_DECAY
                  + passAccrual(edge, tow, me.engine, s) * (0.7 + ATTRW.overtaking * A(me).overtaking) * cautious * aggr;
         me._passCredit = Math.min(cr, PASS_CREDIT_CAP);
-        const zone = zoneFor(this.track.overtake_zones, sampleAt(me.lapFrac).mini);   // follower's local zone (or null)
+        const zone = zoneFor(this.track.overtake_zones, sampleAt(this.track, me.lapFrac).mini);   // follower's local zone (or null)
         // bold out-of-zone lunge (§18.2): a much-faster, aggressive driver tries a move where you "can't pass".
         // Instantaneous (no credit banking), cooldown-gated (anti-spam), with a contact risk. Repurposes track.ot.
         if (!zone && me.lap >= 1 && edge > AGGR_PASS_EDGE && A(me).aggression >= AGGR_PASS_ATTR
@@ -358,7 +358,7 @@ export class Race {
 
   // finalise a completed lap's mini-sector splits, colours, and sector totals
   _recordMinis(c) {
-    const sp = miniSplits(c.lastLap, c.car);
+    const sp = miniSplits(this.track, c.lastLap, c.car);
     c.lastMini = sp;
     const colors = new Array(N_MINI), sectors = [0, 0, 0];
     for (let i = 0; i < N_MINI; i++) {
@@ -366,7 +366,7 @@ export class Race {
       colors[i] = t < this.sessionBestMini[i] ? "p" : (t <= c.bestMini[i] ? "g" : "y");
       if (t < this.sessionBestMini[i]) this.sessionBestMini[i] = t;
       if (t < c.bestMini[i]) c.bestMini[i] = t;
-      sectors[MINI[i].sector] += t;
+      sectors[this.track.mini[i].sector] += t;
     }
     c.miniColors = colors;
     c.sectorTimes = sectors;
