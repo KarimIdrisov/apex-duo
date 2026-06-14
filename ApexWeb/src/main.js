@@ -24,6 +24,7 @@ import { effectiveCar, startProject } from "./development.js";
 import { moraleMod, reSign, DRIVER_NAME } from "./drivers.js";
 import { composePersonnel, upgradeStaff, upgradeFacility } from "./staff.js";
 import { signDriver } from "./market.js";
+import { signJunior, promoteJunior } from "./academy.js";
 import { saveCareer } from "./career_store.js";
 
 const SCREENS = { lobby, practice1: practice, practice2: practice, practice3: practice, quali, race, result: race };
@@ -134,6 +135,12 @@ function onCommand(cmd) {
     case "career_sign":
       if (ctx.career) { signDriver(ctx.career, cmd.inAbbrev, cmd.outAbbrev); saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
+    case "career_scout":
+      if (ctx.career) { signJunior(ctx.career, cmd.abbrev); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_promote":
+      if (ctx.career) { promoteJunior(ctx.career, cmd.abbrev, cmd.outAbbrev); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
     case "career_start_weekend":
       if (ctx.career && !ctx.career.done && !(ctx.career.pendingOffers && ctx.career.pendingOffers.length)) {
         ctx.careerReady[cmd.player] = true; publishCareer(); rerender();
@@ -217,7 +224,7 @@ function teamRoster(ti) {
   return Object.keys(ctx.career.drivers)
     .filter(ab => ctx.career.drivers[ab].teamIdx === ti)
     .sort((a, b) => ctx.career.drivers[b].overall - ctx.career.drivers[a].overall)
-    .map(ab => ({ abbrev: ab, name: DRIVER_NAME[ab] || ab, skill: ctx.career.drivers[ab].overall }));
+    .map(ab => ({ abbrev: ab, name: ctx.career.drivers[ab].name || DRIVER_NAME[ab] || ab, skill: ctx.career.drivers[ab].overall }));
 }
 // build the full 22-car field: player team's two drivers flagged, rest AI.
 // Reused by quali grid and the race start (Task 15).
