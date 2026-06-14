@@ -92,8 +92,9 @@ input[type=range]:active::-webkit-slider-thumb{transform:scale(1.15)}
 input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;
   background:var(--accent);border:3px solid var(--panel);cursor:pointer}
 
-/* finishing flourish: subtle entrance on each rendered screen */
-#app>.panel{animation:rise .25s var(--ease) both}
+/* finishing flourish: subtle entrance on FIRST render of a screen only. Live screens (practice/quali/race)
+   repaint ~15Hz; #app.no-anim suppresses the fade on repaints so panels don't freeze at opacity 0 (black). */
+#app:not(.no-anim)>.panel{animation:rise .25s var(--ease) both}
 @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
 /* ===== Practice screen (hero) ===== */

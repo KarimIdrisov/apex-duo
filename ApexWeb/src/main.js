@@ -35,7 +35,14 @@ export const ctx = {
 
 function rerender() {
   const phase = ctx.weekend.phase;
-  root.className = (phase === "race" || phase === "result") ? "wide" : "";  // wide 2-col race layout
+  // Entrance flourish (#app>.panel { animation:rise }) plays only on the FIRST render of a phase. Live
+  // screens (practice/quali/race) repaint ~15Hz; re-triggering the fade every frame froze panels at
+  // opacity 0 → BLACK SCREEN. On a same-phase repaint, mark #app `no-anim` to suppress the entrance.
+  const cls = [];
+  if (phase === "race" || phase === "result") cls.push("wide");   // wide 2-col race layout
+  if (phase === ctx._renderedPhase) cls.push("no-anim");          // repaint of the same screen → no re-entrance
+  ctx._renderedPhase = phase;
+  root.className = cls.join(" ");
   // a render error must NEVER escape: it runs inside the host rAF loop, so an uncaught throw would skip
   // the loop's reschedule and freeze the whole session ("что-то сломалось" / black screen). Log + show a
   // notice instead, keeping the loop alive and the cause diagnosable in the console.
