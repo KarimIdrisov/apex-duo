@@ -1,6 +1,6 @@
 // ApexWeb/src/ui/lobby.js
 import { TEAMS, TEAM_LOGO, DIFFICULTY } from "../data.js";
-import { hostGame, joinGame, startSolo } from "../main.js";
+import { hostGame, joinGame, startSolo, startCareerSolo, hostCareer } from "../main.js";
 
 const logoSrc = i => `assets/teams/${TEAM_LOGO[TEAMS[i].name]}.png`;
 
@@ -22,6 +22,7 @@ export function render(root, ctx) {
       <p class="label">Сложность ИИ</p>
       <select id="diff" style="width:100%;padding:8px">${diffOpts}</select>
       <div style="height:10px"></div>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><input type="checkbox" id="career"> Карьера (сезон, 23 этапа)</label>
       <button class="primary" id="host">Создать комнату</button>
       <div style="height:8px"></div>
       <button class="ready" id="solo">Играть одному (vs AI)</button>
@@ -42,13 +43,16 @@ export function render(root, ctx) {
   };
   root.querySelector("#host").onclick = async (e) => {
     e.target.disabled = true; e.target.textContent = "Создаём комнату…";
+    if (root.querySelector("#career").checked) hostCareer(ctx.teamIdx);   // career begins when the partner joins
     const code = await hostGame(useP2P);   // stay in lobby; the weekend starts when the partner joins
     root.querySelector("#status").innerHTML =
       `<div style="margin-top:6px">Код комнаты — передай напарнику:</div>
        <div style="font-size:20px;font-weight:700;color:var(--good);user-select:all;word-break:break-all;margin:6px 0">${code}</div>
        <div>Ждём, когда напарник войдёт по коду…</div>`;
   };
-  root.querySelector("#solo").onclick = () => startSolo();   // single-player vs AI
+  root.querySelector("#solo").onclick = () => {
+    if (root.querySelector("#career").checked) startCareerSolo(ctx.teamIdx); else startSolo();   // career or one-off weekend
+  };
   root.querySelector("#join").onclick = async () => {
     const code = root.querySelector("#code").value.trim();
     await joinGame(code, useP2P);
