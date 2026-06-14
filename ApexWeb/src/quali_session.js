@@ -101,7 +101,7 @@ function completeSector(s, car) {
     if (inc === "yellow" && !s.flag) s.flag = { type: "yellow", ySecLeft: QUALI2.YELLOW_SEC };
   }
   const rng = lapRng(s, car.idx, car.lapIdx * 10 + car.sector);
-  const r = qualiSector(car.base, 1 / 3, car.push, car.trackKnow, rng);
+  const r = qualiSector(car.base, 1 / 3, car.push, car.trackKnow, rng, car.drv.attrs?.composure ?? 0.5);
   if (r.event === "off") {                                           // big mistake → lap deleted, no time, run over
     car.lapDeleted = true; car._lastDeleted = true; car.lapsThisRun += 1;
     car.phase = "inlap"; car.lapAcc = 0; return;

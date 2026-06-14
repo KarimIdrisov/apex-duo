@@ -28,17 +28,18 @@ export function qualiLap(drv, car, track, setupBonus, risk, rng, carMean = 0, op
 }
 
 // one sector of a LIVE flying lap. base = clean lap time; frac = this sector's share (≈1/3).
-// push 0..3, trackKnow 0..1. Returns { time, event } where event ∈ null | "lockup" | "off" (off → caller deletes the lap).
-export function qualiSector(base, frac, push, trackKnow, rng) {
+// push 0..3, trackKnow 0..1, composure 0..1 (driver attr). Returns { time, event } where event ∈ null | "lockup" | "off".
+export function qualiSector(base, frac, push, trackKnow, rng, composure = 0.5) {
   const pushN = push / 3;                                             // 0..1
   const safety = 1 - QUALI2.TRACK_SAFETY * trackKnow;                 // track knowledge tightens risk + variance
+  const composed = 1 - ATTRW.composure * (composure - 0.5) * 2;       // composed drivers lock up / spin less (§18.7)
   let s = base * frac;
   s -= QUALI2.PUSH_GAIN * frac * pushN;                              // pushing this sector = faster (∝ sector size)
   s += rng.noise((QUALI2.SEC_VAR_BASE + QUALI2.SEC_VAR_PUSH * pushN) * safety);
   let event = null;
   const r = rng.unit();
-  const offChance  = QUALI2.OFF_BASE  * pushN * pushN * safety;       // big mistake (push²) → lap deleted
-  const lockChance = QUALI2.LOCK_BASE * pushN * safety;              // small mistake → +time
+  const offChance  = QUALI2.OFF_BASE  * pushN * pushN * safety * composed;   // big mistake (push²) → lap deleted
+  const lockChance = QUALI2.LOCK_BASE * pushN * safety * composed;          // small mistake → +time
   if (r < offChance) event = "off";
   else if (r < offChance + lockChance) { event = "lockup"; s += rng.range(QUALI2.LOCK_MIN, QUALI2.LOCK_MAX); }
   return { time: s, event };

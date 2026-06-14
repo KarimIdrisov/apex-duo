@@ -93,3 +93,14 @@ test("qualiSector: higher push = faster mean; off deletes, lock-up adds time", (
   let safeOff = 0; for (let i = 0; i < 600; i++) if (qualiSector(base, 1/3, 0, 0, new RNG(i)).event === "off") safeOff++;
   assert.ok(safeOff === 0, "save push never offs");
 });
+
+test("qualiSector: composed drivers make fewer mistakes (off + lock-up)", () => {
+  const off = (composure) => { let n = 0; for (let i = 0; i < 1000; i++) {
+    const e = qualiSector(90, 1/3, 3, 0, new RNG(5000 + i), composure).event; if (e === "off" || e === "lockup") n++; } return n; };
+  assert.ok(off(1.0) < off(0.0), `composed driver errs less (${off(1.0)} vs ${off(0.0)})`);
+  // default (no composure arg) == composure 0.5 → composed factor 1 → unchanged from before
+  let a = 0, b = 0; for (let i = 0; i < 400; i++) {
+    if (qualiSector(90, 1/3, 2, 0.3, new RNG(i)).event) a++;
+    if (qualiSector(90, 1/3, 2, 0.3, new RNG(i), 0.5).event) b++; }
+  assert.equal(a, b, "omitting composure equals composure 0.5");
+});
