@@ -62,3 +62,44 @@ test("deterministic: same inputs -> identical standings", () => {
   assert.deepEqual(a.teamPts, b.teamPts);
   assert.deepEqual(a.driverPts, b.driverPts);
 });
+
+// --- M2 finances + sponsors ---
+import { CAREER_V, migrate, chooseTitleSponsor, RUNNING_COST } from "../src/career.js";
+
+test("newCareer carries sponsors + title offers + costCap flag at v2", () => {
+  const c = newCareer({ teamIdx: 4, seed: 2 });
+  assert.equal(c.v, CAREER_V);
+  assert.ok(c.sponsors.length >= 1 && c.sponsors.some(s => s.kind === "title"));
+  assert.equal(c.costCap, false);
+  assert.equal(c.pendingOffers.length, 3);
+});
+
+test("applyResult books prize + sponsor income minus running cost into a net ledger", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });           // McLaren, sweeps front
+  const order = [...TEAMS[0].drivers.map(d => ({ abbrev: d.abbrev, team: "McLaren" })),
+    ...TEAMS.flatMap((t, i) => i === 0 ? [] : t.drivers.map(d => ({ abbrev: d.abbrev, team: t.name })))];
+  const before = c.money;
+  const sum = applyResult(c, order);
+  assert.ok(sum.prize > 0 && sum.sponsorIncome > 0 && sum.runningCost === RUNNING_COST);
+  assert.equal(sum.net, sum.prize + sum.sponsorIncome - sum.runningCost);
+  assert.equal(c.money, before + sum.net);
+  assert.equal(sum.bestPos, 1);
+});
+
+test("chooseTitleSponsor swaps the title deal and clears offers", () => {
+  const c = newCareer({ teamIdx: 6, seed: 3 });
+  const want = c.pendingOffers[2];
+  chooseTitleSponsor(c, 2);
+  assert.equal(c.pendingOffers.length, 0);
+  const title = c.sponsors.find(s => s.kind === "title");
+  assert.equal(title.bonus, want.bonus);
+  assert.equal(c.sponsors.filter(s => s.kind === "title").length, 1);
+});
+
+test("migrate upgrades a v1 save to v2 (adds sponsors)", () => {
+  const v1 = { v: 1, teamIdx: 2, seed: 9, season: 1, round: 0, money: 0, driverPts: {}, teamPts: {}, board: { targetPos: 3 }, lastResult: null, history: [], done: false };
+  const up = migrate(v1);
+  assert.equal(up.v, CAREER_V);
+  assert.ok(up.sponsors.length >= 1);
+  assert.equal(up.costCap, false);
+});

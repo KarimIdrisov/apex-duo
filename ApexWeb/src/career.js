@@ -1,11 +1,15 @@
 // ApexWeb/src/career.js — pure career/season state: calendar, standings, prize money, board
 // objective. No UI, no I/O. M1 evolves only meta state (the sim is untouched). Deterministic.
 import { TEAMS } from "./data.js";
+import { defaultSponsors, titleOffers, evaluateSponsor } from "./sponsors.js";
 
 // championship points for the top 10 finishers (current F1 system).
 export const POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
 // prize money ($k) by race-finish position — a simple per-race payout (M2 deepens income).
 export const PRIZE = [1200, 1000, 850, 720, 620, 540, 470, 410, 360, 320, 280, 250, 220, 200, 180, 160, 150, 140, 130, 120, 110, 100];
+
+export const CAREER_V = 2;            // career save schema version
+export const RUNNING_COST = 800;      // $k per-race operating cost (M5 facilities refine it)
 
 // the season calendar: each round picks a real circuit shape (a track_shapes.js key) for the
 // visual + geometry, plus the sim characteristics. overtake_zones auto-derive from `ot` in
@@ -43,11 +47,13 @@ export function newCareer({ teamIdx = 0, seed = 1, coop = false } = {}) {
   const driverPts = {}, teamPts = {};
   for (const d of allDrivers()) driverPts[d.abbrev] = 0;
   for (const t of TEAMS) teamPts[t.name] = 0;
+  const s = seed >>> 0;
   return {
-    v: 1, seed: seed >>> 0, teamIdx, coop,
+    v: CAREER_V, seed: s, teamIdx, coop,
     season: 1, round: 0, money: 0,
     driverPts, teamPts,
     board: { targetPos: Math.min(TEAMS.length, teamIdx + 1) },  // meet your tier (P{teamIdx+1})
+    sponsors: defaultSponsors(teamIdx, s), costCap: false, pendingOffers: titleOffers(teamIdx, s),
     lastResult: null, history: [], done: false,
   };
 }
@@ -55,27 +61,61 @@ export function newCareer({ teamIdx = 0, seed = 1, coop = false } = {}) {
 export function currentRound(career) { return CALENDAR[career.round]; }
 export function isSeasonOver(career) { return career.round >= CALENDAR.length; }
 
-// award points + prize money for a finished race. classification = finishing order
-// [{abbrev, team, retired}] (index 0 = winner). Mutates career; returns a summary.
+// award points + book the race ledger (prize + sponsor income − running cost). classification =
+// finishing order [{abbrev, team, retired}] (index 0 = winner). Mutates career; returns a summary.
 export function applyResult(career, classification) {
   const podium = [];
-  let prize = 0;
+  let prize = 0, teamPts = 0, bestPos = 99;
   const myTeam = TEAMS[career.teamIdx].name;
+  const bestByTeam = {};
   classification.forEach((c, i) => {
     const pts = i < POINTS.length ? POINTS[i] : 0;
     if (career.driverPts[c.abbrev] != null) career.driverPts[c.abbrev] += pts;
     if (career.teamPts[c.team] != null) career.teamPts[c.team] += pts;
     if (i < 3) podium.push(c.abbrev);
-    if (c.team === myTeam) prize += (i < PRIZE.length ? PRIZE[i] : 100);
+    if (bestByTeam[c.team] == null) bestByTeam[c.team] = i + 1;
+    if (c.team === myTeam) { prize += (i < PRIZE.length ? PRIZE[i] : 100); teamPts += pts; bestPos = Math.min(bestPos, i + 1); }
   });
-  career.money += prize;
+  // teams my best car beat (their best car finished behind mine)
+  const beat = new Set();
+  for (const tname in bestByTeam) if (tname !== myTeam && bestByTeam[myTeam] < bestByTeam[tname]) beat.add(tname);
+  const sCtx = { bestPos, points: teamPts, beat };
+  let sponsorIncome = 0;
+  for (const sp of (career.sponsors || [])) {
+    const r = evaluateSponsor(sp, sCtx);
+    sponsorIncome += r.payout;
+    sp.happiness = Math.max(0, Math.min(1, sp.happiness + r.dHappiness));
+  }
+  const net = prize + sponsorIncome - RUNNING_COST;
+  career.money += net;
   const summary = {
-    round: career.round, gp: CALENDAR[career.round].name, podium, prize,
+    round: career.round, gp: CALENDAR[career.round].name, podium, bestPos,
+    prize, sponsorIncome, runningCost: RUNNING_COST, net,
     classification: classification.map((c, i) => ({ pos: i + 1, abbrev: c.abbrev, team: c.team, retired: !!c.retired })),
   };
   career.lastResult = summary;
   career.history.push(summary);
   return summary;
+}
+
+// upgrade an older save in place to the current schema.
+export function migrate(career) {
+  if (!career) return career;
+  if (career.v < 2) {
+    career.sponsors = career.sponsors || defaultSponsors(career.teamIdx, career.seed || 1);
+    career.costCap = career.costCap ?? false;
+    career.pendingOffers = career.pendingOffers || [];
+    career.v = 2;
+  }
+  return career;
+}
+// accept a season-start title-sponsor offer: replace the title deal, clear the offers.
+export function chooseTitleSponsor(career, offerIdx) {
+  const chosen = career.pendingOffers && career.pendingOffers[offerIdx];
+  if (!chosen) return;
+  const secondaries = (career.sponsors || []).filter(s => s.kind !== "title");
+  career.sponsors = [{ ...chosen, kind: "title" }, ...secondaries];
+  career.pendingOffers = [];
 }
 
 // advance to the next round. Returns true if a next round exists, false if the season ended.
