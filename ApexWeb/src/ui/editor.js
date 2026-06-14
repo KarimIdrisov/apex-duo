@@ -128,6 +128,16 @@ for (const [t, label] of Object.entries(OBJ)) {
 }
 document.getElementById("save").onclick = () => { saveTrack(name, { points: toFlat(pts), objects }); toast("Сохранено: " + name); };
 document.getElementById("reset").onclick = () => { clearTrack(name); loadTrack(name); toast("Сброшено к пресету"); };
+document.getElementById("export").onclick = () => {     // download the current track as JSON
+  const blob = new Blob([JSON.stringify({ name, points: toFlat(pts), objects }, null, 0)], { type: "application/json" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name + ".json"; a.click(); URL.revokeObjectURL(a.href);
+};
+document.getElementById("import").onclick = () => document.getElementById("file").click();
+document.getElementById("file").onchange = (e) => {     // load a track JSON back in
+  const f = e.target.files[0]; if (!f) return; const r = new FileReader();
+  r.onload = () => { try { const d = JSON.parse(r.result); pts = toPts(d.points); objects.length = 0; for (const o of (d.objects || [])) objects.push({ ...o }); render(); toast("Импортировано"); } catch { toast("Битый JSON"); } };
+  r.readAsText(f);
+};
 document.getElementById("hint").innerHTML = "ЛКМ-тащи — точку/объект<br>2× клик по дороге — добавить точку<br>Объект: выбери тип → клик по холсту<br>Колесо над объектом — повернуть<br>ПКМ — удалить точку/объект<br>💾 Сохранить → откроется в 3D";
 function toast(t) { const el = document.getElementById("toast"); el.textContent = t; el.style.opacity = 1; setTimeout(() => el.style.opacity = 0, 1400); }
 
