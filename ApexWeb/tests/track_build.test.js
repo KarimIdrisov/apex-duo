@@ -33,3 +33,30 @@ test("trackFromEdited: no pitLoss -> inherits base pit", () => {
   assert.equal(t.pit, TRACK.pit);
   assert.deepEqual(t.overtake_zones, []);
 });
+
+// --- M1 career calendar tracks ---
+import { CALENDAR } from "../src/career.js";
+import { careerTrack, defaultZones } from "../src/track_build.js";
+import { N_MINI } from "../src/track.js";
+
+test("careerTrack builds a sim track from a calendar round: mini + params + zones", () => {
+  const monza = CALENDAR.find(r => r.shape === "Монца");
+  const t = careerTrack(monza);
+  assert.equal(t.mini.length, N_MINI);
+  assert.equal(t.laps, monza.laps);
+  assert.equal(t.pw, monza.pw);
+  assert.equal(t.name, monza.name);
+  assert.ok(Array.isArray(t.overtake_zones) && t.overtake_zones.length >= 1);
+  for (const z of t.overtake_zones) for (const s of z.sectors) assert.ok(s >= 0 && s < N_MINI, "zone sector index in range");
+});
+
+test("defaultZones: a more overtakeable track gets easier zones", () => {
+  const easy = defaultZones(0.7)[0].ease, hard = defaultZones(0.1)[0].ease;
+  assert.ok(easy > hard);
+  assert.ok(hard >= 0.2 && easy <= 0.8);
+});
+
+test("careerTrack: an unknown shape falls back to the Barcelona outline (still N_MINI sectors)", () => {
+  const t = careerTrack({ name: "X", shape: "НЕТ", laps: 50, lt: 80, pit: 22, df: 0.5, pw: 0.5, ot: 0.4, sc: 0.3, wet: 0.1 });
+  assert.equal(t.mini.length, N_MINI);
+});
