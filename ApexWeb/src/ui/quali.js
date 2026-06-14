@@ -33,7 +33,6 @@ export function render(root, ctx) {
 
   // local picks, persisted across re-renders
   ctx.qTyre = ctx.qTyre || "fresh";
-  ctx.qPush = ctx.qPush || "steady";
 
   const done = snap.segment === 4;                          // sentinel: quali complete, grid set
   const me = snap.cars[ctx.myPlayer];
@@ -116,11 +115,18 @@ export function render(root, ctx) {
           <button data-t="fresh" class="${ctx.qTyre === "fresh" ? "on" : ""}" ${freshDisabled ? "disabled" : ""}>свежий софт ×${me.softSets}</button>
           <button data-t="used" class="${ctx.qTyre === "used" ? "on" : ""}">тёплый</button>
         </div>`;
-      const pushSeg = `
-        <div class="seg q-push-seg" id="q-push">
-          <button data-p="steady" class="${ctx.qPush === "steady" ? "on" : ""}">спокойно</button>
-          <button data-p="attack" class="${ctx.qPush === "attack" ? "on" : ""}">атака</button>
-        </div>`;
+      const fmtDelta = d => d == null ? "—" : (d <= 0 ? "−" : "+") + Math.abs(d).toFixed(3);
+      const secCells = [0, 1, 2].map(i => {
+        const dn = me.lapSectors && me.lapSectors[i] != null;
+        const d = me.sectorDelta && me.sectorDelta[i];
+        const cls = !dn ? "" : (d != null && d <= 0 ? "good" : "warn");
+        return `<div class="q-sec ${i === me.sector && me.phase === "flying" ? "live" : ""} ${cls}">
+          <span class="q-sec-n">S${i + 1}</span><span class="q-sec-d">${dn ? fmtDelta(d) : "—"}</span></div>`;
+      }).join("");
+      const sectorStrip = `<div class="q-sectors">${secCells}</div>${me.lapDeleted ? `<div class="q-deleted">круг аннулирован</div>` : ""}`;
+      const pushLabels = ["сейв", "норма", "атака", "предел"];
+      const pushSeg = `<div class="seg q-push-seg" id="q-push">` +
+        pushLabels.map((l, i) => `<button data-lvl="${i}" class="${me.push === i ? "on" : ""}">${l}</button>`).join("") + `</div>`;
       const canRelease = me.phase === "pit";
       const canAbort = me.phase === "outlap" || me.phase === "flying";
       const d = me.traffic ?? 0;                                    // live traffic density (0 clear .. 1 packed)
@@ -128,6 +134,8 @@ export function render(root, ctx) {
       body = `
         <p class="label" style="margin:0 0 4px">Резина</p>
         ${tyreSeg}
+        <p class="label" style="margin:12px 0 4px">Быстрый круг по секторам</p>
+        ${sectorStrip}
         <p class="label" style="margin:12px 0 4px">Темп круга</p>
         ${pushSeg}
         <p class="label" style="margin:12px 0 4px">Трафик на трассе</p>
@@ -154,7 +162,9 @@ export function render(root, ctx) {
   // ---- 5. ready (only once quali is complete) ----
   const ready = done ? `<button class="ready" id="q-ready">Готов → Гонка</button>` : "";
 
-  root.innerHTML = header + tower + control + partner + ready;
+  root.innerHTML = header
+    + `<div class="q-grid"><div class="q-main">${tower}</div><div class="q-side">${control}${partner}</div></div>`
+    + ready;
 
   // ---- wire handlers ----
   root.querySelectorAll(".q-speed").forEach(el =>
@@ -168,8 +178,8 @@ export function render(root, ctx) {
   };
   const pushEl = root.querySelector("#q-push");
   if (pushEl) pushEl.onclick = e => {
-    const btn = e.target.closest("button"); if (!btn || !btn.dataset.p) return;
-    ctx.qPush = btn.dataset.p; render(root, ctx);
+    const b = e.target.closest("button"); if (!b || b.dataset.lvl == null) return;
+    ctx.send({ cmd: "quali_push", player: ctx.myPlayer, level: +b.dataset.lvl });
   };
   const releaseEl = root.querySelector("#q-release");
   if (releaseEl) releaseEl.onclick = () => {
