@@ -4,6 +4,8 @@ import { buildCenterline, splinePath, bounds, tangentAt, offsetPoint, racingLine
 import { TRACK_SHAPES, TRACK_NAMES } from "../track_shapes.js";
 import { paintTrack } from "../track_paint.js";
 import { saveTrack, clearTrack, loadAll } from "../track_store.js";
+import { hydratePack } from "../track_pack.js";
+import { saveToRepo, publish } from "../track_repo.js";
 
 const HALF_W = 3.8, WORLD = 120, R = 7;                 // road half-width (world); world span; handle radius (px)
 const EMPTY = "Пустая";                                 // scratch option: a default oval to experiment on
@@ -232,6 +234,13 @@ function toggleDrive() {
 const sel = document.getElementById("preset");
 for (const n of [...TRACK_NAMES, EMPTY]) { const o = document.createElement("option"); o.value = o.textContent = n; sel.appendChild(o); }
 sel.onchange = () => loadTrack(sel.value);
+// pull the committed track pack (ApexWeb/tracks/) into localStorage + list it under "Из репо"
+hydratePack(saveTrack).then((names) => {
+  if (!names.length) return;
+  const grp = document.createElement("optgroup"); grp.label = "Из репо";
+  for (const n of names) { const o = document.createElement("option"); o.value = o.textContent = n; grp.appendChild(o); }
+  sel.insertBefore(grp, sel.firstChild);   // pack tracks at the top of the list
+});
 // object palette: click a type to arm it, then click the canvas to drop one
 const OBJ = { stand: "Трибуна", banner: "Баннер", tree: "Дерево", cone: "Конус" };
 let objDrag = -1;   // index of the object being dragged, or -1
@@ -263,9 +272,19 @@ document.getElementById("z-brake").onclick = () => addZone("brake");
 document.getElementById("z-slip").onclick = () => addZone("slip");
 document.getElementById("z-ease").oninput = (e) => { if (activeZone >= 0) { zones[activeZone].ease = parseFloat(e.target.value); } };
 document.getElementById("pitloss").oninput = (e) => { const v = parseFloat(e.target.value); pitLoss = isNaN(v) ? null : v; };
-document.getElementById("save").onclick = () => { saveTrack(name, { points: toFlat(pts), objects, pit, pitLoss, zones, cornerOverrides }); toast("Сохранено: " + name); };
+document.getElementById("save").onclick = async () => {
+  const rec = { name, points: toFlat(pts), objects, pit, pitLoss, zones, cornerOverrides };
+  saveTrack(name, rec);                                   // local cache (and offline fallback)
+  const r = await saveToRepo(rec);                        // repo file via the node helper
+  toast(r.ok ? ("В репо: tracks/" + r.slug + ".json") : "Сохранено локально (нет node-сервера для записи в репо)");
+};
 document.getElementById("reset").onclick = () => { clearTrack(name); loadTrack(name); toast("Сброшено к пресету"); };
 document.getElementById("drive").onclick = toggleDrive;
+document.getElementById("publish").onclick = async () => {
+  toast("Публикую…");
+  const r = await publish();
+  toast(r.ok ? "Опубликовано на гит" : ("Не вышло: " + r.message));
+};
 document.getElementById("race").onclick = () => {       // race the current track in the sim
   saveTrack(name, { points: toFlat(pts), objects, pit, pitLoss, zones, cornerOverrides });   // persist first
   localStorage.setItem("apexweb_race_track", name);     // main.js picks this up on boot
