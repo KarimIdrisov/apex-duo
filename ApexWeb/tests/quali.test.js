@@ -62,3 +62,14 @@ test("a better-satisfied setup qualifies ahead of a worse one (via setupBonus)",
   const grid = buildGrid(field, TRACK, 1234);
   assert.equal(grid[0].abbrev, "GOOD", "better setupBonus qualifies ahead");
 });
+
+test("qualiLap modifiers: more grip faster, used slower than fresh, traffic + yellow add time", () => {
+  const drv = { skill: 0.9, attrs: { quali: 0.9, composure: 0.8 } };
+  const car = { power: 0.85, aero: 0.85 };
+  const base = (opts) => qualiLap(drv, car, TRACK, 0, 0.5, new RNG(1), 0.85, opts);
+  const green = base({ grip: 0 }), rubbered = base({ grip: 1 });
+  assert.ok(rubbered < green, `grip helps (${rubbered} < ${green})`);
+  assert.ok(base({ grip: 0.5, tyre: "used" }) > base({ grip: 0.5, tyre: "fresh" }), "used slower than fresh");
+  assert.ok(base({ grip: 0.5, traffic: 0.4 }) > base({ grip: 0.5, traffic: 0 }), "traffic adds time");
+  assert.ok(base({ grip: 0.5, yellow: true }) > base({ grip: 0.5, yellow: false }), "yellow adds time");
+});
