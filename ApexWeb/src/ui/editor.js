@@ -53,15 +53,15 @@ function frame() {
 }
 function render() {
   if (pts.length < 3) return;
-  const { cl, C, pxPerWorld, hwN } = frame();
+  const { cl, C, pxPerWorld } = frame();
   paintTrack(g, cl, C, pxPerWorld, HALF_W);              // the SAME painting the game uses
   for (let i = 0; i < pts.length; i++) {                 // control-point handles
     const c = C(pts[i]); g.beginPath(); g.arc(c[0], c[1], R, 0, 7);
     g.fillStyle = i === drag ? "#ffd24a" : "#7ad0ff"; g.fill(); g.lineWidth = 2; g.strokeStyle = "#0b0d12"; g.stroke();
   }
   for (const o of objects) drawObj(g, C([o.x, o.y]), o);   // placed objects on top
-  if (driving) for (const car of cars) {                 // kinematic cars riding the racing line
-    const p = offsetPoint(cl, car.frac, racingLineOffset(cl, car.frac, hwN * 0.45)), t = tangentAt(cl, car.frac);
+  if (driving) for (const car of cars) {                 // kinematic cars riding the racing line (car.lat = eased offset, set in tick)
+    const p = offsetPoint(cl, car.frac, car.lat), t = tangentAt(cl, car.frac);
     drawCar(C(p), Math.atan2(t[1], t[0]), car.col);
   }
 }
@@ -130,11 +130,12 @@ function drawCar(c, ang, col) {
 function tick(t) {
   if (!driving) return;
   const dt = Math.min(0.05, (t - lastT) / 1000 || 0); lastT = t;
-  const { cl } = frame();
+  const { cl, hwN } = frame();
   for (const car of cars) {
-    const r = radiusAt(cl, car.frac);                     // local corner radius (normalized; Infinity on a straight)
-    const sf = Math.max(0.35, Math.min(1, r / 0.12));     // slow in tight corners, full speed on open track
-    car.frac = (car.frac + dt * (1 / 7) * sf) % 1;        // ~7 s/lap at full speed
+    const tsf = Math.max(0.35, Math.min(1, radiusAt(cl, car.frac, 1 / 60) / 0.12));   // target speed: slow in tight corners (wide window = stable, not noisy)
+    car.sf += (tsf - car.sf) * 0.1;                       // ease the speed so it can't lurch frame-to-frame (kills the stutter)
+    car.frac = (car.frac + dt * (1 / 7) * car.sf) % 1;    // ~7 s/lap at full speed
+    car.lat += (racingLineOffset(cl, car.frac, hwN * 0.45) - car.lat) * 0.12;   // ease onto the racing line (no sideways dart at corners/S-bends)
   }
   render();
   raf = requestAnimationFrame(tick);
@@ -145,8 +146,9 @@ function toggleDrive() {
   const btn = document.getElementById("drive");
   btn.classList.toggle("on", driving); btn.textContent = driving ? "⏹ Стоп" : "▶ Прокатить";
   if (driving) {
+    const { cl, hwN } = frame();
     cars.length = 0;
-    for (let i = 0; i < CAR_COLS.length; i++) cars.push({ frac: i / CAR_COLS.length, col: CAR_COLS[i] });
+    for (let i = 0; i < CAR_COLS.length; i++) { const frac = i / CAR_COLS.length; cars.push({ frac, col: CAR_COLS[i], lat: racingLineOffset(cl, frac, hwN * 0.45), sf: 1 }); }   // init lat on the line, sf at full
     lastT = 0; render(); raf = requestAnimationFrame(tick);   // render once so cars show immediately, not only after the first frame
   } else { cancelAnimationFrame(raf); render(); }
 }
