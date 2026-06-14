@@ -6,12 +6,13 @@ import { Race } from "../src/sim.js";
 import { driverAttrs, composeCar, genPersonnel } from "../src/team.js";
 import { POINTS, newCareer, applyResult, advanceRound, isSeasonOver, constructorStandings, boardOutcome, CALENDAR } from "../src/career.js";
 import { careerTrack } from "../src/track_build.js";
+import { effectiveCar, startProject } from "../src/development.js";
 
 function field() {
   let idx = 0;
   return TEAMS.flatMap((t, ti) => t.drivers.map(d => ({
     idx: idx++, name: d.name, abbrev: d.abbrev, skill: d.skill,
-    car: composeCar(t.car), color: t.color, team: t.name,
+    car: composeCar(effectiveCar(t.car, career.carDev && career.carDev[t.name])), color: t.color, team: t.name,
     attrs: driverAttrs(d.abbrev, d.skill), personnel: genPersonnel(t.facility, ti),
     setup: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5], setupBonus: 0, startTyre: "medium",
   })));
@@ -29,6 +30,7 @@ let totalPts = 0, minPass = 1e9, maxPass = 0, races = 0;
 const expectedPerRace = POINTS.reduce((a, b) => a + b, 0);
 while (!isSeasonOver(career)) {
   const round = CALENDAR[career.round];
+  if (!career.project && career.money > 2000) startProject(career, ["power", "aero", "tyre"][career.round % 3], "small");
   const { order, passes } = runRace(careerTrack(round), 1000 + career.round);
   const before = Object.values(career.driverPts).reduce((a, b) => a + b, 0);
   applyResult(career, order);
@@ -47,4 +49,11 @@ console.log(`player money end of season: $${(career.money / 1000).toFixed(1)}M  
 if (races !== CALENDAR.length) { console.error("season did not complete all rounds"); process.exit(1); }
 if (minPass < 1) { console.error("a race had zero passes — check overtake_zones on every calendar track"); process.exit(1); }
 if (career.money <= 0) { console.error("a front-running team went broke over a season — economy too harsh"); process.exit(1); }
+const effAvg = t => { const e = effectiveCar(t.car, career.carDev[t.name]); return (e.power + e.aero) / 2; };
+const avgs = TEAMS.map(effAvg);
+const spread = Math.max(...avgs) - Math.min(...avgs);
+const myDev = career.carDev[TEAMS[0].name];
+console.log(`dev: player McLaren carDev power +${myDev.power.toFixed(3)} aero +${myDev.aero.toFixed(3)}; field (power+aero)/2 spread ${spread.toFixed(3)}`);
+if (!(myDev.power > 0 || myDev.aero > 0 || myDev.tyre > 0)) { console.error("player car did not develop over the season"); process.exit(1); }
+if (spread > 0.45) { console.error(`grid spread ${spread.toFixed(3)} too wide — development ran away`); process.exit(1); }
 console.log("CAREER CORRIDOR OK");
