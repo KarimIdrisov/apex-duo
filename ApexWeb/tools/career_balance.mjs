@@ -43,6 +43,8 @@ const bo = boardOutcome(career);
 const champ = constructorStandings(career)[0];
 console.log(`\nseason: ${races} races, ${totalPts} pts awarded, champion=${champ.team} (${champ.pts}), player P${bo.finalPos} target P${bo.target} -> ${bo.met ? "MET" : "MISSED"}`);
 console.log(`passes/race across the calendar: ${minPass}..${maxPass}`);
+console.log(`player money end of season: $${(career.money / 1000).toFixed(1)}M  (sponsors: ${career.sponsors.map(s => s.name + " " + Math.round(s.happiness * 100) + "%").join(", ")})`);
 if (races !== CALENDAR.length) { console.error("season did not complete all rounds"); process.exit(1); }
 if (minPass < 1) { console.error("a race had zero passes — check overtake_zones on every calendar track"); process.exit(1); }
+if (career.money <= 0) { console.error("a front-running team went broke over a season — economy too harsh"); process.exit(1); }
 console.log("CAREER CORRIDOR OK");
