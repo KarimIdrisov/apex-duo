@@ -150,7 +150,7 @@ function startRaceHost() {
   // host picks the race seed once; the sim run stays fully deterministic from it
   if (ctx.seed == null) ctx.seed = 1000 + Math.floor(Math.random() * 100000);
   ctx.race = new Race(field, ctx.track, ctx.seed, ctx.difficulty ?? DIFFICULTY.normal.ai);
-  ctx.trackName = pickTrack(ctx.seed);   // visual circuit for this race (3D + minimap); sim races abstract sectors
+  ctx.trackName = ctx.trackName || pickTrack(ctx.seed);   // keep a quick-race's edited circuit; else seed-pick the visual (3D + minimap)
   // apply the quali grid as the start order (fastest quali -> P1), spread by slot
   // starting grid comes from the quali session (P1..P22); fall back to a one-shot grid if quali was skipped
   const grid = ctx.qualiSession ? finalGrid(ctx.qualiSession) : buildGrid(field.map(f => ({ ...f, risk: 0.5 })), ctx.track, 1234);
