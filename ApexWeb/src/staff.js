@@ -37,11 +37,12 @@ export function devMult(staff) {
   return 1 + (staff.designer - 0.6) * 0.5 + (staff.facilities.design / FAC_MAX) * 0.3;
 }
 
-// per-race upkeep ($k) — bigger facilities cost more to run.
+// per-race upkeep ($k) — bigger facilities cost more to run (tuned so a top team can run a full
+// facility set + develop + pay salaries and stay comfortably solvent; M5 corridor).
 export function upkeep(staff) {
   if (!staff) return 0;
   const lv = staff.facilities;
-  return 120 * (lv.design + lv.pit + lv.factory);
+  return 70 * (lv.design + lv.pit + lv.factory);
 }
 
 // upgrade a staff rating one step. Returns true if applied.
