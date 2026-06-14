@@ -104,6 +104,7 @@ function onCommand(cmd) {
     case "ready":     ctx.weekend.setReady(cmd.player); break;
     case "set_pace":  ctx.race?.setPace(cmd.car, cmd.mode); break;
     case "set_engine": ctx.race?.setEngine(cmd.car, cmd.mode); break;
+    case "set_order":  ctx.race?.setOrder(cmd.car, cmd.mode); break;
     case "request_pit": ctx.race?.requestPit(cmd.car, cmd.compound); break;
     case "toggle_pause":
       ctx.paused = !ctx.paused;
@@ -244,7 +245,7 @@ function raceSnapshot() {
     cars: ctx.race.order().map(c => ({
       idx: c.idx, pos: c.pos, abbrev: c.abbrev, color: c.color, player: c.player,
       lap: c.lap, lapFrac: c.lapFrac, tyre: c.tyre, wear: c.wear,
-      pace: c.pace, engine: c.engine, retired: c.retired, isPlayer: c.isPlayer,
+      pace: c.pace, engine: c.engine, order: c.order, inFight: c._inFight, retired: c.retired, isPlayer: c.isPlayer,
       fuel: c.fuel, fuelLaps: fuelLaps(c.fuel, c.engine, c.car.fuel),
       pitStops: c.pitStops, tyreAge: c.tyreAge, tyreTemp: c.tyreTemp, lastLap: c.lastLap, startPos: c.startPos,
       inPit: c.pitTimer > 0,
