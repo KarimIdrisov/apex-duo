@@ -5,7 +5,7 @@
 // they catch the car ahead, so a train fans out instead of stacking on the centerline.
 import * as THREE from "https://esm.sh/three@0.160.0";
 import { TRACK_PATH } from "../data.js";
-import { buildCenterline, pointAt, tangentAt, bounds, sampleProg, racingLineOffset, offsetPoint, splinePath } from "../geom3d.js";
+import { buildCenterline, pointAt, tangentAt, bounds, sampleProg, racingLineOffset, offsetPoint, splinePath, buildSpeedWarp, sampleWarp } from "../geom3d.js";
 import { TRACK_SHAPES } from "../track_shapes.js";
 import { paintTrack } from "../track_paint.js";
 import { effectiveTrack } from "../track_store.js";
@@ -42,6 +42,7 @@ export function init(canvas, ctx) {
   const edited = effectiveTrack(trackName, (trackName && TRACK_SHAPES[trackName]) || TRACK_PATH);   // owner's editor edits, else the preset
   const cl = buildCenterline(splinePath(edited.points));   // Catmull-Rom-smoothed: soft corners, no per-vertex snapping
   const b = bounds(cl);
+  const speedWarp = buildSpeedWarp(cl);            // corner-aware visual speed (render-only; redistributes within the lap, preserves lap times)
   const sc = WORLD / b.size;                       // normalized -> world scale
   const wx = (p) => (p[0] - b.cx) * sc;            // center the track at world origin
   const wz = (p) => (p[1] - b.cy) * sc;
@@ -268,6 +269,7 @@ export function init(canvas, ctx) {
         continue;
       }
       const prog = sampleProg(buf[c.idx], rt);
+      const wf = sampleWarp(speedWarp, prog);                    // corner-aware visual speed: slow into corners, quick on straights (lap time unchanged)
       // lateral target = racing line, + a side-step when right behind the car ahead (fan a train out)
       let side = 0;
       const ahead = snapCars[i - 1];
@@ -275,11 +277,11 @@ export function init(canvas, ctx) {
         const gapProg = (ahead.lap + ahead.lapFrac) - (c.lap + c.lapFrac);
         if (gapProg > 0 && gapProg < CLOSE_PROG) side = ((c.idx % 2) ? 1 : -1) * SIDE_LAT;
       }
-      const tlat = racingLineOffset(cl, prog, LANE_LAT) + side;
+      const tlat = racingLineOffset(cl, wf, LANE_LAT) + side;
       car.lat += (tlat - car.lat) * 0.07;                        // ease toward the racing line gently so corner entry doesn't jolt
       const maxLat = Math.max(0, HW_N - CAR_HALF * HW_N);        // keep the car body on the painted constant-width road
       car.lat = Math.max(-maxLat, Math.min(maxLat, car.lat));
-      const p = offsetPoint(cl, prog, car.lat), t = tangentAt(cl, prog);
+      const p = offsetPoint(cl, wf, car.lat), t = tangentAt(cl, wf);
       const txp = wx(p), tzp = wz(p);                            // low-pass the rendered position to smooth micro-judder
       if (car.px == null) { car.px = txp; car.pz = tzp; }
       else { car.px += (txp - car.px) * POS_EASE; car.pz += (tzp - car.pz) * POS_EASE; }

@@ -208,3 +208,39 @@ export function elevation(frac, seed = 1) {
   }
   return 0.5 + 0.5 * v / (amp || 1);                    // [0,1]; sin period 1 for integer h -> elevation(0)==elevation(1)
 }
+
+// Corner-aware VISUAL speed warp (render-only). The sim advances a car's lap-fraction linearly in
+// time (constant pace within a lap); to make the rendered car *look* like it slows for corners and
+// accelerates on straights — MM's signature trick — we remap that uniform time-fraction onto a
+// non-uniform arc-fraction. Returns a `steps+1` lookup table: `table[m]` = the arc-fraction the car
+// has reached at time-fraction `m/steps`. Monotonic with table[0]=0, table[steps]=1, so the LAP TIME
+// (and every gap the sim computed) is preserved exactly — only the within-lap distribution changes.
+// `minV` = slowest corner speed as a fraction of straight speed; `cornerR` = radius at/above which
+// it's full speed; `w` = a wide radius window so the speed profile is smooth, not noisy.
+export function buildSpeedWarp(cl, { steps = 600, cornerR = 0.10, minV = 0.45, w = 1 / 60 } = {}) {
+  const tcum = new Float64Array(steps + 1);            // cumulative TIME to reach each equal-arc sample (time ∝ 1/speed)
+  for (let k = 0; k < steps; k++) {
+    const v = Math.max(minV, Math.min(1, radiusAt(cl, k / steps, w) / cornerR));   // speed profile: slow in tight corners
+    tcum[k + 1] = tcum[k] + 1 / v;
+  }
+  const T = tcum[steps] || 1;                           // total lap time (arbitrary units)
+  const table = new Float64Array(steps + 1);            // invert time-fraction -> arc-fraction
+  let k = 0;
+  for (let m = 0; m <= steps; m++) {
+    const tau = m / steps;                              // target time-fraction
+    while (k < steps && tcum[k + 1] / T < tau) k++;     // advance to the arc bucket containing tau (k only grows: monotonic)
+    const lo = tcum[k] / T, hi = tcum[k + 1] / T, span = (hi - lo) || 1;
+    table[m] = Math.min(1, (k + Math.max(0, Math.min(1, (tau - lo) / span))) / steps);
+  }
+  table[0] = 0; table[steps] = 1;
+  return table;
+}
+
+// Sample a speed-warp table at lap-fraction `f` (uses only the fractional part, so lap+frac works).
+// Returns the warped arc-fraction in [0,1).
+export function sampleWarp(table, f) {
+  const n = table.length - 1;
+  const x = ((((f % 1) + 1) % 1)) * n;
+  const i = Math.min(n - 1, Math.floor(x)), fr = x - i;
+  return table[i] + (table[i + 1] - table[i]) * fr;
+}

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath, radiusAt, cornerMask, cornerRuns, elevation } from "../src/geom3d.js";
+import { buildCenterline, pointAt, tangentAt, bounds, cameraFromBounds, ribbonEdges, sampleProg, racingLineOffset, offsetPoint, splinePath, radiusAt, cornerMask, cornerRuns, elevation, buildSpeedWarp, sampleWarp } from "../src/geom3d.js";
 
 const SQUARE = [0, 0, 1, 0, 1, 1, 0, 1];   // unit-square loop, perimeter 4
 
@@ -152,4 +152,40 @@ test("elevation: periodic [0,1], loop-continuous, deterministic from seed", () =
   for (const f of [0, 0.13, 0.5, 0.77, 0.99]) { const v = elevation(f); assert.ok(v >= 0 && v <= 1, `in [0,1]: ${v}`); }
   assert.equal(elevation(0.37, 7), elevation(0.37, 7), "deterministic for a given seed");
   assert.notEqual(elevation(0.37, 1), elevation(0.37, 2), "different seeds -> different profile");
+});
+
+// --- speed warp: corner-aware visual reparameterization of the lap (render-only, lap-time-preserving) ---
+const ringPath = (rx, ry, n) => { const a = []; for (let i = 0; i < n; i++) { const t = (i / n) * 2 * Math.PI; a.push(0.5 + rx * Math.cos(t), 0.5 + ry * Math.sin(t)); } return a; };
+
+test("buildSpeedWarp: length steps+1, endpoints 0..1, monotonic, all in [0,1]", () => {
+  const cl = buildCenterline(splinePath(ringPath(0.34, 0.22, 16)));
+  const w = buildSpeedWarp(cl, { steps: 200 });
+  assert.equal(w.length, 201);
+  assert.ok(Math.abs(w[0]) < 1e-9, "starts at 0");
+  assert.ok(Math.abs(w[200] - 1) < 1e-9, "ends at 1");
+  for (let k = 1; k < w.length; k++) assert.ok(w[k] >= w[k - 1] - 1e-9, `monotonic at ${k}`);
+  for (const v of w) assert.ok(v >= -1e-9 && v <= 1 + 1e-9, "in [0,1]");
+});
+
+test("buildSpeedWarp: a circle (uniform curvature) stays ~identity (constant speed)", () => {
+  const cl = buildCenterline(splinePath(ringPath(0.3, 0.3, 24)));
+  const w = buildSpeedWarp(cl, { steps: 200 });
+  let maxDev = 0; for (let k = 0; k <= 200; k++) maxDev = Math.max(maxDev, Math.abs(w[k] - k / 200));
+  assert.ok(maxDev < 0.03, `circle warp near identity, maxDev ${maxDev}`);
+});
+
+test("buildSpeedWarp: an elongated oval departs from identity (tight ends run slower)", () => {
+  const cl = buildCenterline(splinePath(ringPath(0.40, 0.14, 16)));
+  const w = buildSpeedWarp(cl, { steps: 200 });
+  let maxDev = 0; for (let k = 0; k <= 200; k++) maxDev = Math.max(maxDev, Math.abs(w[k] - k / 200));
+  assert.ok(maxDev > 0.01, `oval warp departs from identity, maxDev ${maxDev}`);
+});
+
+test("sampleWarp: endpoints, lerp between entries, wraps integer laps", () => {
+  const t = Float64Array.from([0, 0.25, 0.5, 0.75, 1]);   // 4-step identity table
+  assert.ok(Math.abs(sampleWarp(t, 0)) < 1e-9);
+  assert.ok(Math.abs(sampleWarp(t, 0.5) - 0.5) < 1e-9);
+  assert.ok(Math.abs(sampleWarp(t, 0.375) - 0.375) < 1e-9, "lerps mid-bucket");
+  assert.ok(Math.abs(sampleWarp(t, 1)) < 1e-9, "frac 1 wraps to 0 (== same start/finish point)");
+  assert.ok(Math.abs(sampleWarp(t, 2.5) - 0.5) < 1e-9, "lap+fraction uses the fractional part");
 });
