@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { newQuali, release, qualiStep, carView, advanceSegment, finalGrid } from "../src/quali_session.js";
-import { TEAMS, TRACK } from "../src/data.js";
+import { TEAMS, TRACK, QUALI2 } from "../src/data.js";
 import { driverAttrs, composeCar } from "../src/team.js";
 
 function field() {   // all 22 cars; p1/p2 = first team's two drivers
@@ -40,4 +40,16 @@ test("a full knockout yields a 22-car grid: Q1 drops 7, Q2 drops 5, Q3 sets P1..
   assert.equal(new Set(grid.map(r => r.idx)).size, 22, "no duplicate cars");
   assert.deepEqual(grid.map(r => r.pos), Array.from({ length: 22 }, (_, i) => i + 1), "positions 1..22");
   assert.ok(grid[21].pos === 22, "P22 is the slowest Q1 car");
+});
+
+test("a fresh release consumes a soft set; out of fresh sets falls back to used", () => {
+  let s = newQuali(5, field()); s.paused = false; s.speed = 8;
+  const car = () => Object.values(s.cars).find(c => c.player === "p1");
+  const sets0 = car().softSets;
+  s = release(s, "p1", "fresh", "steady");
+  assert.equal(car().softSets, sets0 - 1, "fresh consumed a set");
+  // exhaust the fresh sets, then a fresh request must fall back to used (never negative)
+  for (let k = 0; k < QUALI2.QUALI_SOFT_SETS + 2; k++) { car().phase = "pit"; s = release(s, "p1", "fresh", "steady"); }
+  assert.ok(car().softSets >= 0, "never negative");
+  assert.equal(car().tyre, "used", "falls back to used when out of fresh");
 });
