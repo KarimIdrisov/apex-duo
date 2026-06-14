@@ -23,12 +23,17 @@ const sendJson = (res, code, obj) => { res.writeHead(code, { "content-type": "ap
 // git add ApexWeb/tracks (explicit pathspec — never -A) -> commit -> push. "nothing to commit" is a friendly no-op.
 function gitPublish(done) {
   const run = (args) => new Promise((resolve, reject) =>
-    execFile("git", args, { cwd: REPO }, (err, out, errout) => err ? reject(new Error(errout || err.message)) : resolve(out)));
+    execFile("git", args, { cwd: REPO }, (err, out, errout) => err ? reject(new Error(((errout || "") + (out || "")) || err.message)) : resolve(out)));
+  // is anything staged under ApexWeb/tracks? `git diff --cached --quiet` exits 1 when there ARE staged
+  // changes. Structural check, not message-parsing: locale-independent and immune to the owner's
+  // unrelated WIP (which would make `git commit` print "no changes added to commit" — not "nothing to commit").
+  const hasStaged = () => new Promise((resolve) =>
+    execFile("git", ["diff", "--cached", "--quiet", "--", "ApexWeb/tracks"], { cwd: REPO }, (err) => resolve(!!err)));
   (async () => {
     try {
-      await run(["add", "ApexWeb/tracks"]);
-      try { await run(["commit", "-m", "chore(tracks): publish track pack"]); }
-      catch (e) { if (/nothing to commit/i.test(e.message)) return done({ ok: true, message: "нечего публиковать (нет изменений)" }); throw e; }
+      await run(["add", "ApexWeb/tracks"]);                  // explicit pathspec — owner WIP untouched
+      if (!(await hasStaged())) return done({ ok: true, message: "нечего публиковать (нет изменений)" });
+      await run(["commit", "-m", "chore(tracks): publish track pack"]);
       await run(["push"]);
       done({ ok: true, message: "опубликовано" });
     } catch (e) { done({ ok: false, message: String(e.message || e).split("\n")[0] }); }
