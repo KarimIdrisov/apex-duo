@@ -75,7 +75,8 @@ function rerender() {
   // screens repaint often; re-triggering the fade every rebuild froze panels at opacity 0 → BLACK SCREEN.
   // On a same-phase rebuild, mark #app `no-anim` to suppress the entrance.
   const cls = [];
-  if (phase === "race" || phase === "result") cls.push("wide");   // wide 2-col race layout
+  // wide #app for the 2-col dashboards: race/result and the practice setup grid (room for a wide slider track)
+  if (phase === "race" || phase === "result" || isPractice(phase)) cls.push("wide");
   if (phase === ctx._renderedPhase) cls.push("no-anim");          // rebuild of the same screen → no re-entrance
   ctx._renderedPhase = phase;
   root.className = cls.join(" ");
