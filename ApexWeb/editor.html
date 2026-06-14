@@ -9,6 +9,7 @@
   h2{font-size:15px;margin:0 0 10px} .row{margin:8px 0} button,select{font:inherit}
   button{background:#222733;color:#e8e8ea;border:1px solid #3a4150;border-radius:6px;padding:7px 10px;cursor:pointer}
   button:hover{background:#2c3340} button.on{background:#2d5a7a;border-color:#3d7aa0}
+  #drive{width:100%} #drive.on{background:#7a2d2d;border-color:#a03d3d}
   select{background:#222733;color:#e8e8ea;border:1px solid #3a4150;border-radius:6px;padding:6px;width:100%}
   .hint{color:#8a909c;font-size:12px;line-height:1.5;margin-top:10px}
   #toast{position:fixed;bottom:16px;left:16px;background:#2d5a7a;padding:8px 12px;border-radius:6px;opacity:0;transition:opacity .25s}
@@ -16,6 +17,7 @@
 <body><div id="wrap"><canvas id="cv"></canvas><div id="panel">
   <h2>Редактор трассы</h2>
   <div class="row"><select id="preset"></select></div>
+  <div class="row"><button id="drive">▶ Прокатить</button></div>
   <div class="row"><button id="save">💾 Сохранить</button> <button id="reset">↺ Сброс</button></div>
   <div class="row" id="palette"><b style="font-size:12px">Объекты:</b><br></div>
   <div class="row"><button id="export">⬇ Экспорт JSON</button> <button id="import">⬆ Импорт</button>

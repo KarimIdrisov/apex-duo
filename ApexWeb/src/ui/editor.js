@@ -1,6 +1,6 @@
 // ApexWeb/src/ui/editor.js — standalone top-down track editor. Drag/add/remove the control points;
 // the road repaints live via the SHARED track_paint (so the editor == the game). Save -> localStorage.
-import { buildCenterline, splinePath, bounds } from "../geom3d.js";
+import { buildCenterline, splinePath, bounds, tangentAt, offsetPoint, racingLineOffset, radiusAt } from "../geom3d.js";
 import { TRACK_SHAPES, TRACK_NAMES } from "../track_shapes.js";
 import { paintTrack } from "../track_paint.js";
 import { saveTrack, clearTrack, loadAll } from "../track_store.js";
@@ -17,6 +17,9 @@ let pts = [];                                            // editable control poi
 let drag = -1;                                           // index of the point being dragged, or -1
 let armed = null;                                        // armed object type to place (objects, Task 5)
 const objects = [];                                     // placed objects {type,x,y,rot} (Task 5)
+let driving = false, raf = 0, lastT = 0;                // car preview ("прокатить"): kinematic cars on the racing line
+const cars = [];                                        // [{frac, col}] while driving
+const CAR_COLS = ["#e8453c", "#3d7aa0", "#ffd24a", "#46d08a", "#b06fd0", "#e07a1a"];
 
 const toPts = (flat) => { const p = []; for (let i = 0; i < flat.length; i += 2) p.push([flat[i], flat[i + 1]]); return p; };
 const toFlat = (p) => p.flatMap((q) => q);
@@ -46,17 +49,21 @@ function frame() {
   const cl = buildCenterline(splinePath(toFlat(pts))), b = bounds(cl), pad = 0.12 * cv.width;
   const sc = (cv.width - 2 * pad) / b.size;
   const C = (q) => [pad + (q[0] - b.cx + b.size / 2) * sc, pad + (q[1] - b.cy + b.size / 2) * sc];
-  return { cl, C, pxPerWorld: sc / (WORLD / b.size) };   // pxPerWorld: track_paint widths are world units
+  return { cl, C, pxPerWorld: sc / (WORLD / b.size), hwN: HALF_W * b.size / WORLD };   // pxPerWorld: paint widths; hwN: road half-width (normalized)
 }
 function render() {
   if (pts.length < 3) return;
-  const { cl, C, pxPerWorld } = frame();
+  const { cl, C, pxPerWorld, hwN } = frame();
   paintTrack(g, cl, C, pxPerWorld, HALF_W);              // the SAME painting the game uses
   for (let i = 0; i < pts.length; i++) {                 // control-point handles
     const c = C(pts[i]); g.beginPath(); g.arc(c[0], c[1], R, 0, 7);
     g.fillStyle = i === drag ? "#ffd24a" : "#7ad0ff"; g.fill(); g.lineWidth = 2; g.strokeStyle = "#0b0d12"; g.stroke();
   }
   for (const o of objects) drawObj(g, C([o.x, o.y]), o);   // placed objects on top
+  if (driving) for (const car of cars) {                 // kinematic cars riding the racing line
+    const p = offsetPoint(cl, car.frac, racingLineOffset(cl, car.frac, hwN * 0.45)), t = tangentAt(cl, car.frac);
+    drawCar(C(p), Math.atan2(t[1], t[0]), car.col);
+  }
 }
 
 // nearest control point within `R*1.6` px of (mx,my), or -1
@@ -113,6 +120,37 @@ function drawObj(g, c, o) {
 // topmost object within ~18px of (mx,my), or -1
 function pickObj(mx, my) { const { C } = frame(); for (let i = objects.length - 1; i >= 0; i--) { const c = C([objects[i].x, objects[i].y]); if ((c[0] - mx) ** 2 + (c[1] - my) ** 2 < 18 ** 2) return i; } return -1; }
 
+// a little car: oriented triangle at canvas point c, heading `ang` (canvas radians)
+function drawCar(c, ang, col) {
+  g.save(); g.translate(c[0], c[1]); g.rotate(ang); g.beginPath();
+  g.moveTo(9, 0); g.lineTo(-6, 5); g.lineTo(-6, -5); g.closePath();
+  g.fillStyle = col; g.fill(); g.lineWidth = 1.5; g.strokeStyle = "#0b0d12"; g.stroke(); g.restore();
+}
+// advance each car along the centerline each frame; slower through tighter corners. loops until ⏹.
+function tick(t) {
+  if (!driving) return;
+  const dt = Math.min(0.05, (t - lastT) / 1000 || 0); lastT = t;
+  const { cl } = frame();
+  for (const car of cars) {
+    const r = radiusAt(cl, car.frac);                     // local corner radius (normalized; Infinity on a straight)
+    const sf = Math.max(0.35, Math.min(1, r / 0.12));     // slow in tight corners, full speed on open track
+    car.frac = (car.frac + dt * (1 / 7) * sf) % 1;        // ~7 s/lap at full speed
+  }
+  render();
+  raf = requestAnimationFrame(tick);
+}
+// ▶/⏹ toggle: spawn a handful of cars spread round the lap and animate, or stop + clear
+function toggleDrive() {
+  driving = !driving;
+  const btn = document.getElementById("drive");
+  btn.classList.toggle("on", driving); btn.textContent = driving ? "⏹ Стоп" : "▶ Прокатить";
+  if (driving) {
+    cars.length = 0;
+    for (let i = 0; i < CAR_COLS.length; i++) cars.push({ frac: i / CAR_COLS.length, col: CAR_COLS[i] });
+    lastT = 0; render(); raf = requestAnimationFrame(tick);   // render once so cars show immediately, not only after the first frame
+  } else { cancelAnimationFrame(raf); render(); }
+}
+
 // --- toolbar ---
 const sel = document.getElementById("preset");
 for (const n of [...TRACK_NAMES, EMPTY]) { const o = document.createElement("option"); o.value = o.textContent = n; sel.appendChild(o); }
@@ -128,6 +166,7 @@ for (const [t, label] of Object.entries(OBJ)) {
 }
 document.getElementById("save").onclick = () => { saveTrack(name, { points: toFlat(pts), objects }); toast("Сохранено: " + name); };
 document.getElementById("reset").onclick = () => { clearTrack(name); loadTrack(name); toast("Сброшено к пресету"); };
+document.getElementById("drive").onclick = toggleDrive;
 document.getElementById("export").onclick = () => {     // download the current track as JSON
   const blob = new Blob([JSON.stringify({ name, points: toFlat(pts), objects }, null, 0)], { type: "application/json" });
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name + ".json"; a.click(); URL.revokeObjectURL(a.href);
@@ -138,7 +177,7 @@ document.getElementById("file").onchange = (e) => {     // load a track JSON bac
   r.onload = () => { try { const d = JSON.parse(r.result); pts = toPts(d.points); objects.length = 0; for (const o of (d.objects || [])) objects.push({ ...o }); render(); toast("Импортировано"); } catch { toast("Битый JSON"); } };
   r.readAsText(f);
 };
-document.getElementById("hint").innerHTML = "ЛКМ-тащи — точку/объект<br>2× клик по дороге — добавить точку<br>Объект: выбери тип → клик по холсту<br>Колесо над объектом — повернуть<br>ПКМ — удалить точку/объект<br>💾 Сохранить → откроется в 3D";
+document.getElementById("hint").innerHTML = "ЛКМ-тащи — точку/объект<br>2× клик по дороге — добавить точку<br>Объект: выбери тип → клик по холсту<br>Колесо над объектом — повернуть<br>ПКМ — удалить точку/объект<br>▶ Прокатить — пустить машинки по трассе<br>💾 Сохранить → откроется в 3D";
 function toast(t) { const el = document.getElementById("toast"); el.textContent = t; el.style.opacity = 1; setTimeout(() => el.style.opacity = 0, 1400); }
 
 loadTrack(name);
