@@ -2,6 +2,7 @@
 // reads the composed effective car. AI dev is deterministic (facility-scaled, catch-up biased).
 import { mix32 } from "./rng.js";
 import { TEAMS } from "./data.js";
+import { devMult } from "./staff.js";
 
 export const INDICATORS = ["power", "aero", "tyre", "fuel", "rel"];
 export const INDICATOR_LABEL = { power: "Мотор", aero: "Аэро", tyre: "Шина", fuel: "Эконом", rel: "Надёжн." };
@@ -55,7 +56,7 @@ export function tickDevelopment(career) {
     if (career.project.racesLeft <= 0) {
       const p = career.project;
       const roll = mix32(((career.seed >>> 0) + career.round * 2654435761) >>> 0) / 4294967296;  // hash, not a stream draw
-      const gain = p.gain * (1 - p.risk * roll);
+      const gain = p.gain * (1 - p.risk * roll) * devMult(career.staff);
       career.carDev[TEAMS[career.teamIdx].name][p.indicator] += gain;
       events.push({ type: "project_done", indicator: p.indicator, gain });
       career.project = null;

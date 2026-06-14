@@ -52,3 +52,14 @@ test("AI catch-up: a backmarker develops faster than a top team per round", () =
   const back = c.carDev[TEAMS[10].name].power;         // Cadillac (weak)
   assert.ok(back > top, "weaker teams catch up faster");
 });
+
+// --- M5: design office scales development ---
+import { initStaff } from "../src/staff.js";
+
+test("tickDevelopment scales the player project gain by the design office (devMult)", () => {
+  const mk = staff => { const c = { seed: 1, teamIdx: 0, round: 0, money: 1e6, costCap: false, devSpentThisSeason: 0, carDev: {}, project: null, staff };
+    startProject(c, "power", "small"); tickDevelopment(c); return c.carDev["McLaren"].power; };
+  const neutral = mk({ designer: 0.6, facilities: { design: 0, pit: 0, factory: 0 } });   // devMult 1.0
+  const maxed = mk({ designer: 0.99, facilities: { design: 5, pit: 5, factory: 5 } });    // devMult > 1.2
+  assert.ok(maxed > neutral, "a better design office develops more per project");
+});
