@@ -142,6 +142,16 @@ test("QUALI2 carries live-lap push/risk/variance consts", () => {
   assert.ok(QUALI2.SEC_VAR_PUSH >= QUALI2.SEC_VAR_BASE, "push widens sector variance");
 });
 
+import { INCIDENT } from "../src/data.js";
+
+test("INCIDENT consts: small base, lap-1 elevated, shares in [0,1], cap >= 1", () => {
+  assert.ok(INCIDENT.base > 0 && INCIDENT.base < 0.02, "small per-lap base");
+  assert.ok(INCIDENT.lap1 > 1 && INCIDENT.traffic > 1, "lap-1 and traffic elevate");
+  assert.ok(INCIDENT.dnfShare >= 0 && INCIDENT.dnfShare <= 1, "dnfShare is a fraction");
+  assert.ok(INCIDENT.timeScrub > 0, "a non-DNF incident is felt");
+  assert.ok(INCIDENT.maxCautions >= 1, "at least one caution allowed");
+});
+
 import { ATTACK_CREDIT_K, ATTACK_WEAR_MULT, ATTACK_SCRUB, DEFEND_ORDER_K, DEFEND_WEAR_MULT, DEFEND_SCRUB,
   ORDER_MISTAKE_BASE, ORDER_MISTAKE_RAMP, ORDER_MISTAKE_SCRUB_MIN, ORDER_MISTAKE_SCRUB_MAX } from "../src/data.js";
 

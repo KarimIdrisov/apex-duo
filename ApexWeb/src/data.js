@@ -122,6 +122,21 @@ export const EVENT = {
   vscPitMult:  0.78,  // pit-loss under VSC: cheaper than green (1.0) but pricier than a full SC (0.55)
 };
 
+// live safety cars (race depth): cautions emerge from real on-track incidents instead of one
+// pre-scheduled roll. Per-lap per-car incident chance (elevated on lap 1, in traffic, when pushing /
+// for a nervy driver); an incident loses time, sometimes DNFs, and may draw an SC/VSC (×track.sc).
+export const INCIDENT = {
+  base:        0.0010, // per-lap per-car base incident chance
+  pressure:    0.8,    // ×(1 + pressure·(1−composure))
+  traffic:     2.5,    // ×this while racing within COMBAT_GAP of another car
+  lap1:        6.0,    // ×this on the opening lap (first-corner chaos)
+  dnfShare:    0.30,   // fraction of incidents that retire the car (else a recovered moment)
+  timeScrub:   0.30,   // tyre-temp scrubbed on a NON-DNF incident — the spin is felt (organic pace loss)
+  scDnf:       1.0,    // caution-roll weight when the incident was a DNF        (×track.sc)
+  scMinor:     0.5,    // caution-roll weight when the incident was minor        (×track.sc)
+  maxCautions: 3,      // backstop on cautions per race
+};
+
 // weather (Phase 6): wet pace penalty for using a compound off its optimal wetness.
 export const WET = {
   mismatch: 3.0,  // s/lap per unit |wetness - compound.wet_opt|
