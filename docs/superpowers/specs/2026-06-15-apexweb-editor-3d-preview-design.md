@@ -109,6 +109,7 @@ The **3D canvas** is sized by `race3d`'s own `resize()` (it reads `clientWidth/c
 - **Rebuild / teardown:** «Обновить» disposes the previous preview (`dispose()` → cancels ticker, frees race3d GPU resources via its existing `dispose`) before building a new one — no leaked WebGL contexts or runaway tickers. Leaving the editor (canvas removed) self-disposes via race3d's `canvas.isConnected` check.
 - **WebGL/bloom failure:** handled by race3d already (composer stays null → plain render); the preview inherits that resilience.
 - **Too-few points** (`< 3`): «Обновить» no-ops with a toast «Мало точек» (the centerline needs ≥3).
+- **Offline / no CDN:** `editor3d`→`race3d` load THREE from a CDN, so `editor.js` imports `editor3d` **dynamically, inside try/catch** (on «Обновить»). If THREE can't load (offline), the preview shows a toast «3D-движок недоступен» and the rest of the editor (2D canvas, svg-эталон, saving) keeps working — the editor never hard-depends on the CDN. `editor_preview.js` is THREE-free and statically imported.
 
 ## Testing
 
