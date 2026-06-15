@@ -50,7 +50,8 @@ export function signJunior(career, abbrev) {
 // superlicense points + develops them by results).
 export function developAcademy(career, seed) {
   for (const j of (career.academy || [])) j.age += 1;
-  runFeeder(career, seed ?? career.season ?? career.seed ?? 1);
+  const fd = runFeeder(career, seed ?? career.season ?? career.seed ?? 1);
+  career.lastFeeder = fd.standings.slice(0, 8);   // latest feeder result for the paddock academy view
 }
 
 // run one feeder season: juniors + filler ranked by form; juniors earn superlicense points by

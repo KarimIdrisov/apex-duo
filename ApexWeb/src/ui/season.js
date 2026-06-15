@@ -5,7 +5,7 @@ import { CALENDAR, constructorStandings, driverStandings, boardOutcome } from ".
 import { objectiveLabel } from "../sponsors.js";
 import { PARTS, PART_LABEL, PROJECT_SIZE, effectiveCar } from "../development.js";
 import { availableDrivers, signCost, freeAgent } from "../market.js";
-import { availableJuniors, SUPERLICENSE, SCOUT_FEE } from "../academy.js";
+import { availableJuniors, SUPERLICENSE, SCOUT_FEE, SL_NEEDED } from "../academy.js";
 import { DRIVER_NAME } from "../drivers.js";
 import { STAFF_ROLES, ROLE_LABEL, FACILITIES, FAC_LABEL, FAC_MAX, STAFF_UPGRADE_COST, FAC_UPGRADE_BASE, upkeep, staffMarket, SPECIALTIES, salaryForStaff } from "../staff.js";
 import { TEAM_LOGO, TEAMS, DRIVER_INFO } from "../data.js";
@@ -120,14 +120,20 @@ export function render(root, ctx) {
   const acad = c.academy || [];
   const scout = c.drivers ? availableJuniors(c).slice(0, 4) : [];
   const jtip = j => personTipAttrs({ abbrev: j.abbrev, overall: j.overall, team: myTeamName, name: j.name, age: j.age });
-  const acadRows = acad.map(j => row([`<span ${jtip(j)} style="cursor:default"><b>${j.abbrev}</b> ${j.name}</span>`, `${j.age} л.`, `ovr ${j.overall.toFixed(3)}`, `пот. ${j.potential.toFixed(2)}`,
-    j.overall >= SUPERLICENSE
+  const canPromote = j => j.overall >= SUPERLICENSE || (j.slPoints || 0) >= SL_NEEDED;   // D7: overall OR superlicense points
+  const acadRows = acad.map(j => { const isRes = c.reserve === j.abbrev;
+    return row([`<span ${jtip(j)} style="cursor:default"><b>${j.abbrev}</b> ${j.name}</span>`,
+    `${j.age} л.`, `ovr ${j.overall.toFixed(3)}`, `СЛ ${j.slPoints || 0}/${SL_NEEDED}`,
+    `<button class="ready reserve" data-ab="${j.abbrev}" style="padding:3px 6px;font-size:11px;${isRes ? "background:var(--good);color:#06121f" : ""}">${isRes ? "★ резерв" : "резерв"}</button>`,
+    canPromote(j)
       ? mineAbbrevs.map(ab => `<button class="ready promote" data-j="${j.abbrev}" data-out="${ab}" style="padding:3px 6px;font-size:11px;margin-left:4px">▲${ab}</button>`).join("")
-      : `<span class="label">нужен ovr ${SUPERLICENSE}</span>`])).join("");
+      : `<span class="label">нужен ovr ${SUPERLICENSE} или СЛ ${SL_NEEDED}</span>`]); }).join("");
   const scoutRows = scout.map(j => row([`<span ${jtip(j)} style="cursor:default"><b>${j.abbrev}</b> ${j.name}</span>`, `${j.age} л.`, `ovr ${j.overall.toFixed(3)}`, `пот. ${j.potential.toFixed(2)}`,
     `<button class="ready scout" data-j="${j.abbrev}" ${c.money < SCOUT_FEE ? "disabled" : ""} style="padding:3px 8px;font-size:11px">Подписать (${m$(SCOUT_FEE)})</button>`])).join("");
   const academyPanel = c.drivers ? `<div class="panel"><p class="label">Академия</p>
     ${acad.length ? `<table style="width:100%;border-collapse:collapse"><tbody>${acadRows}</tbody></table>` : `<p class="label">нет юниоров</p>`}
+    ${(c.lastFeeder && c.lastFeeder.length) ? `<div style="height:6px"></div><p class="label">Серия F2 — прошлый сезон</p>
+    <table style="width:100%;border-collapse:collapse"><tbody>${c.lastFeeder.map(s => row([`${s.pos}`, `${s.name || s.abbrev}${s.abbrev ? ` <span class="label">(академия)</span>` : ""}`, `${s.pts} оч.`])).join("")}</tbody></table>` : ""}
     <div style="height:6px"></div><p class="label">Скаутинг</p>
     <table style="width:100%;border-collapse:collapse"><tbody>${scoutRows}</tbody></table></div>` : "";
 
@@ -195,6 +201,7 @@ export function render(root, ctx) {
   root.querySelectorAll("button.sign").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_sign", player: ctx.myPlayer, inAbbrev: b.dataset.in, outAbbrev: b.dataset.out }); });
   root.querySelectorAll("button.scout").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_scout", player: ctx.myPlayer, abbrev: b.dataset.j }); });
   root.querySelectorAll("button.promote").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_promote", player: ctx.myPlayer, abbrev: b.dataset.j, outAbbrev: b.dataset.out }); });
+  root.querySelectorAll("button.reserve").forEach(b => b.onclick = () => { ctx.send({ cmd: "career_reserve", player: ctx.myPlayer, abbrev: b.dataset.ab }); });
   const sw = root.querySelector("#startwknd");
   if (sw) sw.onclick = () => { sw.disabled = true; ctx.send({ cmd: "career_start_weekend", player: ctx.myPlayer }); };
   const ns = root.querySelector("#newseason");
