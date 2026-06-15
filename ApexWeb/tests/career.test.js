@@ -142,6 +142,14 @@ test("migrate v8 -> v9 backfills persistent driver attrs + traits (D5)", () => {
   assert.ok(up.drivers.VER.traits.includes("overtaker"));
 });
 
+test("migrate v9 -> v10 backfills named staff people (D6)", () => {
+  const v9 = { v: 9, teamIdx: 0, seed: 1, season: 1, round: 0, money: 0, driverPts: {}, teamPts: {}, board: { targetPos: 1, confidence: 0.5 }, sponsors: [], costCap: false, pendingOffers: [], parts: {}, news: [], academy: [], drivers: {},
+    staff: { designer: 0.8, strategist: 0.7, pitCrew: 0.75, facilities: { design: 2, pit: 2, factory: 2 } } };
+  const up = migrate(v9);
+  assert.equal(up.v, CAREER_V);
+  assert.ok(up.staff.people && up.staff.people.designer.rating === 0.8 && up.staff.people.designer.salary > 0);
+});
+
 // --- M4 drivers ---
 test("newCareer at v4 carries a driver registry", () => {
   const c = newCareer({ teamIdx: 0, seed: 1 });

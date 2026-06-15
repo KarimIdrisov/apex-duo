@@ -5,7 +5,7 @@ import { defaultSponsors, titleOffers, evaluateSponsor } from "./sponsors.js";
 import { tickDevelopment } from "./development.js";
 import { initDrivers, developDrivers, updateMorale } from "./drivers.js";
 import { driverAttrs, assignTraits } from "./team.js";
-import { initStaff, upkeep } from "./staff.js";
+import { initStaff, upkeep, salaryForStaff } from "./staff.js";
 import { aiChurn } from "./market.js";
 import { developAcademy } from "./academy.js";
 import { pushNews, boardReaction, confidenceDelta } from "./news.js";
@@ -15,7 +15,7 @@ export const POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
 // prize money ($k) by race-finish position — a simple per-race payout (M2 deepens income).
 export const PRIZE = [1200, 1000, 850, 720, 620, 540, 470, 410, 360, 320, 280, 250, 220, 200, 180, 160, 150, 140, 130, 120, 110, 100];
 
-export const CAREER_V = 9;            // career save schema version
+export const CAREER_V = 10;           // career save schema version
 export const REG_RESET = 0.5;         // each season's regulation change trims everyone's car development
 export const RUNNING_COST = 800;      // $k per-race operating cost (M5 facilities refine it)
 
@@ -167,6 +167,13 @@ export function migrate(career) {
       if (!dr.attrs) { dr.attrs = driverAttrs(a, dr.overall); dr.traits = assignTraits(a); }
     }
     career.v = 9;
+  }
+  if (career.v < 10) {
+    if (career.staff && !career.staff.people) {          // D6: backfill named staff from the current scalars
+      const mk = r => ({ name: "—", specialty: null, rating: career.staff[r], salary: salaryForStaff(career.staff[r]) });
+      career.staff.people = { designer: mk("designer"), strategist: mk("strategist"), pitCrew: mk("pitCrew") };
+    }
+    career.v = 10;
   }
   return career;
 }
