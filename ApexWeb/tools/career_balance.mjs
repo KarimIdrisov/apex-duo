@@ -7,7 +7,7 @@ import { driverAttrs, composeCar, genPersonnel } from "../src/team.js";
 import { POINTS, newCareer, applyResult, advanceRound, isSeasonOver, constructorStandings, boardOutcome, CALENDAR, newSeason } from "../src/career.js";
 import { careerTrack } from "../src/track_build.js";
 import { effectiveCar, startProject } from "../src/development.js";
-import { composePersonnel, upgradeStaff, upgradeFacility, upkeep } from "../src/staff.js";
+import { composePersonnel, upgradeStaff, upgradeFacility, upkeep, hireStaff, staffMarket } from "../src/staff.js";
 import { moraleMod, DRIVER_NAME } from "../src/drivers.js";
 import { negotiateSign, availableDrivers, signCost } from "../src/market.js";
 import { signJunior, promoteJunior, SUPERLICENSE } from "../src/academy.js";
@@ -44,6 +44,13 @@ const career = newCareer({ teamIdx: 0, seed: 1 });
   console.log(`transfer: negotiate ${top.abbrev} (ovr ${top.overall.toFixed(3)}, cost $${(signCost(top) / 1000).toFixed(1)}M vs $${(career.money / 1000).toFixed(1)}M) for ${out} -> ${res.ok} (${res.ok ? "signed" : res.reason})`); }
 { signJunior(career, "HIR"); const out = Object.keys(career.drivers).find(a => career.drivers[a].teamIdx === 0);
   const ok = promoteJunior(career, "HIR", out); console.log(`academy: signed+promoted HIR for ${out} -> ${ok} (gate ${SUPERLICENSE})`); }
+// D6: a weaker team can upgrade a role via the staff market (McLaren's in-house staff is already too strong to)
+{ const weak = newCareer({ teamIdx: 10, seed: 1 });   // a back-of-grid team, low staff base
+  const cand = staffMarket(weak.season || 1).filter(p => p.role === "strategist").sort((a, b) => b.rating - a.rating)[0];
+  const before = weak.staff.strategist, money0 = weak.money;
+  const ok = hireStaff(weak, cand);
+  console.log(`staff market: ${cand.name} -> weak team strategist ${before.toFixed(2)}->${weak.staff.strategist.toFixed(2)}, $${((money0 - weak.money) / 1000).toFixed(2)}M fee -> ${ok}`);
+  if (!(ok && weak.staff.strategist > before && weak.money < money0 && weak.staff.people.strategist.name === cand.name)) { console.error("staff-market hire did not upgrade a weak team (D6)"); process.exit(1); } }
 let totalPts = 0, minPass = 1e9, maxPass = 0, races = 0;
 const expectedPerRace = POINTS.reduce((a, b) => a + b, 0);
 while (!isSeasonOver(career)) {
