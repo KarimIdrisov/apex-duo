@@ -7,9 +7,9 @@ import { PARTS, PART_LABEL, PROJECT_SIZE, effectiveCar } from "../development.js
 import { availableDrivers, signCost, freeAgent } from "../market.js";
 import { availableJuniors, SUPERLICENSE, SCOUT_FEE } from "../academy.js";
 import { DRIVER_NAME } from "../drivers.js";
-import { STAFF_ROLES, ROLE_LABEL, FACILITIES, FAC_LABEL, FAC_MAX, STAFF_UPGRADE_COST, FAC_UPGRADE_BASE, upkeep } from "../staff.js";
-import { TEAM_LOGO, TEAMS } from "../data.js";
-import { teamColor, driverAvatar, driverCard } from "./teamviz.js";
+import { STAFF_ROLES, ROLE_LABEL, FACILITIES, FAC_LABEL, FAC_MAX, STAFF_UPGRADE_COST, FAC_UPGRADE_BASE, upkeep, staffMarket, SPECIALTIES, salaryForStaff } from "../staff.js";
+import { TEAM_LOGO, TEAMS, DRIVER_INFO } from "../data.js";
+import { teamColor, driverAvatar, driverCard, personTipAttrs, staffTipAttrs, attachPersonTips } from "./teamviz.js";
 import { TRAITS } from "../team.js";
 
 const row = (cells, hot) => `<tr style="${hot ? "font-weight:700;color:var(--good)" : ""}">${cells.map(c => `<td style="padding:3px 8px">${c}</td>`).join("")}</tr>`;
@@ -40,8 +40,11 @@ export function render(root, ctx) {
   const consTbl = cons.map(r => row([r.pos,
     `<span style="display:inline-block;width:3px;height:14px;background:${teamColor(r.team)};border-radius:2px;vertical-align:middle;margin-right:7px"></span>`
     + `<img src="assets/teams/${TEAM_LOGO[r.team]}.png" style="height:16px;vertical-align:middle;margin-right:6px">${r.team}`, r.pts], r.isPlayer)).join("");
-  const drvTbl = drv.map(r => row([r.pos,
-    `${driverAvatar(r.abbrev, r.team, 22)} <b style="vertical-align:middle">${r.abbrev}</b>`, r.team, r.pts])).join("");
+  const drvTbl = drv.map(r => { const dd = (c.drivers && c.drivers[r.abbrev]) || {};
+    const tip = dd.overall != null ? personTipAttrs({ abbrev: r.abbrev, overall: dd.overall, team: r.team, name: DRIVER_NAME[r.abbrev] || r.abbrev, age: dd.age }) : "";
+    return row([r.pos,
+      `<span ${tip} style="cursor:default">${driverAvatar(r.abbrev, r.team, 22)} <b style="vertical-align:middle">${r.abbrev}</b></span>`, r.team, r.pts]);
+  }).join("");
   const podium = lr ? lr.podium.map((a, i) => `${["🥇", "🥈", "🥉"][i]} ${a}`).join("  ") : "";
 
   // finances panel
@@ -73,10 +76,10 @@ export function render(root, ctx) {
   const myTeamIdx = TEAMS.findIndex(t => t.name === myTeamName);
   const mine = c.drivers ? Object.entries(c.drivers).filter(([, d]) => d.teamIdx === myTeamIdx) : [];
   const driverCards = mine.map(([ab, d]) => driverCard(
-    { team: myTeamName, abbrev: ab, name: DRIVER_NAME[ab] || ab },
+    { team: myTeamName, abbrev: ab, name: DRIVER_NAME[ab] || ab, overall: d.overall, age: d.age },
     { car: true,
       sub: `${d.age} лет · ovr ${d.overall.toFixed(3)} · мораль ${Math.round(d.morale * 100)}% · ${d.contractSeasons} сез. · ${m$(d.salary)}/гонка`,
-      action: `${driverDepth(d)}<div style="margin-top:6px"><button class="ready resign" data-ab="${ab}" style="padding:3px 8px;font-size:12px">Продлить</button></div>` }
+      action: `${driverDepth(d)}<div style="margin-top:6px"><button class="resign" data-ab="${ab}" style="background:transparent;border:1px solid var(--border);color:var(--ink);border-radius:8px;padding:5px 11px;font-size:12px;font-weight:600">Продлить</button></div>` }
   )).join("");
   const driversPanel = mine.length ? `<div class="panel"><p class="label">Пилоты</p><div style="display:flex;flex-direction:column;gap:8px">${driverCards}</div></div>` : "";
 
@@ -84,11 +87,24 @@ export function render(root, ctx) {
   const st = c.staff;
   const staffPanel = st ? `<div class="panel"><p class="label">Команда · содержание ${m$(upkeep(st))}/гонка</p>
     <table style="width:100%;border-collapse:collapse">
-    ${STAFF_ROLES.map(rk => row([ROLE_LABEL[rk], `${Math.round(st[rk] * 100)}`,
-      `<button class="ready stf" data-kind="staff" data-key="${rk}" ${c.money < STAFF_UPGRADE_COST || st[rk] >= 0.99 ? "disabled" : ""} style="padding:3px 8px;font-size:12px">+ (${m$(STAFF_UPGRADE_COST)})</button>`])).join("")}
+    ${STAFF_ROLES.map(rk => { const p = (st.people && st.people[rk]) || {}; const named = p.name && p.name !== "—";
+      const spec = p.specialty && SPECIALTIES[p.specialty] ? ` · ${SPECIALTIES[p.specialty].label}` : "";
+      const label = `<span ${staffTipAttrs({ role: rk, val: st[rk], team: myTeamName })} style="cursor:default">${ROLE_LABEL[rk]}</span>` + (named ? `<div class="label" style="font-size:11px">${p.name}${spec}</div>` : "");
+      return row([label, `${Math.round(st[rk] * 100)}`,
+      `<button class="ready stf" data-kind="staff" data-key="${rk}" ${c.money < STAFF_UPGRADE_COST || st[rk] >= 0.99 ? "disabled" : ""} style="padding:3px 8px;font-size:12px">+ (${m$(STAFF_UPGRADE_COST)})</button>`]); }).join("")}
     ${FACILITIES.map(fk => { const lvl = st.facilities[fk]; const cost = FAC_UPGRADE_BASE * (lvl + 1);
       return row([FAC_LABEL[fk], `ур. ${lvl}/${FAC_MAX}`,
       `<button class="ready stf" data-kind="facility" data-key="${fk}" ${lvl >= FAC_MAX || c.money < cost ? "disabled" : ""} style="padding:3px 8px;font-size:12px">+ (${m$(cost)})</button>`]); }).join("")}
+    </table></div>` : "";
+
+  // staff market (D6) — hire a named specialist to jump a role's rating (vs the slow + upgrade)
+  const mkt = st ? staffMarket(c.season || 1) : [];
+  const staffMarketPanel = st ? `<div class="panel"><p class="label">Рынок персонала — нанять специалиста</p>
+    <table style="width:100%;border-collapse:collapse">
+    ${mkt.map(p => { const fee = salaryForStaff(p.rating) * 8; const better = p.rating > (st[p.role] || 0);
+      return row([`<b>${p.name}</b> <span class="label">${SPECIALTIES[p.specialty] ? SPECIALTIES[p.specialty].label : p.role}</span>`,
+      ROLE_LABEL[p.role], `рейт ${Math.round(p.rating * 100)}`,
+      `<button class="ready hire" data-id="${p.id}" ${(c.money < fee || !better) ? "disabled" : ""} style="padding:3px 8px;font-size:12px">Нанять (${m$(fee)})</button>`]); }).join("")}
     </table></div>` : "";
 
   // transfer panel — top available drivers; swap one in for one of yours
@@ -96,18 +112,19 @@ export function render(root, ctx) {
   const avail = c.drivers ? availableDrivers(c).slice(0, 6) : [];
   const transferPanel = (mineAbbrevs.length && avail.length) ? `<div class="panel"><p class="label">Трансферы — подписать пилота (обмен)</p>
     <table style="width:100%;border-collapse:collapse">
-    ${avail.map(d => row([`<b>${d.abbrev}</b> ${DRIVER_NAME[d.abbrev] || ""}${freeAgent(d) ? ` <span class="label">СА</span>` : ""}`, `ovr ${d.overall.toFixed(3)}`, `${d.age} л.`, m$(signCost(d)),
+    ${avail.map(d => row([`<span ${personTipAttrs({ abbrev: d.abbrev, overall: d.overall, team: DRIVER_INFO[d.abbrev] ? DRIVER_INFO[d.abbrev].team : "", name: DRIVER_NAME[d.abbrev] || d.abbrev, age: d.age })} style="cursor:default"><b>${d.abbrev}</b> ${DRIVER_NAME[d.abbrev] || ""}</span>${freeAgent(d) ? ` <span class="label">СА</span>` : ""}`, `ovr ${d.overall.toFixed(3)}`, `${d.age} л.`, m$(signCost(d)),
       mineAbbrevs.map(ab => `<button class="ready sign" data-in="${d.abbrev}" data-out="${ab}" ${c.money < signCost(d) ? "disabled" : ""} style="padding:3px 6px;font-size:11px;margin-left:4px">↔${ab}</button>`).join("")])).join("")}
     </table></div>` : "";
 
   // academy panel — your juniors (develop -> promote) + scouting from the pool
   const acad = c.academy || [];
   const scout = c.drivers ? availableJuniors(c).slice(0, 4) : [];
-  const acadRows = acad.map(j => row([`<b>${j.abbrev}</b> ${j.name}`, `${j.age} л.`, `ovr ${j.overall.toFixed(3)}`, `пот. ${j.potential.toFixed(2)}`,
+  const jtip = j => personTipAttrs({ abbrev: j.abbrev, overall: j.overall, team: myTeamName, name: j.name, age: j.age });
+  const acadRows = acad.map(j => row([`<span ${jtip(j)} style="cursor:default"><b>${j.abbrev}</b> ${j.name}</span>`, `${j.age} л.`, `ovr ${j.overall.toFixed(3)}`, `пот. ${j.potential.toFixed(2)}`,
     j.overall >= SUPERLICENSE
       ? mineAbbrevs.map(ab => `<button class="ready promote" data-j="${j.abbrev}" data-out="${ab}" style="padding:3px 6px;font-size:11px;margin-left:4px">▲${ab}</button>`).join("")
       : `<span class="label">нужен ovr ${SUPERLICENSE}</span>`])).join("");
-  const scoutRows = scout.map(j => row([`<b>${j.abbrev}</b> ${j.name}`, `${j.age} л.`, `ovr ${j.overall.toFixed(3)}`, `пот. ${j.potential.toFixed(2)}`,
+  const scoutRows = scout.map(j => row([`<span ${jtip(j)} style="cursor:default"><b>${j.abbrev}</b> ${j.name}</span>`, `${j.age} л.`, `ovr ${j.overall.toFixed(3)}`, `пот. ${j.potential.toFixed(2)}`,
     `<button class="ready scout" data-j="${j.abbrev}" ${c.money < SCOUT_FEE ? "disabled" : ""} style="padding:3px 8px;font-size:11px">Подписать (${m$(SCOUT_FEE)})</button>`])).join("");
   const academyPanel = c.drivers ? `<div class="panel"><p class="label">Академия</p>
     ${acad.length ? `<table style="width:100%;border-collapse:collapse"><tbody>${acadRows}</tbody></table>` : `<p class="label">нет юниоров</p>`}
@@ -160,19 +177,21 @@ export function render(root, ctx) {
     finance:   financeTab,
     car:       devPanel || emptyMsg("Нет данных по машине"),
     drivers:   driversPanel || emptyMsg("Нет пилотов"),
-    staff:     staffPanel || emptyMsg("Нет данных по команде"),
+    staff:     st ? staffPanel + staffMarketPanel : emptyMsg("Нет данных по команде"),
     transfers: transferPanel || emptyMsg("Нет доступных трансферов"),
     academy:   academyPanel || emptyMsg("Академия недоступна"),
     standings: standingsTab,
   };
   const tabBar = `<div class="pad-tabs">${TABS.map(([k, l]) => `<button class="pad-tab${k === ctx._padTab ? " on" : ""}" data-tab="${k}">${l}</button>`).join("")}</div>`;
   root.innerHTML = tabBar + `<div id="pad-content">${TAB_CONTENT[ctx._padTab] || TAB_CONTENT.overview}</div>` + `<div class="pad-foot">${footer}</div>`;
+  attachPersonTips(root);
   root.querySelectorAll(".pad-tab").forEach(b => b.onclick = () => { ctx._padTab = b.dataset.tab; render(root, ctx); });
 
   root.querySelectorAll("button.offer").forEach(b => b.onclick = () => { root.querySelectorAll("button.offer").forEach(x => x.disabled = true); ctx.send({ cmd: "career_sponsor", player: ctx.myPlayer, offerIdx: +b.dataset.i }); });
   root.querySelectorAll("button.devbtn").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_project", player: ctx.myPlayer, part: b.dataset.k, size: b.dataset.sz }); });
   root.querySelectorAll("button.resign").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_resign", player: ctx.myPlayer, abbrev: b.dataset.ab }); });
   root.querySelectorAll("button.stf").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_upgrade", player: ctx.myPlayer, kind: b.dataset.kind, key: b.dataset.key }); });
+  root.querySelectorAll("button.hire").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_hire", player: ctx.myPlayer, id: b.dataset.id }); });
   root.querySelectorAll("button.sign").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_sign", player: ctx.myPlayer, inAbbrev: b.dataset.in, outAbbrev: b.dataset.out }); });
   root.querySelectorAll("button.scout").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_scout", player: ctx.myPlayer, abbrev: b.dataset.j }); });
   root.querySelectorAll("button.promote").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_promote", player: ctx.myPlayer, abbrev: b.dataset.j, outAbbrev: b.dataset.out }); });
