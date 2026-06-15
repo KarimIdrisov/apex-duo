@@ -13,8 +13,11 @@ const HALF_W = 3.8, WORLD = 120, R = 7;                 // road half-width (worl
 const EMPTY = "Пустая";                                 // scratch option: a default oval to experiment on
 const OVAL = (() => { const a = []; for (let i = 0; i < 16; i++) { const t = i / 16 * Math.PI * 2; a.push(0.5 + 0.34 * Math.cos(t), 0.5 + 0.22 * Math.sin(t)); } return a; })();
 const cv = document.getElementById("cv"), g = cv.getContext("2d");
-const sizeCanvas = () => { const s = Math.min(window.innerWidth - 300, window.innerHeight); cv.width = cv.height = Math.max(420, s); };
-sizeCanvas(); window.addEventListener("resize", () => { sizeCanvas(); base = null; render(); });
+// size the drawing buffer to the canvas's OWN displayed size, so click coords (CSS px) map 1:1 to
+// canvas px (dragging works at any window size). A ResizeObserver re-syncs on layout/window changes.
+function sizeCanvas() { const w = Math.max(1, cv.clientWidth), h = Math.max(1, cv.clientHeight); if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; return true; } return false; }
+const resyncCanvas = () => { if (sizeCanvas()) { base = null; render(); } };
+sizeCanvas(); new ResizeObserver(resyncCanvas).observe(cv); window.addEventListener("resize", resyncCanvas);   // re-sync via either mechanism
 
 let name = TRACK_NAMES[0];                               // current circuit (a TRACK_SHAPES key, or EMPTY)
 let pts = [];                                            // editable control points: [[x,y],...] normalized 0..1
@@ -28,8 +31,9 @@ const CAR_COLS = ["#e8453c", "#3d7aa0", "#ffd24a", "#46d08a", "#b06fd0", "#e07a1
 let view = { zoom: 1, panX: 0, panY: 0 };               // editor zoom/pan on top of the base fit
 let base = null;                                        // stable base fit {pad,sc,cx,cy,size}; recomputed only on load / "по размеру"
 function computeBase() {
-  const cl = buildCenterline(splinePath(toFlat(pts))), b = bounds(cl), pad = 0.12 * cv.width;
-  base = { pad, sc: (cv.width - 2 * pad) / b.size, cx: b.cx, cy: b.cy, size: b.size };
+  const cl = buildCenterline(splinePath(toFlat(pts))), b = bounds(cl);
+  const fit = Math.min(cv.width, cv.height), pad = 0.12 * fit;   // fit to the SHORTER side, centred (canvas may be wide)
+  base = { pad, sc: (fit - 2 * pad) / b.size, cx: b.cx, cy: b.cy, size: b.size, ox: (cv.width - fit) / 2, oy: (cv.height - fit) / 2 };
 }
 
 const N_MINI = 18;                                      // mini-sectors = 18 equal lap-fraction spans (matches sim track.js)
@@ -76,8 +80,8 @@ function loadTrack(n) {
 function frame() {
   if (!base) computeBase();
   const cl = buildCenterline(splinePath(toFlat(pts)));   // cl still per-frame (pts move while dragging); fit stays stable
-  const { pad, sc, cx, cy, size } = base, z = view.zoom;
-  const baseC = (q) => [pad + (q[0] - cx + size / 2) * sc, pad + (q[1] - cy + size / 2) * sc];
+  const { pad, sc, cx, cy, size, ox, oy } = base, z = view.zoom;
+  const baseC = (q) => [ox + pad + (q[0] - cx + size / 2) * sc, oy + pad + (q[1] - cy + size / 2) * sc];
   const C = (q) => { const c = baseC(q); return [c[0] * z + view.panX, c[1] * z + view.panY]; };
   return { cl, C, pxPerWorld: (sc / (WORLD / size)) * z, hwN: HALF_W * size / WORLD };
 }
@@ -114,9 +118,9 @@ function pick(mx, my) {
 // invert the canvas mapping -> normalized track point
 function unproject(mx, my) {
   if (!base) computeBase();
-  const { pad, sc, cx, cy, size } = base;
+  const { pad, sc, cx, cy, size, ox, oy } = base;
   const bx = (mx - view.panX) / view.zoom, by = (my - view.panY) / view.zoom;   // undo zoom/pan
-  return [(bx - pad) / sc - size / 2 + cx, (by - pad) / sc - size / 2 + cy];      // undo base fit
+  return [(bx - ox - pad) / sc - size / 2 + cx, (by - oy - pad) / sc - size / 2 + cy];   // undo base fit (centred)
 }
 const evtXY = (e) => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
 
