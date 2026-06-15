@@ -2,6 +2,7 @@
 // gate (and the season-start title-sponsor choice / season-end verdict). Reads ctx.careerView +
 // ctx.careerReadyView (set by main on host AND client). Inline styles keep it self-contained.
 import { CALENDAR, constructorStandings, driverStandings, boardOutcome } from "../career.js";
+import { evaluateObjectives, regArcNote } from "../board.js";
 import { objectiveLabel } from "../sponsors.js";
 import { PARTS, PART_LABEL, PROJECT_SIZE, effectiveCar } from "../development.js";
 import { availableDrivers, signCost, freeAgent } from "../market.js";
@@ -169,6 +170,10 @@ export function render(root, ctx) {
   const headerPanel = `<div class="panel"><h2>Сезон ${c.season} · ${me ? me.team : ""} (P${me ? me.pos : "-"})</h2>
       <p class="label">Доверие совета: ${Math.round((c.board && c.board.confidence != null ? c.board.confidence : 0.5) * 100)}% · цель P${c.board ? c.board.targetPos : "-"}</p>
       ${lr ? `<p class="label">${lr.gp}: ${podium}</p>` : ""}</div>`;
+  const objs = (c.board && c.board.objectives) ? evaluateObjectives(c) : [];
+  const objectivesPanel = objs.length ? `<div class="panel"><p class="label">Задачи совета на сезон</p>
+    ${objs.map(o => `<p class="label" style="margin:2px 0">${o.met ? "✅" : "⬜"} ${o.label} — ${Math.round(o.progress * 100)}%</p>`).join("")}
+    <p class="label" style="margin-top:4px;opacity:.75">След. сезон: ${regArcNote((c.season || 1) + 1)}</p></div>` : "";
   const newsPanel = (c.news && c.news.length) ? `<div class="panel"><p class="label">📰 Новости</p>${c.news.slice(0, 8).map(n => `<p class="label" style="margin:2px 0">• ${n}</p>`).join("")}</div>` : "";
   const financeTab = `<div style="display:flex;gap:12px;flex-wrap:wrap">${finances}${spons}</div>`;
   const standingsTab = `<div style="display:flex;gap:12px;flex-wrap:wrap">
@@ -179,7 +184,7 @@ export function render(root, ctx) {
     </div>`;
   const TABS = [["overview", "Обзор"], ["finance", "Финансы"], ["car", "Машина"], ["drivers", "Пилоты"], ["staff", "Команда"], ["transfers", "Трансферы"], ["academy", "Академия"], ["standings", "Зачёт"]];
   const TAB_CONTENT = {
-    overview:  headerPanel + newsPanel + offers,
+    overview:  headerPanel + objectivesPanel + newsPanel + offers,
     finance:   financeTab,
     car:       devPanel || emptyMsg("Нет данных по машине"),
     drivers:   driversPanel || emptyMsg("Нет пилотов"),
