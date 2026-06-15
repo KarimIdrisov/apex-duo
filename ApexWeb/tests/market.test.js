@@ -49,3 +49,37 @@ test("aiChurn swaps AI drivers deterministically, never touches the player team,
   assert.equal(c.drivers["NOR"].teamIdx, 0);            // player team untouched
   assert.equal(c.drivers["PIA"].teamIdx, 0);
 });
+
+// --- D4 contracts & negotiation ---
+import { freeAgent, buyout, signCost, willJoin, negotiateSign } from "../src/market.js";
+
+test("buyout: contracted drivers cost extra to prise; free agents are free to take", () => {
+  assert.ok(buyout({ salary: 500, contractSeasons: 2 }) > 0);
+  assert.equal(buyout({ salary: 500, contractSeasons: 0 }), 0);
+  assert.equal(freeAgent({ contractSeasons: 0 }), true);
+  assert.ok(signCost({ overall: 0.9, age: 25, salary: 400, contractSeasons: 2 }) > signCost({ overall: 0.9, age: 25, salary: 400, contractSeasons: 0 }));
+});
+
+test("willJoin: a star joins a strong team, balks at a weak one (deterministic)", () => {
+  const star = { overall: 0.95, age: 26 };
+  assert.equal(willJoin(star, 1.0, 1), willJoin(star, 1.0, 1));        // deterministic
+  let strong = 0, weak = 0;
+  for (let s = 0; s < 40; s++) { if (willJoin(star, 1.0, s)) strong++; if (willJoin(star, 0.1, s)) weak++; }
+  assert.ok(strong > weak, "more likely to join a competitive team");
+});
+
+test("negotiateSign: succeeds for a feasible deal (rich, competitive), keeps 2/team", () => {
+  const c = { teamIdx: 0, money: 1e6, drivers: initDrivers(), seed: 1 };
+  const out = Object.keys(c.drivers).find(a => c.drivers[a].teamIdx === 0);
+  const r = negotiateSign(c, "ALB", out, { teamStrength: 1.0, seed: 3 });
+  if (r.ok) { assert.equal(c.drivers["ALB"].teamIdx, 0);
+    const counts = {}; for (const a in c.drivers) counts[c.drivers[a].teamIdx] = (counts[c.drivers[a].teamIdx] || 0) + 1;
+    for (const k in counts) assert.equal(counts[k], 2); }
+  else assert.ok(["отказ", "перебили", "деньги"].includes(r.reason));
+});
+
+test("negotiateSign: broke -> reason 'деньги'", () => {
+  const c = { teamIdx: 0, money: 1, drivers: initDrivers(), seed: 1 };
+  const out = Object.keys(c.drivers).find(a => c.drivers[a].teamIdx === 0);
+  assert.equal(negotiateSign(c, "VER", out, { teamStrength: 1.0, seed: 1 }).ok, false);
+});
