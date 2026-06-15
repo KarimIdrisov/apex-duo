@@ -19,12 +19,13 @@ import { sfx } from "./audio.js";
 import { defaultRaceTrack, trackFromEdited } from "./track_build.js";
 import { loadAll } from "./track_store.js";
 import * as seasonUI from "./ui/season.js";
-import { newCareer, newSeason, currentRound, applyResult, advanceRound, chooseTitleSponsor } from "./career.js";
+import { newCareer, newSeason, currentRound, applyResult, advanceRound, chooseTitleSponsor, constructorStandings } from "./career.js";
+import { pushNews } from "./news.js";
 import { careerTrack } from "./track_build.js";
 import { effectiveCar, startProject } from "./development.js";
 import { moraleMod, reSign, DRIVER_NAME } from "./drivers.js";
 import { composePersonnel, upgradeStaff, upgradeFacility } from "./staff.js";
-import { signDriver } from "./market.js";
+import { signDriver, negotiateSign } from "./market.js";
 import { signJunior, promoteJunior } from "./academy.js";
 import { saveCareer } from "./career_store.js";
 
@@ -139,7 +140,13 @@ function onCommand(cmd) {
       }
       break;
     case "career_sign":
-      if (ctx.career) { signDriver(ctx.career, cmd.inAbbrev, cmd.outAbbrev); saveCareer(ctx.career); publishCareer(); rerender(); }
+      if (ctx.career) {
+        const meS = constructorStandings(ctx.career).find(s => s.isPlayer);
+        const strength = meS ? 1 - (meS.pos - 1) / (TEAMS.length - 1) : 0.5;
+        const r = negotiateSign(ctx.career, cmd.inAbbrev, cmd.outAbbrev, { teamStrength: strength, seed: (ctx.career.round + 1) * 131 + cmd.inAbbrev.charCodeAt(0) });
+        pushNews(ctx.career, r.ok ? `Трансфер: ${cmd.inAbbrev} подписан.` : `Трансфер ${cmd.inAbbrev} сорвался: ${r.reason}.`);
+        saveCareer(ctx.career); publishCareer(); rerender();
+      }
       break;
     case "career_scout":
       if (ctx.career) { signJunior(ctx.career, cmd.abbrev); saveCareer(ctx.career); publishCareer(); rerender(); }
