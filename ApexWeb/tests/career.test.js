@@ -150,6 +150,19 @@ test("migrate v9 -> v10 backfills named staff people (D6)", () => {
   assert.ok(up.staff.people && up.staff.people.designer.rating === 0.8 && up.staff.people.designer.salary > 0);
 });
 
+test("D8: newCareer has board objectives; a podium increments the counter; migrate v11->v12 backfills objectives", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  assert.ok(c.board.objectives && c.board.objectives.length >= 2 && c.board.objectives[0].type === "championship");
+  assert.equal(c.board.podiums, 0);
+  applyResult(c, [{ abbrev: "NOR", team: TEAMS[0].name }, { abbrev: "VER", team: TEAMS[1].name }, { abbrev: "LEC", team: TEAMS[2].name }]);
+  assert.ok(c.board.podiums >= 1, "a P1 finish counts as a podium");
+  const v11 = { v: 11, teamIdx: 0, seed: 1, season: 1, round: 0, money: 0, driverPts: {}, teamPts: {}, sponsors: [], costCap: false, pendingOffers: [], parts: {}, news: [], academy: [], reserve: null, drivers: {},
+    staff: { designer: 0.8, strategist: 0.7, pitCrew: 0.75, facilities: { design: 2, pit: 2, factory: 2 }, people: {} }, board: { targetPos: 1, confidence: 0.5 } };
+  const up = migrate(v11);
+  assert.equal(up.v, CAREER_V);
+  assert.ok(up.board.objectives && up.board.objectives.length >= 2);
+});
+
 test("migrate v10 -> v11 backfills academy feeder state (slPoints) + reserve (D7)", () => {
   const v10 = { v: 10, teamIdx: 0, seed: 1, season: 1, round: 0, money: 0, driverPts: {}, teamPts: {}, board: { targetPos: 1, confidence: 0.5 }, sponsors: [], costCap: false, pendingOffers: [], parts: {}, news: [], drivers: {},
     staff: { designer: 0.8, strategist: 0.7, pitCrew: 0.75, facilities: { design: 2, pit: 2, factory: 2 }, people: {} },

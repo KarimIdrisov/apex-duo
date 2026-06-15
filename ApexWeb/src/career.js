@@ -9,13 +9,14 @@ import { initStaff, upkeep, salaryForStaff } from "./staff.js";
 import { aiChurn } from "./market.js";
 import { developAcademy } from "./academy.js";
 import { pushNews, boardReaction, confidenceDelta } from "./news.js";
+import { seasonObjectives, evaluateObjectives, regResetFor, regArcNote } from "./board.js";
 
 // championship points for the top 10 finishers (current F1 system).
 export const POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
 // prize money ($k) by race-finish position — a simple per-race payout (M2 deepens income).
 export const PRIZE = [1200, 1000, 850, 720, 620, 540, 470, 410, 360, 320, 280, 250, 220, 200, 180, 160, 150, 140, 130, 120, 110, 100];
 
-export const CAREER_V = 11;           // career save schema version
+export const CAREER_V = 12;           // career save schema version
 export const REG_RESET = 0.5;         // each season's regulation change trims everyone's car development
 export const RUNNING_COST = 800;      // $k per-race operating cost (M5 facilities refine it)
 
@@ -58,11 +59,12 @@ export function newCareer({ teamIdx = 0, seed = 1, coop = false } = {}) {
   for (const d of allDrivers()) driverPts[d.abbrev] = 0;
   for (const t of TEAMS) teamPts[t.name] = 0;
   const s = seed >>> 0;
+  const targetPos = Math.min(TEAMS.length, teamIdx + 1);
   return {
     v: CAREER_V, seed: s, teamIdx, coop,
     season: 1, round: 0, money: 3000 + (TEAMS.length - teamIdx) * 800,   // tier-scaled starting budget ($k)
     driverPts, teamPts,
-    board: { targetPos: Math.min(TEAMS.length, teamIdx + 1), confidence: 0.5 },  // meet your tier (P{teamIdx+1})
+    board: { targetPos, confidence: 0.5, podiums: 0, pointFinishes: 0, objectives: seasonObjectives(targetPos) },  // meet your tier (P{teamIdx+1}) + season objectives (D8)
     sponsors: defaultSponsors(teamIdx, s), costCap: false, pendingOffers: titleOffers(teamIdx, s),
     parts: {}, project: null, devSpentThisSeason: 0,
     drivers: initDrivers(),
@@ -119,6 +121,8 @@ export function applyResult(career, classification) {
   };
   career.board.confidence = Math.max(0, Math.min(1, (career.board.confidence ?? 0.5) + confidenceDelta(bestPos, career.board.targetPos)));
   pushNews(career, boardReaction(bestPos, career.board.targetPos, summary.gp));
+  if (bestPos <= 3) career.board.podiums = (career.board.podiums || 0) + 1;          // D8: objective counters
+  if (bestPos <= 10) career.board.pointFinishes = (career.board.pointFinishes || 0) + 1;
   career.lastResult = summary;
   career.history.push(summary);
   return summary;
@@ -180,6 +184,13 @@ export function migrate(career) {
     career.reserve = career.reserve ?? null;
     career.v = 11;
   }
+  if (career.v < 12) {
+    if (career.board && !career.board.objectives) {     // D8: season objectives + counters
+      career.board.objectives = seasonObjectives(career.board.targetPos);
+      career.board.podiums = career.board.podiums || 0; career.board.pointFinishes = career.board.pointFinishes || 0;
+    }
+    career.v = 12;
+  }
   return career;
 }
 // accept a season-start title-sponsor offer: replace the title deal, clear the offers.
@@ -216,7 +227,7 @@ export function boardOutcome(career) {
   const target = career.board.targetPos;
   const met = me ? finalPos <= target : false;
   const confidence = career.board.confidence ?? 0.5;
-  return { finalPos, target, met, confidence, sacked: !met && confidence < 0.25 };
+  return { finalPos, target, met, confidence, sacked: !met && confidence < 0.25, objectives: evaluateObjectives(career) };
 }
 // start a new season: reset round + points, keep team + money + seed, bump the season number.
 export function newSeason(career) {
@@ -232,8 +243,11 @@ export function newSeason(career) {
   fresh.staff = JSON.parse(JSON.stringify(career.staff || initStaff((TEAMS[career.teamIdx] || TEAMS[0]).facility, career.seed || 1)));
   fresh.academy = JSON.parse(JSON.stringify(career.academy || []));
   developAcademy(fresh, fresh.season);         // D7: juniors race a feeder season (SL points + dev by results)
-  for (const tn in fresh.parts) for (const k in fresh.parts[tn]) fresh.parts[tn][k] *= REG_RESET;      // regs change: redevelop parts
+  const reg = regResetFor(fresh.season);                       // D8: regulation arc — a big shake-up on a cycle
+  for (const tn in fresh.parts) for (const k in fresh.parts[tn]) fresh.parts[tn][k] *= reg;            // regs change: redevelop parts
   fresh.board.confidence = career.board.confidence ?? 0.5;     // confidence carries between seasons
+  fresh.board.objectives = seasonObjectives(fresh.board.targetPos); fresh.board.podiums = 0; fresh.board.pointFinishes = 0;   // D8: new season's objectives
+  pushNews(fresh, regArcNote(fresh.season));                   // D8: telegraph the regulation cadence
   pushNews(fresh, `Сезон ${fresh.season}: смена регламента — разработка частично обнулена.`);
   return fresh;
 }
