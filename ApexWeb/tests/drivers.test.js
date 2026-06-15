@@ -56,3 +56,28 @@ test("reSign pays a fee, extends the contract, lifts morale; refused when broke"
   assert.ok(career.drivers["NOR"].contractSeasons >= 3 && career.money < 100000);
   assert.equal(reSign({ money: 1, drivers: initDrivers() }, "NOR"), false);
 });
+
+// --- D5 driver depth: persistent per-attribute model ---
+import { ATTR_KEYS } from "../src/team.js";
+
+test("D5: initDrivers gives each driver a persistent 13-attr vector + traits; overall stays calibrated", () => {
+  const d = initDrivers();
+  for (const a in d) { assert.equal(Object.keys(d[a].attrs).length, ATTR_KEYS.length); assert.ok(Array.isArray(d[a].traits)); }
+  assert.ok(d.VER.traits.includes("overtaker"));
+  assert.equal(d.ANT.overall, 0.934);             // D2 calibration preserved (no readout jump at init)
+});
+
+test("D5: developDrivers ages attributes independently — a veteran loses pace faster than craft", () => {
+  const d = initDrivers(); const vet = "ALO";
+  const pace0 = d[vet].attrs.pace, iq0 = d[vet].attrs.race_iq, o0 = d[vet].overall;
+  developDrivers(d);
+  assert.ok(d[vet].attrs.pace < pace0);
+  assert.ok((pace0 - d[vet].attrs.pace) > (iq0 - d[vet].attrs.race_iq));   // pace fades faster than craft
+  assert.ok(d[vet].overall < o0);                                          // overall declines with the trend
+});
+
+test("D5: a young driver's attributes and overall both rise over a season", () => {
+  const d = initDrivers(); const o0 = d.ANT.overall, pace0 = d.ANT.attrs.pace;
+  developDrivers(d);
+  assert.ok(d.ANT.overall > o0 && d.ANT.attrs.pace > pace0);
+});

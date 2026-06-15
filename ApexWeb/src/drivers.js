@@ -1,6 +1,7 @@
 // ApexWeb/src/drivers.js — pure driver career model: age, evolving overall, morale, contracts.
 // All meta→sim influence flows through the driver's overall (-> driverAttrs) and moraleMod (-> setupBonus).
 import { TEAMS } from "./data.js";
+import { driverAttrs, attrDrift, assignTraits, traitBias, ATTR_KEYS } from "./team.js";
 
 // approximate 2026 driver ages (abbrev -> age).
 export const DRIVER_AGE = {
@@ -47,17 +48,29 @@ export function initDrivers() {
     d[dr.abbrev] = {
       teamIdx: i, age: DRIVER_AGE[dr.abbrev] ?? 28, overall, morale: 0.6,
       contractSeasons: dr.skill > 0.85 ? 3 : 2, salary: salaryFor(overall),
+      attrs: driverAttrs(dr.abbrev, overall),           // D5: persistent 13-attr vector (signature baked in)
+      traits: assignTraits(dr.abbrev),                  // D5: identity + development bias
     };
   }));
   return d;
 }
 
-// advance all drivers one season: age up, drift overall by age, refresh salary, tick contracts.
+// advance all drivers one season: age up, develop attributes per the age curve (+ trait bias), drift
+// overall by the mean attr change (continuous — no readout jump), refresh salary, tick contracts.
 export function developDrivers(drivers) {
   for (const a in drivers) {
     const dr = drivers[a];
     dr.age += 1;
-    dr.overall = clampOverall(dr.overall + ageDrift(dr.age));
+    if (dr.attrs) {
+      let sum = 0;
+      for (const k of ATTR_KEYS) {
+        const nv = clamp01(dr.attrs[k] + attrDrift(k, dr.age) + traitBias(dr.traits, k));
+        sum += nv - dr.attrs[k]; dr.attrs[k] = nv;
+      }
+      dr.overall = clampOverall(dr.overall + sum / ATTR_KEYS.length);   // overall follows the development trend
+    } else {
+      dr.overall = clampOverall(dr.overall + ageDrift(dr.age));         // legacy fallback (no attrs)
+    }
     dr.salary = salaryFor(dr.overall);
     dr.contractSeasons = Math.max(0, dr.contractSeasons - 1);
   }
