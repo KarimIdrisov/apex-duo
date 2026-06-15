@@ -4,7 +4,7 @@
 import { CALENDAR, constructorStandings, driverStandings, boardOutcome } from "../career.js";
 import { objectiveLabel } from "../sponsors.js";
 import { PARTS, PART_LABEL, PROJECT_SIZE, effectiveCar } from "../development.js";
-import { availableDrivers } from "../market.js";
+import { availableDrivers, signCost, freeAgent } from "../market.js";
 import { availableJuniors, SUPERLICENSE, SCOUT_FEE } from "../academy.js";
 import { DRIVER_NAME } from "../drivers.js";
 import { STAFF_ROLES, ROLE_LABEL, FACILITIES, FAC_LABEL, FAC_MAX, STAFF_UPGRADE_COST, FAC_UPGRADE_BASE, upkeep } from "../staff.js";
@@ -85,8 +85,8 @@ export function render(root, ctx) {
   const avail = c.drivers ? availableDrivers(c).slice(0, 6) : [];
   const transferPanel = (mineAbbrevs.length && avail.length) ? `<div class="panel"><p class="label">Трансферы — подписать пилота (обмен)</p>
     <table style="width:100%;border-collapse:collapse">
-    ${avail.map(d => row([`<b>${d.abbrev}</b> ${DRIVER_NAME[d.abbrev] || ""}`, `ovr ${d.overall.toFixed(3)}`, `${d.age} л.`, m$(d.value),
-      mineAbbrevs.map(ab => `<button class="ready sign" data-in="${d.abbrev}" data-out="${ab}" ${c.money < d.value ? "disabled" : ""} style="padding:3px 6px;font-size:11px;margin-left:4px">↔${ab}</button>`).join("")])).join("")}
+    ${avail.map(d => row([`<b>${d.abbrev}</b> ${DRIVER_NAME[d.abbrev] || ""}${freeAgent(d) ? ` <span class="label">СА</span>` : ""}`, `ovr ${d.overall.toFixed(3)}`, `${d.age} л.`, m$(signCost(d)),
+      mineAbbrevs.map(ab => `<button class="ready sign" data-in="${d.abbrev}" data-out="${ab}" ${c.money < signCost(d) ? "disabled" : ""} style="padding:3px 6px;font-size:11px;margin-left:4px">↔${ab}</button>`).join("")])).join("")}
     </table></div>` : "";
 
   // academy panel — your juniors (develop -> promote) + scouting from the pool
