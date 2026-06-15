@@ -3,7 +3,7 @@
 // ctx.careerReadyView (set by main on host AND client). Inline styles keep it self-contained.
 import { CALENDAR, constructorStandings, driverStandings, boardOutcome } from "../career.js";
 import { objectiveLabel } from "../sponsors.js";
-import { INDICATORS, INDICATOR_LABEL, PROJECT_SIZE, effectiveCar } from "../development.js";
+import { PARTS, PART_LABEL, PROJECT_SIZE, effectiveCar } from "../development.js";
 import { availableDrivers } from "../market.js";
 import { availableJuniors, SUPERLICENSE, SCOUT_FEE } from "../academy.js";
 import { DRIVER_NAME } from "../drivers.js";
@@ -41,20 +41,18 @@ export function render(root, ctx) {
       <table style="width:100%;border-collapse:collapse">
       ${(c.sponsors || []).map(s => row([`${s.kind === "title" ? "★ " : ""}${s.name}`, objectiveLabel(s.objective), `${Math.round(s.happiness * 100)}%`])).join("")}</table></div>`;
 
-  // development panel — the player team's effective car + the active project + start buttons
+  // development panel (D3) — the player team's PARTS (level + per-part projects) + the composed car
   const myTeamName = me ? me.team : null;
   const baseCar = myTeamName ? (TEAMS.find(t => t.name === myTeamName) || {}).car : null;
-  const dev = (c.carDev && myTeamName) ? c.carDev[myTeamName] : null;
-  const eff = baseCar ? effectiveCar(baseCar, dev) : null;
-  const bar = (k) => { const v = eff ? eff[k] : 0; const pct = Math.max(4, Math.min(100, Math.round((v - 0.6) / 0.6 * 100))); const up = dev && dev[k] > 0.0001;
-    return `<div style="margin:2px 0"><span class="label" style="display:inline-block;width:64px">${INDICATOR_LABEL[k]}</span>
-      <span style="display:inline-block;width:120px;height:8px;background:#0003;border-radius:4px;vertical-align:middle"><span style="display:block;height:8px;width:${pct}%;background:${up ? "var(--good)" : "var(--primary)"};border-radius:4px"></span></span>
-      <span style="margin-left:6px">${v.toFixed(3)}${up ? " ▲" : ""}</span></div>`; };
-  let proj;
-  if (c.project) proj = `<p class="label">Проект: ${INDICATOR_LABEL[c.project.indicator]} (${PROJECT_SIZE[c.project.size].label}) — ещё ${c.project.racesLeft} гонк.</p>`;
-  else proj = `<div class="label">Запустить проект:</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">${
-    INDICATORS.flatMap(k => Object.keys(PROJECT_SIZE).map(sz => `<button class="ready devbtn" data-k="${k}" data-sz="${sz}" ${c.money < PROJECT_SIZE[sz].cost ? "disabled" : ""} style="padding:5px 8px;font-size:12px">${INDICATOR_LABEL[k]} ${PROJECT_SIZE[sz].label} (${m$(PROJECT_SIZE[sz].cost)})</button>`)).join("")}</div>`;
-  const devPanel = eff ? `<div class="panel"><p class="label">Разработка машины${c.costCap ? " · cost cap ВКЛ" : ""}</p>${INDICATORS.map(bar).join("")}<div style="height:6px"></div>${proj}</div>` : "";
+  const parts = (c.parts && myTeamName) ? c.parts[myTeamName] : null;
+  const eff = baseCar ? effectiveCar(baseCar, parts) : null;
+  const partRow = (pk) => { const lvl = parts ? (parts[pk] || 0) : 0;
+    return row([PART_LABEL[pk], `ур. ${(lvl * 100).toFixed(0)}`,
+      c.project && c.project.part === pk ? `<span class="label">в разработке (${c.project.racesLeft})</span>`
+      : Object.keys(PROJECT_SIZE).map(sz => `<button class="ready devbtn" data-k="${pk}" data-sz="${sz}" ${(c.project || c.money < PROJECT_SIZE[sz].cost) ? "disabled" : ""} style="padding:3px 6px;font-size:11px;margin-left:3px">${PROJECT_SIZE[sz].label} (${m$(PROJECT_SIZE[sz].cost)})</button>`).join("")]); };
+  const carLine = eff ? `<p class="label">Машина: мотор ${eff.power.toFixed(3)} · аэро ${eff.aero.toFixed(3)} · шина ${eff.tyre.toFixed(3)} · эконом ${eff.fuel.toFixed(3)} · надёжн ${eff.rel.toFixed(3)}</p>` : "";
+  const devPanel = baseCar ? `<div class="panel"><p class="label">Разработка — детали машины${c.costCap ? " · cost cap ВКЛ" : ""}</p>
+    ${carLine}<table style="width:100%;border-collapse:collapse"><tbody>${PARTS.map(partRow).join("")}</tbody></table></div>` : "";
 
   // drivers panel — the player team's two drivers (age / overall / morale / contract / salary)
   const myTeamIdx = TEAMS.findIndex(t => t.name === myTeamName);
@@ -156,7 +154,7 @@ export function render(root, ctx) {
   root.querySelectorAll(".pad-tab").forEach(b => b.onclick = () => { ctx._padTab = b.dataset.tab; render(root, ctx); });
 
   root.querySelectorAll("button.offer").forEach(b => b.onclick = () => { root.querySelectorAll("button.offer").forEach(x => x.disabled = true); ctx.send({ cmd: "career_sponsor", player: ctx.myPlayer, offerIdx: +b.dataset.i }); });
-  root.querySelectorAll("button.devbtn").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_project", player: ctx.myPlayer, indicator: b.dataset.k, size: b.dataset.sz }); });
+  root.querySelectorAll("button.devbtn").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_project", player: ctx.myPlayer, part: b.dataset.k, size: b.dataset.sz }); });
   root.querySelectorAll("button.resign").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_resign", player: ctx.myPlayer, abbrev: b.dataset.ab }); });
   root.querySelectorAll("button.stf").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_upgrade", player: ctx.myPlayer, kind: b.dataset.kind, key: b.dataset.key }); });
   root.querySelectorAll("button.sign").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_sign", player: ctx.myPlayer, inAbbrev: b.dataset.in, outAbbrev: b.dataset.out }); });
