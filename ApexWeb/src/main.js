@@ -24,7 +24,7 @@ import { pushNews } from "./news.js";
 import { careerTrack } from "./track_build.js";
 import { effectiveCar, startProject } from "./development.js";
 import { moraleMod, reSign, DRIVER_NAME } from "./drivers.js";
-import { composePersonnel, upgradeStaff, upgradeFacility } from "./staff.js";
+import { composePersonnel, upgradeStaff, upgradeFacility, hireStaff, staffMarket } from "./staff.js";
 import { signDriver, negotiateSign } from "./market.js";
 import { signJunior, promoteJunior } from "./academy.js";
 import { saveCareer } from "./career_store.js";
@@ -136,6 +136,14 @@ function onCommand(cmd) {
       if (ctx.career) {
         if (cmd.kind === "staff") upgradeStaff(ctx.career, cmd.key);
         else if (cmd.kind === "facility") upgradeFacility(ctx.career, cmd.key);
+        saveCareer(ctx.career); publishCareer(); rerender();
+      }
+      break;
+    case "career_hire":
+      if (ctx.career) {
+        const person = staffMarket(ctx.career.season || 1).find(p => p.id === cmd.id);   // same seed host & client
+        const ok = person ? hireStaff(ctx.career, person) : false;
+        if (person) pushNews(ctx.career, ok ? `${person.name} нанят в команду.` : `Не удалось нанять: ${person.name}.`);
         saveCareer(ctx.career); publishCareer(); rerender();
       }
       break;
