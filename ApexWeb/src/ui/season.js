@@ -9,6 +9,7 @@ import { availableJuniors, SUPERLICENSE, SCOUT_FEE } from "../academy.js";
 import { DRIVER_NAME } from "../drivers.js";
 import { STAFF_ROLES, ROLE_LABEL, FACILITIES, FAC_LABEL, FAC_MAX, STAFF_UPGRADE_COST, FAC_UPGRADE_BASE, upkeep } from "../staff.js";
 import { TEAM_LOGO, TEAMS } from "../data.js";
+import { teamColor, driverAvatar, driverCard } from "./teamviz.js";
 
 const row = (cells, hot) => `<tr style="${hot ? "font-weight:700;color:var(--good)" : ""}">${cells.map(c => `<td style="padding:3px 8px">${c}</td>`).join("")}</tr>`;
 const m$ = k => `$${(k / 1000).toFixed(2)}M`;
@@ -25,8 +26,11 @@ export function render(root, ctx) {
   const ready = ctx.careerReadyView || { p1: false, p2: false };
   const meReady = !!ready[ctx.myPlayer];
 
-  const consTbl = cons.map(r => row([r.pos, `<img src="assets/teams/${TEAM_LOGO[r.team]}.png" style="height:16px;vertical-align:middle;margin-right:6px">${r.team}`, r.pts], r.isPlayer)).join("");
-  const drvTbl = drv.map(r => row([r.pos, r.abbrev, r.team, r.pts])).join("");
+  const consTbl = cons.map(r => row([r.pos,
+    `<span style="display:inline-block;width:3px;height:14px;background:${teamColor(r.team)};border-radius:2px;vertical-align:middle;margin-right:7px"></span>`
+    + `<img src="assets/teams/${TEAM_LOGO[r.team]}.png" style="height:16px;vertical-align:middle;margin-right:6px">${r.team}`, r.pts], r.isPlayer)).join("");
+  const drvTbl = drv.map(r => row([r.pos,
+    `${driverAvatar(r.abbrev, r.team, 22)} <b style="vertical-align:middle">${r.abbrev}</b>`, r.team, r.pts])).join("");
   const podium = lr ? lr.podium.map((a, i) => `${["🥇", "🥈", "🥉"][i]} ${a}`).join("  ") : "";
 
   // finances panel
@@ -57,12 +61,13 @@ export function render(root, ctx) {
   // drivers panel — the player team's two drivers (age / overall / morale / contract / salary)
   const myTeamIdx = TEAMS.findIndex(t => t.name === myTeamName);
   const mine = c.drivers ? Object.entries(c.drivers).filter(([, d]) => d.teamIdx === myTeamIdx) : [];
-  const driverRows = mine.map(([ab, d]) => row([
-    `<b>${ab}</b>`, `${d.age} лет`, `ovr ${d.overall.toFixed(3)}`, `мораль ${Math.round(d.morale * 100)}%`,
-    `${d.contractSeasons} сез.`, `${m$(d.salary)}/гонка`,
-    `<button class="ready resign" data-ab="${ab}" style="padding:3px 8px;font-size:12px">Продлить</button>`,
-  ])).join("");
-  const driversPanel = mine.length ? `<div class="panel"><p class="label">Пилоты</p><table style="width:100%;border-collapse:collapse"><tbody>${driverRows}</tbody></table></div>` : "";
+  const driverCards = mine.map(([ab, d]) => driverCard(
+    { team: myTeamName, abbrev: ab, name: DRIVER_NAME[ab] || ab },
+    { car: true,
+      sub: `${d.age} лет · ovr ${d.overall.toFixed(3)} · мораль ${Math.round(d.morale * 100)}% · ${d.contractSeasons} сез. · ${m$(d.salary)}/гонка`,
+      action: `<div style="margin-top:6px"><button class="ready resign" data-ab="${ab}" style="padding:3px 8px;font-size:12px">Продлить</button></div>` }
+  )).join("");
+  const driversPanel = mine.length ? `<div class="panel"><p class="label">Пилоты</p><div style="display:flex;flex-direction:column;gap:8px">${driverCards}</div></div>` : "";
 
   // staff & facilities panel
   const st = c.staff;
