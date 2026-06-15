@@ -20,7 +20,7 @@ function field() {
     const dr = career.drivers[ab];
     return {
       idx: idx++, name: DRIVER_NAME[ab] || ab, abbrev: ab, skill: dr.overall,
-      car: composeCar(effectiveCar(t.car, career.carDev && career.carDev[t.name])), color: t.color, team: t.name,
+      car: composeCar(effectiveCar(t.car, career.parts && career.parts[t.name])), color: t.color, team: t.name,
       attrs: driverAttrs(ab, dr.overall), personnel: (ti === career.teamIdx && career.staff) ? composePersonnel(career.staff) : genPersonnel(t.facility, ti),
       setup: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5], setupBonus: moraleMod(dr.morale), startTyre: "medium",
     };
@@ -43,7 +43,7 @@ let totalPts = 0, minPass = 1e9, maxPass = 0, races = 0;
 const expectedPerRace = POINTS.reduce((a, b) => a + b, 0);
 while (!isSeasonOver(career)) {
   const round = CALENDAR[career.round];
-  if (!career.project && career.money > 2000) startProject(career, ["power", "aero", "tyre"][career.round % 3], "small");
+  if (!career.project && career.money > 2000) startProject(career, ["floor", "pu", "fw"][career.round % 3], "small");
   if (career.round < 6 && career.money > 8000) { upgradeStaff(career, "designer"); upgradeFacility(career, "design"); }
   const { order, passes } = runRace(careerTrack(round), 1000 + career.round);
   const before = Object.values(career.driverPts).reduce((a, b) => a + b, 0);
@@ -63,12 +63,12 @@ console.log(`player money end of season: $${(career.money / 1000).toFixed(1)}M  
 if (races !== CALENDAR.length) { console.error("season did not complete all rounds"); process.exit(1); }
 if (minPass < 1) { console.error("a race had zero passes — check overtake_zones on every calendar track"); process.exit(1); }
 if (career.money <= 0) { console.error("a front-running team went broke over a season — economy too harsh"); process.exit(1); }
-const effAvg = t => { const e = effectiveCar(t.car, career.carDev[t.name]); return (e.power + e.aero) / 2; };
+const effAvg = t => { const e = effectiveCar(t.car, career.parts && career.parts[t.name]); return (e.power + e.aero) / 2; };
 const avgs = TEAMS.map(effAvg);
 const spread = Math.max(...avgs) - Math.min(...avgs);
-const myDev = career.carDev[TEAMS[0].name];
-console.log(`dev: player McLaren carDev power +${myDev.power.toFixed(3)} aero +${myDev.aero.toFixed(3)}; field (power+aero)/2 spread ${spread.toFixed(3)}`);
-if (!(myDev.power > 0 || myDev.aero > 0 || myDev.tyre > 0)) { console.error("player car did not develop over the season"); process.exit(1); }
+const myParts = career.parts[TEAMS[0].name] || {};
+console.log(`dev: player parts floor +${(myParts.floor || 0).toFixed(3)} pu +${(myParts.pu || 0).toFixed(3)}; field (power+aero)/2 spread ${spread.toFixed(3)}`);
+if (!(Object.values(myParts).some(v => v > 0))) { console.error("player car did not develop over the season"); process.exit(1); }
 if (spread > 0.45) { console.error(`grid spread ${spread.toFixed(3)} too wide — development ran away`); process.exit(1); }
 const antBefore = career.drivers["ANT"].overall, aloBefore = career.drivers["ALO"].overall;
 const next = newSeason(career);
@@ -83,8 +83,8 @@ if (!career.drivers["HIR"] || career.drivers["HIR"].teamIdx !== 0) { console.err
 console.log(`academy: HIR racing for player (ovr ${career.drivers["HIR"].overall.toFixed(3)})`);
 console.log(`board: confidence ${Math.round((career.board.confidence ?? 0.5) * 100)}%, news ${(career.news || []).length} items; latest "${(career.news || [])[0] || "-"}"`);
 if (!(career.news && career.news.length > 0)) { console.error("no board/paddock news generated over the season"); process.exit(1); }
-const regBefore = (career.carDev["McLaren"] && career.carDev["McLaren"].power) || 0;
-const regAfter = (next.carDev["McLaren"] && next.carDev["McLaren"].power) || 0;
-console.log(`regulation reset: McLaren carDev.power ${regBefore.toFixed(3)} -> ${regAfter.toFixed(3)} (new season)`);
+const regBefore = (career.parts["McLaren"] && career.parts["McLaren"].floor) || 0;
+const regAfter = (next.parts["McLaren"] && next.parts["McLaren"].floor) || 0;
+console.log(`regulation reset: McLaren parts.floor ${regBefore.toFixed(3)} -> ${regAfter.toFixed(3)} (new season)`);
 if (!(regAfter <= regBefore)) { console.error("regulation reset did not trim development"); process.exit(1); }
 console.log("CAREER CORRIDOR OK");
