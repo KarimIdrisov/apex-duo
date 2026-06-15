@@ -47,21 +47,28 @@ export function driverAvatar(abbrev, team, size = 44) {
     + `</span>`;
 }
 
-// A team-coloured driver card: avatar + name + team chip + a sub-line, optional car render + action HTML.
-// d = { team, abbrev, name }. opts = { car?:bool, sub?:html, action?:html }.
+// A team-coloured driver card: avatar + name + team chip + sub-line, optional car render + action.
+// d = { team, abbrev, name, overall?, age? }. When overall is given, the card is a skill-tooltip trigger.
+// opts = { car?:bool, sub?:html, action?:html }.
 export function driverCard(d, opts = {}) {
   const col = teamColor(d.team), ink = teamInk(col);
-  const car = opts.car
-    ? `<img src="${carImgSrc(d.team)}" alt="" onerror="this.style.display='none'" style="position:absolute;right:6px;bottom:0;height:46px;object-fit:contain;opacity:.92;pointer-events:none">`
+  const tip = (d.overall != null)
+    ? " " + personTipAttrs({ abbrev: d.abbrev, overall: d.overall, team: d.team, name: d.name, age: d.age })
     : "";
-  const sub = opts.sub ? `<div class="label" style="margin-top:2px">${opts.sub}</div>` : "";
-  const act = opts.action || "";
-  return `<div style="position:relative;overflow:hidden;background:var(--content2);border-left:4px solid ${col};border-radius:var(--r-md);padding:10px;display:flex;align-items:center;gap:10px;min-height:64px">`
-    + driverAvatar(d.abbrev, d.team, 48)
-    + `<div style="min-width:0;flex:1">`
-    +   `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><b>${d.name}</b>`
-    +     `<span style="font-size:11px;color:${ink};background:${col};border-radius:4px;padding:1px 6px">${d.team}</span></div>`
-    +   sub + act
+  const car = opts.car
+    ? `<img src="${carImgSrc(d.team)}" alt="" onerror="this.style.display='none'" style="position:absolute;right:-6px;bottom:-22px;height:120px;object-fit:contain;opacity:.10;pointer-events:none">`
+    : "";
+  const sub = opts.sub ? `<div class="label" style="margin-top:3px">${opts.sub}</div>` : "";
+  const act = opts.action ? `<div style="flex:0 0 auto">${opts.action}</div>` : "";
+  return `<div${tip} style="position:relative;overflow:hidden;background:var(--content2);border:1px solid var(--border);border-left:4px solid ${col};border-radius:var(--r-md);padding:11px 12px;min-height:64px">`
+    + `<div style="position:relative;display:flex;align-items:center;gap:10px">`
+    +   driverAvatar(d.abbrev, d.team, 46)
+    +   `<div style="min-width:0;flex:1">`
+    +     `<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b>${d.name}</b>`
+    +       `<span style="font-size:10px;font-weight:600;color:${ink};background:${col};border-radius:4px;padding:1px 6px">${d.team}</span></div>`
+    +     sub
+    +   `</div>`
+    +   act
     + `</div>` + car + `</div>`;
 }
 

@@ -101,3 +101,11 @@ test("staffSkillTip: role label + rating + effect line", () => {
   const h = staffSkillTip("strategist", 0.82, "Mercedes");
   assert.match(h, /Стратег/); assert.match(h, />82</); assert.ok(h.includes(STAFF_TIP.strategist));
 });
+
+test("driverCard: stamps data-driver when overall is provided; omits it otherwise", () => {
+  const withTip = driverCard({ team: "McLaren", abbrev: "NOR", name: "Норрис", overall: 0.95, age: 25 }, { car: true, sub: "x" });
+  assert.match(withTip, /data-driver="NOR"/, "card is a hover target when overall is given");
+  assert.match(withTip, /data-ovr="0\.95"/);
+  const noTip = driverCard({ team: "McLaren", abbrev: "NOR", name: "Норрис" }, { sub: "x" });
+  assert.doesNotMatch(noTip, /data-driver=/, "no tip-attrs without overall");
+});
