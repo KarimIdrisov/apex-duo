@@ -7,6 +7,7 @@ import * as lobby from "./ui/lobby.js";
 import * as practice from "./ui/practice.js";
 import * as quali from "./ui/quali.js";
 import * as race from "./ui/race.js";
+import { renderShell, shellSig } from "./ui/shell.js";
 import { buildGrid } from "./quali.js";
 import { paceBonus, closeness, trackIdeal } from "./setup.js";
 import { driverAttrs, composeCar, genPersonnel } from "./team.js";
@@ -30,6 +31,7 @@ import { saveCareer } from "./career_store.js";
 const SCREENS = { lobby, practice1: practice, practice2: practice, practice3: practice, quali, race, result: race };
 const isPractice = p => p === "practice1" || p === "practice2" || p === "practice3";
 const root = document.getElementById("app");
+const nav = document.getElementById("nav");
 // any button press blips (and unlocks the AudioContext on first gesture)
 root.addEventListener("click", e => { if (e.target.closest("button")) sfx.click(); });
 
@@ -82,6 +84,10 @@ function rerender() {
   try { sig = liveSig(phase, snap); } catch { sig = null; }
   if (sig !== null && phase === ctx._renderedPhase && sig === ctx._liveSig) { patchClock(snap); return; }
   ctx._liveSig = sig;
+  // nav shell: render only when its content changes (phase / career context) so it never rebuilds on
+  // the ~12Hz race repaint. Wrapped in try/catch — it runs inside the host rAF loop; a throw must not
+  // kill the loop.
+  try { const ss = shellSig(ctx); if (ss !== ctx._shellSig) { ctx._shellSig = ss; renderShell(nav, ctx); } } catch (e) { console.error("[shell] render threw:", e); }
   // Entrance flourish (#app>.panel { animation:rise }) plays only on the FIRST render of a phase. Live
   // screens repaint often; re-triggering the fade every rebuild froze panels at opacity 0 → BLACK SCREEN.
   // On a same-phase rebuild, mark #app `no-anim` to suppress the entrance.
