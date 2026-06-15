@@ -20,3 +20,14 @@ test("weekendSteps: lobby all upcoming; practice2 current+label; quali done/curr
   assert.deepEqual(r.map(s => s.state), ["done", "done", "done", "current"]);
   assert.deepEqual(r.map(s => s.key), ["practice", "quali", "race", "paddock"]);
 });
+
+import { shellSig } from "../src/ui/shell.js";
+
+test("shellSig: stable for same context; changes with phase / round / money / mode", () => {
+  const base = { weekend: { phase: "result" }, careerView: { season: 1, round: 2, money: 42e6, board: { confidence: 0.63 } } };
+  assert.equal(shellSig(base), shellSig({ ...base }), "same context → same sig");
+  assert.notEqual(shellSig(base), shellSig({ ...base, weekend: { phase: "race" } }), "phase changes it");
+  assert.notEqual(shellSig(base), shellSig({ weekend: { phase: "result" }, careerView: { ...base.careerView, round: 3 } }), "round changes it");
+  assert.notEqual(shellSig(base), shellSig({ weekend: { phase: "result" }, careerView: { ...base.careerView, money: 50e6 } }), "money changes it");
+  assert.ok(shellSig({ weekend: { phase: "race" }, careerView: null }).includes("solo"), "no career → solo");
+});
