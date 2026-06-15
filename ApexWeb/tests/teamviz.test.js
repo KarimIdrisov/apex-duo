@@ -72,3 +72,32 @@ test("driverCard: shows name, team chip, avatar; car render only when opts.car",
   const noCar = driverCard(d, {});
   assert.doesNotMatch(noCar, /assets\/cars\//, "no car render without opts.car");
 });
+
+import { ATTR_RU, STAFF_TIP, personTipAttrs, staffTipAttrs, driverSkillTip, staffSkillTip } from "../src/ui/teamviz.js";
+import { ATTR_KEYS } from "../src/team.js";
+
+test("ATTR_RU: a Russian label for every one of the 13 attribute keys", () => {
+  assert.equal(ATTR_KEYS.length, 13);
+  for (const k of ATTR_KEYS) assert.equal(typeof ATTR_RU[k], "string", `missing label for ${k}`);
+});
+
+test("personTipAttrs / staffTipAttrs: emit the expected data-attributes", () => {
+  const d = personTipAttrs({ abbrev: "VER", overall: 0.944, team: "Red Bull", name: "Ферстаппен", age: 28 });
+  assert.match(d, /data-driver="VER"/); assert.match(d, /data-ovr="0\.944"/);
+  assert.match(d, /data-team="Red Bull"/); assert.match(d, /data-name="Ферстаппен"/); assert.match(d, /data-age="28"/);
+  const s = staffTipAttrs({ role: "strategist", val: 0.82, team: "Mercedes" });
+  assert.match(s, /data-staff="strategist"/); assert.match(s, /data-val="0\.82"/); assert.match(s, /data-team="Mercedes"/);
+});
+
+test("driverSkillTip: header (name + OVR) + all 13 labels + bars", () => {
+  const h = driverSkillTip("VER", 0.944, "Red Bull", "Ферстаппен", 28);
+  assert.match(h, /Ферстаппен/); assert.match(h, /OVR/); assert.match(h, />94</, "OVR rounded to 94");
+  for (const k of ATTR_KEYS) assert.ok(h.includes(ATTR_RU[k]), `tip missing ${ATTR_RU[k]}`);
+  assert.match(h, /width:\d+%/, "has at least one bar fill");
+  assert.match(h, /★/, "marks top skills with a star");
+});
+
+test("staffSkillTip: role label + rating + effect line", () => {
+  const h = staffSkillTip("strategist", 0.82, "Mercedes");
+  assert.match(h, /Стратег/); assert.match(h, />82</); assert.ok(h.includes(STAFF_TIP.strategist));
+});

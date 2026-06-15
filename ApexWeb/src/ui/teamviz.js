@@ -2,6 +2,8 @@
 // asset paths, tyre icon, and (Task 3) the driver avatar + card builders. Pure UI; reads data.js
 // (read-only). No sim/network state.
 import { TEAMS, TEAM_LOGO } from "../data.js";
+import { driverAttrs, ATTR_KEYS } from "../team.js";
+import { ROLE_LABEL } from "../staff.js";
 
 const COLOR_BY_TEAM = {};
 for (const t of TEAMS) COLOR_BY_TEAM[t.name] = t.color;
@@ -61,4 +63,59 @@ export function driverCard(d, opts = {}) {
     +     `<span style="font-size:11px;color:${ink};background:${col};border-radius:4px;padding:1px 6px">${d.team}</span></div>`
     +   sub + act
     + `</div>` + car + `</div>`;
+}
+
+// RU labels for the 13 driver attributes (keys = ATTR_KEYS from team.js)
+export const ATTR_RU = { pace: "Темп", quali: "Квала", tyre: "Резина", overtaking: "Обгон",
+  defending: "Защита", consistency: "Стабильн.", composure: "Хладнокр.", aggression: "Агрессия",
+  discipline: "Дисципл.", wet: "Дождь", starts: "Старт", race_iq: "Гонч. IQ", smoothness: "Плавность" };
+
+// what each staff role affects (one line each)
+export const STAFF_TIP = {
+  designer: "Разработка машины: скорость R&D и прирост деталей.",
+  strategist: "Питы, реакция на сейфти-кар и дождь, выбор стратегии гонки.",
+  pitCrew: "Скорость пит-стопа — меньше потерь времени в боксах." };
+
+// data-attr strings spliced into a hover target (values are quote-free: team names + Cyrillic names)
+export function personTipAttrs({ abbrev, overall, team, name, age }) {
+  return `data-driver="${abbrev}" data-ovr="${overall}" data-team="${team}" data-name="${name}" data-age="${age}"`;
+}
+export function staffTipAttrs({ role, val, team }) {
+  return `data-staff="${role}" data-val="${val}" data-team="${team}"`;
+}
+
+// pilot tooltip: header (avatar + name + age + OVR) + 13 team-coloured mini-bars, top-3 starred.
+export function driverSkillTip(abbrev, overall, team, name, age) {
+  const col = teamColor(team);
+  const a = driverAttrs(abbrev, Number(overall));
+  const vals = ATTR_KEYS.map(k => Math.round((a[k] || 0) * 100));
+  const order = vals.map((v, i) => [v, i]).sort((x, y) => y[0] - x[0] || x[1] - y[1]);
+  const topIdx = new Set(order.slice(0, 3).map(x => x[1]));
+  const bars = ATTR_KEYS.map((k, i) => {
+    const v = vals[i], t = topIdx.has(i);
+    return `<div style="display:flex;align-items:center;gap:6px">`
+      + `<span style="font-size:11px;color:${t ? "#ECEDEE" : "#A1A1AA"};width:74px;flex:0 0 auto">${ATTR_RU[k]}${t ? ` <span style="color:${col}">★</span>` : ""}</span>`
+      + `<span style="flex:1;height:5px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden"><span style="display:block;height:5px;width:${v}%;background:${col};opacity:${t ? 1 : 0.78}"></span></span>`
+      + `<span style="font-size:11px;font-weight:600;width:18px;text-align:right;color:#ECEDEE">${v}</span></div>`;
+  }).join("");
+  return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">`
+    + driverAvatar(abbrev, team, 40)
+    + `<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">${name}</div>`
+    +   `<div style="font-size:11px;color:#A1A1AA">${team} · ${age} лет</div></div>`
+    + `<div style="text-align:right"><div style="font-size:10px;color:#A1A1AA">OVR</div>`
+    +   `<div style="font-weight:800;font-size:20px;color:${col}">${Math.round(Number(overall) * 100)}</div></div></div>`
+    + `<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px">${bars}</div>`;
+}
+
+// staff tooltip: role + rating + bar + effect line. Letter-block avatar (no icon font in the game).
+export function staffSkillTip(role, val, team) {
+  const col = teamColor(team), ink = teamInk(col), v = Math.round(Number(val) * 100);
+  const label = ROLE_LABEL[role] || role;
+  return `<div style="display:flex;align-items:center;gap:9px;margin-bottom:9px">`
+    + `<div style="width:38px;height:38px;border-radius:9px;background:${col};display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;color:${ink}">${label[0]}</div>`
+    + `<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">${label}</div>`
+    +   `<div style="font-size:11px;color:#A1A1AA">персонал · ${team}</div></div>`
+    + `<div style="font-weight:800;font-size:20px;color:${col}">${v}</div></div>`
+    + `<div style="height:6px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden;margin-bottom:8px"><div style="height:6px;width:${v}%;background:${col};border-radius:3px"></div></div>`
+    + `<div style="font-size:11px;color:#A1A1AA;line-height:1.55">${STAFF_TIP[role] || ""}</div>`;
 }
