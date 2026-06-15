@@ -1,8 +1,18 @@
 // ApexWeb/src/ui/lobby.js
 import { TEAMS, TEAM_LOGO, DIFFICULTY } from "../data.js";
+import { teamColor, teamInk, carImgSrc } from "./teamviz.js";
 import { hostGame, joinGame, startSolo, startCareerSolo, hostCareer } from "../main.js";
 
 const logoSrc = i => `assets/teams/${TEAM_LOGO[TEAMS[i].name]}.png`;
+const teamCard = i => {
+  const t = TEAMS[i], col = teamColor(t.name), ink = teamInk(col);
+  return `<div style="position:relative;overflow:hidden;background:var(--content2);border-left:5px solid ${col};border-radius:var(--r-md);padding:12px;min-height:84px;display:flex;align-items:center;gap:12px">
+      <img src="${logoSrc(i)}" alt="" style="height:46px;width:46px;object-fit:contain">
+      <div style="z-index:1"><div style="font-weight:800;font-size:18px">${t.name}</div>
+        <span style="font-size:11px;color:${ink};background:${col};border-radius:4px;padding:1px 6px">${t.drivers[0].abbrev} · ${t.drivers[1].abbrev}</span></div>
+      <img src="${carImgSrc(t.name)}" alt="" onerror="this.style.display='none'" style="position:absolute;right:0;bottom:0;height:74px;object-fit:contain;opacity:.95;pointer-events:none">
+    </div>`;
+};
 
 export function render(root, ctx) {
   ctx.teamIdx = ctx.teamIdx || 0;
@@ -14,10 +24,9 @@ export function render(root, ctx) {
     <div class="panel">
       <h2>Apex Web — кооп-уикенд</h2>
       <p class="label">Команда</p>
-      <div style="display:flex;align-items:center;gap:10px">
-        <img id="teamlogo" src="${logoSrc(ctx.teamIdx)}" alt="" style="height:52px;width:52px;object-fit:contain">
-        <select id="team" style="flex:1;padding:8px">${teamOpts}</select>
-      </div>
+      <div id="teamcard">${teamCard(ctx.teamIdx)}</div>
+      <div style="height:8px"></div>
+      <select id="team" style="width:100%;padding:8px">${teamOpts}</select>
       <div style="height:10px"></div>
       <p class="label">Сложность ИИ</p>
       <select id="diff" style="width:100%;padding:8px">${diffOpts}</select>
@@ -35,7 +44,7 @@ export function render(root, ctx) {
   const useP2P = true;            // set false to dev with two tabs (LocalNet)
   root.querySelector("#team").onchange = e => {
     ctx.teamIdx = +e.target.value;
-    root.querySelector("#teamlogo").src = logoSrc(ctx.teamIdx);
+    root.querySelector("#teamcard").innerHTML = teamCard(ctx.teamIdx);
   };
   root.querySelector("#diff").onchange = e => {
     ctx.diffKey = e.target.value;
