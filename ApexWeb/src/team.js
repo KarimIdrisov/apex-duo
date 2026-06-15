@@ -36,6 +36,53 @@ export function composeCar(car) {
   return { power: car.power, aero: car.aero, rel: car.rel, tyre: car.tyre ?? 1, fuel: car.fuel ?? 1 };
 }
 
+// --- D5: per-attribute development + traits ---
+
+// `overall` as a weighted readout of the headline attributes (pace-led, craft-weighted).
+const OVERALL_W = { pace: 0.30, quali: 0.12, race_iq: 0.14, tyre: 0.12, overtaking: 0.10, consistency: 0.10, defending: 0.07, wet: 0.05 };
+export function overallFromAttrs(a) {
+  let s = 0, w = 0; for (const k in OVERALL_W) { s += OVERALL_W[k] * (a[k] ?? 0.7); w += OVERALL_W[k]; }
+  return s / w;
+}
+
+// per-attribute peak age: physical (pace/quali/starts) peak early; craft (race_iq/tyre/wet) peak late.
+export const ATTR_PEAK = {
+  pace: 25, quali: 25, starts: 24, aggression: 26, smoothness: 31,
+  overtaking: 28, consistency: 30, defending: 30, composure: 32, discipline: 32, tyre: 33, wet: 33, race_iq: 35,
+};
+// one season of drift for an attribute at a given age (rise below peak, decline above; bounded ±0.025).
+export function attrDrift(key, age) {
+  const peak = ATTR_PEAK[key] ?? 28;
+  const d = peak - age;                       // >0 improving, <0 declining
+  const rate = d >= 0 ? 0.010 : 0.008;        // skills are gained a touch faster than they fade
+  return Math.max(-0.025, Math.min(0.025, d * rate * 0.25));
+}
+
+// explicit driver traits (RU labels) — bias which attrs develop, surfaced in the paddock.
+export const TRAITS = {
+  wet_master:     { label: "Дождевик",         attrs: { wet: 1, race_iq: 0.4 } },
+  overtaker:      { label: "Атакующий",         attrs: { overtaking: 1, aggression: 0.6 } },
+  defender:       { label: "Скала",             attrs: { defending: 1, composure: 0.5 } },
+  tyre_whisperer: { label: "Бережёт резину",    attrs: { tyre: 1, smoothness: 0.6 } },
+  qualifier:      { label: "Квалифайер",        attrs: { quali: 1 } },
+  starter:        { label: "Реактивный старт",  attrs: { starts: 1 } },
+  ice_cold:       { label: "Хладнокровный",     attrs: { composure: 1, discipline: 0.6 } },
+  strategist:     { label: "Гений гонки",       attrs: { race_iq: 1 } },
+};
+const TRAIT_DEV = 0.004;   // extra per-season drift on a trait's attrs
+export function traitBias(traits, key) {
+  let b = 0; for (const t of (traits || [])) { const w = TRAITS[t] && TRAITS[t].attrs[key]; if (w) b += TRAIT_DEV * w; }
+  return b;
+}
+
+// known signature traits per driver (identity at career start). Others get none until they develop one.
+const SIG_TRAIT = {
+  VER: ["overtaker"], HAM: ["wet_master", "strategist"], ALO: ["strategist", "defender"],
+  LEC: ["qualifier"], NOR: ["qualifier"], PIA: ["tyre_whisperer"], SAI: ["tyre_whisperer"],
+  PER: ["tyre_whisperer"], GAS: ["wet_master"], RUS: ["qualifier"],
+};
+export function assignTraits(abbrev) { return SIG_TRAIT[abbrev] ? [...SIG_TRAIT[abbrev]] : []; }
+
 // personnel from a team facility strength: pit-stop speed multiplier + strategy quality 0..1.
 export function genPersonnel(facility, seed) {
   const r = new RNG(mix32((Math.round(facility * 1000) + seed * 7919) >>> 0));
