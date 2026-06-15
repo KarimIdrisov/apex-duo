@@ -15,7 +15,7 @@ export const POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
 // prize money ($k) by race-finish position — a simple per-race payout (M2 deepens income).
 export const PRIZE = [1200, 1000, 850, 720, 620, 540, 470, 410, 360, 320, 280, 250, 220, 200, 180, 160, 150, 140, 130, 120, 110, 100];
 
-export const CAREER_V = 10;           // career save schema version
+export const CAREER_V = 11;           // career save schema version
 export const REG_RESET = 0.5;         // each season's regulation change trims everyone's car development
 export const RUNNING_COST = 800;      // $k per-race operating cost (M5 facilities refine it)
 
@@ -67,7 +67,7 @@ export function newCareer({ teamIdx = 0, seed = 1, coop = false } = {}) {
     parts: {}, project: null, devSpentThisSeason: 0,
     drivers: initDrivers(),
     staff: initStaff(TEAMS[teamIdx].facility, s),
-    academy: [],
+    academy: [], reserve: null,
     news: [],
     lastResult: null, history: [], done: false,
   };
@@ -175,6 +175,11 @@ export function migrate(career) {
     }
     career.v = 10;
   }
+  if (career.v < 11) {
+    for (const j of (career.academy || [])) { if (j.slPoints == null) { j.slPoints = 0; j.series = j.series || "F2"; } }   // D7: feeder state
+    career.reserve = career.reserve ?? null;
+    career.v = 11;
+  }
   return career;
 }
 // accept a season-start title-sponsor offer: replace the title deal, clear the offers.
@@ -226,7 +231,7 @@ export function newSeason(career) {
   aiChurn(fresh, (fresh.seed >>> 0) + fresh.season * 2246822519);   // deterministic AI silly-season
   fresh.staff = JSON.parse(JSON.stringify(career.staff || initStaff((TEAMS[career.teamIdx] || TEAMS[0]).facility, career.seed || 1)));
   fresh.academy = JSON.parse(JSON.stringify(career.academy || []));
-  developAcademy(fresh);                       // juniors grow toward potential each season
+  developAcademy(fresh, fresh.season);         // D7: juniors race a feeder season (SL points + dev by results)
   for (const tn in fresh.parts) for (const k in fresh.parts[tn]) fresh.parts[tn][k] *= REG_RESET;      // regs change: redevelop parts
   fresh.board.confidence = career.board.confidence ?? 0.5;     // confidence carries between seasons
   pushNews(fresh, `Сезон ${fresh.season}: смена регламента — разработка частично обнулена.`);

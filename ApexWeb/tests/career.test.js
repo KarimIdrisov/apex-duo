@@ -150,6 +150,16 @@ test("migrate v9 -> v10 backfills named staff people (D6)", () => {
   assert.ok(up.staff.people && up.staff.people.designer.rating === 0.8 && up.staff.people.designer.salary > 0);
 });
 
+test("migrate v10 -> v11 backfills academy feeder state (slPoints) + reserve (D7)", () => {
+  const v10 = { v: 10, teamIdx: 0, seed: 1, season: 1, round: 0, money: 0, driverPts: {}, teamPts: {}, board: { targetPos: 1, confidence: 0.5 }, sponsors: [], costCap: false, pendingOffers: [], parts: {}, news: [], drivers: {},
+    staff: { designer: 0.8, strategist: 0.7, pitCrew: 0.75, facilities: { design: 2, pit: 2, factory: 2 }, people: {} },
+    academy: [{ abbrev: "DOO", name: "Дуэн", age: 19, overall: 0.8, potential: 0.9 }] };
+  const up = migrate(v10);
+  assert.equal(up.v, CAREER_V);
+  assert.equal(up.academy[0].slPoints, 0);
+  assert.equal(up.reserve, null);
+});
+
 // --- M4 drivers ---
 test("newCareer at v4 carries a driver registry", () => {
   const c = newCareer({ teamIdx: 0, seed: 1 });
