@@ -9,7 +9,7 @@ import { careerTrack } from "../src/track_build.js";
 import { effectiveCar, startProject } from "../src/development.js";
 import { composePersonnel, upgradeStaff, upgradeFacility, upkeep } from "../src/staff.js";
 import { moraleMod, DRIVER_NAME } from "../src/drivers.js";
-import { signDriver, availableDrivers } from "../src/market.js";
+import { negotiateSign, availableDrivers, signCost } from "../src/market.js";
 import { signJunior, promoteJunior, SUPERLICENSE } from "../src/academy.js";
 
 function field() {
@@ -35,8 +35,13 @@ function runRace(track, seed) {
 }
 
 const career = newCareer({ teamIdx: 0, seed: 1 });
-{ const av = availableDrivers(career)[0]; const out = Object.keys(career.drivers).find(a => career.drivers[a].teamIdx === 0);
-  const ok = signDriver(career, av.abbrev, out); console.log(`transfer: signed ${av.abbrev} (ovr ${av.overall.toFixed(3)}) for ${out} -> ${ok}`); }
+{ const out = Object.keys(career.drivers).find(a => career.drivers[a].teamIdx === 0);
+  const top = availableDrivers(career)[0];                      // attempt the marquee target
+  let res = { ok: false, reason: "—" };
+  for (let s = 0; s < 30 && !res.ok; s++) res = negotiateSign(career, top.abbrev, out, { teamStrength: 1.0, seed: s });
+  // a top driver's buyout is steep at season start (D4) -> often "деньги"; either way the grid stays intact
+  // and the player keeps a competitive lineup (no income-wrecking downgrade).
+  console.log(`transfer: negotiate ${top.abbrev} (ovr ${top.overall.toFixed(3)}, cost $${(signCost(top) / 1000).toFixed(1)}M vs $${(career.money / 1000).toFixed(1)}M) for ${out} -> ${res.ok} (${res.ok ? "signed" : res.reason})`); }
 { signJunior(career, "HIR"); const out = Object.keys(career.drivers).find(a => career.drivers[a].teamIdx === 0);
   const ok = promoteJunior(career, "HIR", out); console.log(`academy: signed+promoted HIR for ${out} -> ${ok} (gate ${SUPERLICENSE})`); }
 let totalPts = 0, minPass = 1e9, maxPass = 0, races = 0;
