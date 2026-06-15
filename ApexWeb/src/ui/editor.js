@@ -8,6 +8,7 @@ import { fitOutline } from "../editor_preview.js";   // pure, THREE-free — saf
 import { suggestZonesFromClasses } from "../autozones.js";   // pure heuristic for the «Авто» button
 import { hydratePack } from "../track_pack.js";
 import { saveToRepo, publish } from "../track_repo.js";
+import { rotateToStart, reverseDirection } from "../track_edit.js";   // pure: set start/finish + lap direction by reordering points
 
 const HALF_W = 3.8, WORLD = 120, R = 7;                 // road half-width (world); world span; handle radius (px)
 const EMPTY = "Пустая";                                 // scratch option: a default oval to experiment on
@@ -126,6 +127,12 @@ const evtXY = (e) => { const r = cv.getBoundingClientRect(); return [e.clientX -
 
 cv.addEventListener("mousedown", (e) => {
   if (e.button !== 0) return; const [mx, my] = evtXY(e);
+  if (mode === "start") {                                                                  // set start/finish = nearest control point
+    if (pts.length < 3) { toast("Мало точек"); return; }
+    const p = unproject(mx, my); let bi = 0, bd = Infinity;
+    for (let i = 0; i < pts.length; i++) { const d = (pts[i][0] - p[0]) ** 2 + (pts[i][1] - p[1]) ** 2; if (d < bd) { bd = d; bi = i; } }
+    pts = rotateToStart(pts, bi); base = null; render(); toast("Старт перенесён"); return;
+  }
   if (mode === "pit") {                                                                    // author the pit lane: alternate entry / exit
     if (pts.length < 3) { toast("Мало точек"); return; }
     pit = unproject(mx, my);
@@ -278,6 +285,7 @@ function setMode(m) {
   for (const b of document.querySelectorAll("#modes button")) b.classList.toggle("on", b.id === "m-" + m);
   document.getElementById("pitctl").hidden = m !== "pit";
   document.getElementById("zonectl").hidden = m !== "zones";
+  document.getElementById("startctl").hidden = m !== "start";
   if (m === "pit") {
     document.getElementById("pitloss").value = (pitLoss == null ? "" : pitLoss);
     document.getElementById("pit-width").value = (pitLane && pitLane.width) || 2.5;
@@ -288,6 +296,11 @@ function setMode(m) {
 document.getElementById("m-edit").onclick = () => setMode("edit");
 document.getElementById("m-pit").onclick = () => setMode("pit");
 document.getElementById("m-zones").onclick = () => setMode("zones");
+document.getElementById("m-start").onclick = () => setMode("start");
+document.getElementById("start-reverse").onclick = () => {   // flip the lap direction, keep the start point
+  if (pts.length < 3) { toast("Мало точек"); return; }
+  pts = reverseDirection(pts); base = null; render(); toast("Развёрнуто");
+};
 function refreshZoneList() {
   const el = document.getElementById("zonelist");
   el.innerHTML = zones.map((z, i) => `<a href="#" data-z="${i}" style="color:${i === activeZone ? "#ffd24a" : "#7ad0ff"}">${z.type === "brake" ? "тормозн." : "слип"} [${z.sectors.join(",")}]</a> <a href="#" data-del="${i}" style="color:#e8453c">✕</a>`).join("<br>") || "(нет зон)";
