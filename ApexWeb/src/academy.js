@@ -1,5 +1,6 @@
 // ApexWeb/src/academy.js — pure young-driver academy: scout juniors (off-grid), develop them in
 // your program, promote a ready one into a race seat (injects into the driver registry).
+import { driverAttrs, assignTraits } from "./team.js";
 const clampOverall = v => Math.max(0.50, Math.min(0.99, v));
 
 export const SUPERLICENSE = 0.78;   // overall needed to promote a junior to a race seat
@@ -55,6 +56,7 @@ export function promoteJunior(career, juniorAbbrev, outAbbrev) {
   career.drivers[juniorAbbrev] = {
     teamIdx: career.teamIdx, age: j.age, overall: j.overall, morale: 0.7,
     contractSeasons: 3, salary: 200, name: j.name,                   // cheap rookie salary; name for the roster
+    attrs: driverAttrs(juniorAbbrev, j.overall), traits: assignTraits(juniorAbbrev),  // D5: a full citizen of the attr model
   };
   if (career.driverPts) career.driverPts[juniorAbbrev] = career.driverPts[juniorAbbrev] || 0;  // count in the standings
   career.academy.splice(ji, 1);                                     // leaves the academy

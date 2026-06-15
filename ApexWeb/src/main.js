@@ -255,7 +255,7 @@ function buildField() {
     return {
       idx: idx++, name: d.name, abbrev: d.abbrev, skill: overall,
       car: composeCar(ctx.career ? effectiveCar(t.car, ctx.career.parts[t.name]) : t.car), color: t.color, team: t.name, isPlayer: isPlayerTeam, player,
-      attrs: driverAttrs(d.abbrev, overall), personnel: (ctx.career && isPlayerTeam) ? composePersonnel(ctx.career.staff) : genPersonnel(t.facility, ti),
+      attrs: (dr && dr.attrs) ? dr.attrs : driverAttrs(d.abbrev, overall), personnel: (ctx.career && isPlayerTeam) ? composePersonnel(ctx.career.staff) : genPersonnel(t.facility, ti),
       setup, setupBonus: (player
         ? pracSetupBonus(player) + PRAC2.TRACK_PACE * pracTrackKnow(player)
         : paceBonus(closeness(setup, ideal)) + PRAC2.TRACK_PACE * PRAC2.AI_TRACK_KNOW) + mMod, startTyre: "medium",
@@ -289,7 +289,8 @@ function practiceCars() {
   const personnel = ctx.career ? composePersonnel(ctx.career.staff) : genPersonnel(t.facility, ctx.teamIdx || 0);   // staff crew/facility → personnel
   const car = composeCar(ctx.career ? effectiveCar(t.car, ctx.career.parts[t.name]) : t.car);
   const roster = teamRoster(ctx.teamIdx);
-  const mk = di => { const d = roster[di] || roster[0]; return { drv: { skill: d.skill, attrs: driverAttrs(d.abbrev, d.skill) }, car, personnel }; };
+  const mk = di => { const d = roster[di] || roster[0]; const cd = ctx.career && ctx.career.drivers ? ctx.career.drivers[d.abbrev] : null;
+    return { drv: { skill: d.skill, attrs: (cd && cd.attrs) ? cd.attrs : driverAttrs(d.abbrev, d.skill) }, car, personnel }; };
   return { p1: mk(0), p2: mk(1) };
 }
 // broadcast the live practice-session snapshot (clock + per-car setup/knowledge) to both screens.
