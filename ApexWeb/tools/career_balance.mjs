@@ -11,6 +11,7 @@ import { composePersonnel, upgradeStaff, upgradeFacility, upkeep, hireStaff, sta
 import { moraleMod, DRIVER_NAME } from "../src/drivers.js";
 import { negotiateSign, availableDrivers, signCost } from "../src/market.js";
 import { signJunior, promoteJunior, SUPERLICENSE } from "../src/academy.js";
+import { evaluateObjectives } from "../src/board.js";
 
 function field() {
   let idx = 0;
@@ -110,6 +111,10 @@ console.log(`academy: HIR racing for player (ovr ${career.drivers["HIR"].overall
   if (!(j1.slPoints > sl0 && j1.overall > ov0 && nx.lastFeeder && nx.lastFeeder.length)) { console.error("feeder did not develop the junior (D7)"); process.exit(1); } }
 console.log(`board: confidence ${Math.round((career.board.confidence ?? 0.5) * 100)}%, news ${(career.news || []).length} items; latest "${(career.news || [])[0] || "-"}"`);
 if (!(career.news && career.news.length > 0)) { console.error("no board/paddock news generated over the season"); process.exit(1); }
+// D8: the board's season objectives are tracked + evaluable; the championship objective is met (McLaren P1)
+{ const ev = evaluateObjectives(career); const champ = ev.find(o => o.type === "championship");
+  console.log(`objectives: ${ev.map(o => `${o.label.split(" ")[0]}${o.met ? "✓" : "✗"}`).join(" · ")} (podiums ${career.board.podiums}, points ${career.board.pointFinishes})`);
+  if (!(ev.length >= 2 && champ && champ.met && next.board.objectives && next.news[0])) { console.error("board objectives not tracked / regenerated (D8)"); process.exit(1); } }
 const regBefore = (career.parts["McLaren"] && career.parts["McLaren"].floor) || 0;
 const regAfter = (next.parts["McLaren"] && next.parts["McLaren"].floor) || 0;
 console.log(`regulation reset: McLaren parts.floor ${regBefore.toFixed(3)} -> ${regAfter.toFixed(3)} (new season)`);
