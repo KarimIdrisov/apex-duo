@@ -130,7 +130,16 @@ test("migrate upgrades a v2 save to v3 (adds carDev/project)", () => {
   const up = migrate(v2);
   assert.equal(up.v, CAREER_V);
   assert.deepEqual(up.project, null);
-  assert.ok(up.parts && typeof up.parts === "object");   // D3: migrate ends at v8 (carDev -> parts)
+  assert.ok(up.parts && typeof up.parts === "object");   // D3: carDev -> parts at v8
+});
+
+test("migrate v8 -> v9 backfills persistent driver attrs + traits (D5)", () => {
+  const v8 = { v: 8, teamIdx: 0, seed: 1, season: 1, round: 0, money: 0, driverPts: {}, teamPts: {}, board: { targetPos: 1, confidence: 0.5 }, sponsors: [], costCap: false, pendingOffers: [], parts: {}, news: [], academy: [], staff: {},
+    drivers: { VER: { teamIdx: 1, age: 28, overall: 0.95, morale: 0.6, contractSeasons: 3, salary: 500 } } };
+  const up = migrate(v8);
+  assert.equal(up.v, CAREER_V);
+  assert.equal(Object.keys(up.drivers.VER.attrs).length, 13);
+  assert.ok(up.drivers.VER.traits.includes("overtaker"));
 });
 
 // --- M4 drivers ---

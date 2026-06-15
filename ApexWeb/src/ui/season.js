@@ -10,8 +10,19 @@ import { DRIVER_NAME } from "../drivers.js";
 import { STAFF_ROLES, ROLE_LABEL, FACILITIES, FAC_LABEL, FAC_MAX, STAFF_UPGRADE_COST, FAC_UPGRADE_BASE, upkeep } from "../staff.js";
 import { TEAM_LOGO, TEAMS } from "../data.js";
 import { teamColor, driverAvatar, driverCard } from "./teamviz.js";
+import { TRAITS } from "../team.js";
 
 const row = (cells, hot) => `<tr style="${hot ? "font-weight:700;color:var(--good)" : ""}">${cells.map(c => `<td style="padding:3px 8px">${c}</td>`).join("")}</tr>`;
+
+// D5: a driver's trait chips + a compact headline-attribute line for the Пилоты card.
+const ATTR_SHOW = [["pace", "темп"], ["quali", "квал"], ["race_iq", "гонка"], ["tyre", "шины"], ["overtaking", "обгон"], ["wet", "дождь"]];
+function driverDepth(d) {
+  if (!d.attrs) return "";
+  const chips = (d.traits || []).map(t => TRAITS[t] && TRAITS[t].label).filter(Boolean)
+    .map(l => `<span style="font-size:10px;background:var(--good);color:#06121f;border-radius:4px;padding:1px 6px;margin-right:4px">${l}</span>`).join("");
+  const attrs = ATTR_SHOW.map(([k, l]) => `${l} <b>${Math.round((d.attrs[k] ?? 0) * 100)}</b>`).join(" · ");
+  return `${chips ? `<div style="margin-top:4px">${chips}</div>` : ""}<div class="label" style="margin-top:3px;font-size:11px">${attrs}</div>`;
+}
 const m$ = k => `$${(k / 1000).toFixed(2)}M`;
 
 export function render(root, ctx) {
@@ -65,7 +76,7 @@ export function render(root, ctx) {
     { team: myTeamName, abbrev: ab, name: DRIVER_NAME[ab] || ab },
     { car: true,
       sub: `${d.age} лет · ovr ${d.overall.toFixed(3)} · мораль ${Math.round(d.morale * 100)}% · ${d.contractSeasons} сез. · ${m$(d.salary)}/гонка`,
-      action: `<div style="margin-top:6px"><button class="ready resign" data-ab="${ab}" style="padding:3px 8px;font-size:12px">Продлить</button></div>` }
+      action: `${driverDepth(d)}<div style="margin-top:6px"><button class="ready resign" data-ab="${ab}" style="padding:3px 8px;font-size:12px">Продлить</button></div>` }
   )).join("");
   const driversPanel = mine.length ? `<div class="panel"><p class="label">Пилоты</p><div style="display:flex;flex-direction:column;gap:8px">${driverCards}</div></div>` : "";
 
