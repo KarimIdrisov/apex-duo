@@ -162,6 +162,9 @@ function onCommand(cmd) {
     case "career_promote":
       if (ctx.career) { promoteJunior(ctx.career, cmd.abbrev, cmd.outAbbrev); saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
+    case "career_reserve":
+      if (ctx.career) { ctx.career.reserve = (ctx.career.reserve === cmd.abbrev ? null : cmd.abbrev); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
     case "career_start_weekend":
       if (ctx.career && !ctx.career.done && !(ctx.career.pendingOffers && ctx.career.pendingOffers.length)) {
         ctx.careerReady[cmd.player] = true; publishCareer(); rerender();
