@@ -51,3 +51,27 @@ test("academyDevBonus scales with academy size", () => {
   signJunior(c, "VIL"); signJunior(c, "HIR");
   assert.ok(academyDevBonus(c) > 0);
 });
+
+// --- D7: feeder championship + superlicense + reserve ---
+import { runFeeder, SL_NEEDED, FEEDER_FILLER, reserveBonus } from "../src/academy.js";
+
+test("D7: runFeeder — juniors race the feeder, earn superlicense points + develop, deterministic", () => {
+  const c = { money: 1e6, academy: [{ abbrev: "DOO", name: "Дуэн", age: 19, overall: 0.80, potential: 0.92, slPoints: 0 }], seed: 1 };
+  const d = JSON.parse(JSON.stringify(c));
+  const a = runFeeder(c, 3), b = runFeeder(d, 3);
+  assert.deepEqual(a, b);                                   // deterministic
+  assert.ok(c.academy[0].slPoints > 0);                    // earned SL points
+  assert.ok(c.academy[0].overall > 0.80);                  // developed by racing
+  assert.ok(a.standings.length >= FEEDER_FILLER.length);   // full feeder grid
+  assert.ok(a.standings.some(s => s.abbrev === "DOO"));
+});
+
+test("D7: promoteJunior — superlicense points are an alternate gate to the overall gate", () => {
+  const c = { teamIdx: 0, drivers: { NOR: { teamIdx: 0, overall: 0.9 }, X: { teamIdx: 0, overall: 0.5 } },
+    academy: [{ abbrev: "DOO", name: "Дуэн", age: 20, overall: 0.74, potential: 0.9, slPoints: 45 }], driverPts: {} };
+  assert.equal(promoteJunior(c, "DOO", "X"), true);        // below 0.78 overall but 45 SL -> promotable
+});
+
+test("D7: reserveBonus — the reserve junior contributes a bigger dev bonus than a bench junior", () => {
+  assert.ok(reserveBonus(true) > reserveBonus(false));
+});
