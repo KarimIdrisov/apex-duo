@@ -263,6 +263,15 @@ test("boardOutcome reports confidence + a sacked flag when target missed and con
   assert.ok(bo.confidence <= 0.2);
 });
 
+// --- D1 real FastF1 track data ---
+test("D1: calendar baked with real FastF1 values (Monaco/Spa/Vegas/Austria)", () => {
+  const m = CALENDAR.find(r => r.shape === "Монако");
+  assert.ok(Math.abs(m.lt - 77.9) < 0.5 && m.ot === 0.00, "Monaco: real low lt, zero overtaking");
+  assert.ok(CALENDAR.find(r => r.shape === "Спа").lt > 105, "Spa: ~107.8s real lap");
+  assert.equal(CALENDAR.find(r => r.shape === "Лас-Вегас").ot, 1.00, "Vegas: top overtaking");
+  assert.ok(CALENDAR.find(r => r.shape === "Шпильберг").lt < 72, "Austria: ~70.4s real lap");
+});
+
 test("migrate upgrades a v6 save to v7 (adds confidence + news)", () => {
   const v6 = { v: 6, teamIdx: 1, seed: 3, season: 1, round: 0, money: 0, driverPts: {}, teamPts: {}, board: { targetPos: 2 }, sponsors: [], costCap: false, pendingOffers: [], carDev: {}, project: null, devSpentThisSeason: 0, drivers: {}, staff: {}, academy: [], lastResult: null, history: [], done: false };
   const up = migrate(v6);

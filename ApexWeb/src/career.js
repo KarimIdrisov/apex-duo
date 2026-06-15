@@ -19,32 +19,34 @@ export const REG_RESET = 0.5;         // each season's regulation change trims e
 export const RUNNING_COST = 800;      // $k per-race operating cost (M5 facilities refine it)
 
 // the season calendar: each round picks a real circuit shape (a track_shapes.js key) for the
-// visual + geometry, plus the sim characteristics. overtake_zones auto-derive from `ot` in
-// track_build.careerTrack() unless a round provides `zones`.
+// visual + geometry, plus the sim characteristics. lt/pit/pw/df/ot are BAKED from real FastF1 2024
+// data (tools/track_constants_2024.json, owner's extractor). laps are real counts; sc/wet stay
+// estimated; COMPOUNDS stay manual (FastF1 can't isolate tyre pace). overtake_zones auto-derive
+// from the real `ot` in track_build.careerTrack() unless a round provides `zones`. (D1)
 export const CALENDAR = [
-  { name: "Гран-при Бахрейна",          shape: "Бахрейн",      laps: 57, lt: 91,  pit: 22.0, df: 0.55, pw: 0.70, ot: 0.55, sc: 0.30, wet: 0.05 },
-  { name: "Гран-при Саудовской Аравии", shape: "Джидда",       laps: 50, lt: 90,  pit: 19.5, df: 0.40, pw: 0.80, ot: 0.50, sc: 0.55, wet: 0.05 },
-  { name: "Гран-при Австралии",         shape: "Мельбурн",     laps: 58, lt: 80,  pit: 20.0, df: 0.55, pw: 0.60, ot: 0.45, sc: 0.45, wet: 0.25 },
-  { name: "Гран-при Японии",            shape: "Сузука",       laps: 53, lt: 91,  pit: 22.0, df: 0.85, pw: 0.45, ot: 0.35, sc: 0.30, wet: 0.35 },
-  { name: "Гран-при Майами",            shape: "Майами",       laps: 57, lt: 89,  pit: 19.0, df: 0.50, pw: 0.65, ot: 0.55, sc: 0.40, wet: 0.20 },
-  { name: "Гран-при Эмилии-Романьи",    shape: "Имола",        laps: 63, lt: 78,  pit: 26.0, df: 0.70, pw: 0.55, ot: 0.20, sc: 0.40, wet: 0.25 },
-  { name: "Гран-при Монако",            shape: "Монако",       laps: 78, lt: 73,  pit: 22.0, df: 0.95, pw: 0.30, ot: 0.05, sc: 0.55, wet: 0.30 },
-  { name: "Гран-при Испании",           shape: "Барселона",    laps: 66, lt: 80,  pit: 23.5, df: 0.82, pw: 0.55, ot: 0.30, sc: 0.25, wet: 0.30 },
-  { name: "Гран-при Канады",            shape: "Монреаль",     laps: 70, lt: 74,  pit: 18.0, df: 0.45, pw: 0.70, ot: 0.55, sc: 0.55, wet: 0.35 },
-  { name: "Гран-при Австрии",           shape: "Шпильберг",    laps: 71, lt: 67,  pit: 20.0, df: 0.45, pw: 0.70, ot: 0.60, sc: 0.40, wet: 0.40 },
-  { name: "Гран-при Великобритании",    shape: "Сильверстоун", laps: 52, lt: 88,  pit: 21.0, df: 0.75, pw: 0.60, ot: 0.50, sc: 0.40, wet: 0.45 },
-  { name: "Гран-при Бельгии",           shape: "Спа",          laps: 44, lt: 105, pit: 19.0, df: 0.55, pw: 0.75, ot: 0.65, sc: 0.45, wet: 0.55 },
-  { name: "Гран-при Венгрии",           shape: "Хунгароринг",  laps: 70, lt: 78,  pit: 21.0, df: 0.88, pw: 0.40, ot: 0.20, sc: 0.35, wet: 0.30 },
-  { name: "Гран-при Нидерландов",       shape: "Зандворт",     laps: 72, lt: 72,  pit: 21.0, df: 0.80, pw: 0.50, ot: 0.30, sc: 0.40, wet: 0.40 },
-  { name: "Гран-при Италии",            shape: "Монца",        laps: 53, lt: 81,  pit: 24.0, df: 0.20, pw: 0.95, ot: 0.70, sc: 0.35, wet: 0.25 },
-  { name: "Гран-при Азербайджана",      shape: "Баку",         laps: 51, lt: 103, pit: 19.0, df: 0.35, pw: 0.85, ot: 0.55, sc: 0.60, wet: 0.15 },
-  { name: "Гран-при Сингапура",         shape: "Сингапур",     laps: 62, lt: 96,  pit: 28.0, df: 0.90, pw: 0.40, ot: 0.20, sc: 0.75, wet: 0.35 },
-  { name: "Гран-при США",               shape: "Остин",        laps: 56, lt: 96,  pit: 21.0, df: 0.65, pw: 0.65, ot: 0.55, sc: 0.45, wet: 0.30 },
-  { name: "Гран-при Мексики",           shape: "Мехико",       laps: 71, lt: 78,  pit: 21.0, df: 0.55, pw: 0.55, ot: 0.45, sc: 0.45, wet: 0.25 },
-  { name: "Гран-при Бразилии",          shape: "Интерлагос",   laps: 71, lt: 71,  pit: 20.0, df: 0.60, pw: 0.65, ot: 0.60, sc: 0.50, wet: 0.55 },
-  { name: "Гран-при Лас-Вегаса",        shape: "Лас-Вегас",    laps: 50, lt: 95,  pit: 19.0, df: 0.30, pw: 0.85, ot: 0.65, sc: 0.55, wet: 0.10 },
-  { name: "Гран-при Катара",            shape: "Лусаил",       laps: 57, lt: 83,  pit: 23.0, df: 0.80, pw: 0.50, ot: 0.35, sc: 0.35, wet: 0.05 },
-  { name: "Гран-при Абу-Даби",          shape: "Яс-Марина",    laps: 58, lt: 86,  pit: 21.0, df: 0.60, pw: 0.60, ot: 0.40, sc: 0.40, wet: 0.05 },
+  { name: "Гран-при Бахрейна",          shape: "Бахрейн",      laps: 57, lt: 95.7,  pit: 25.3, df: 0.22, pw: 0.51, ot: 0.29, sc: 0.30, wet: 0.05 },
+  { name: "Гран-при Саудовской Аравии", shape: "Джидда",       laps: 50, lt: 92.9,  pit: 19.9, df: 0.82, pw: 0.71, ot: 0.29, sc: 0.55, wet: 0.05 },
+  { name: "Гран-при Австралии",         shape: "Мельбурн",     laps: 58, lt: 81.5,  pit: 20.7, df: 0.73, pw: 0.64, ot: 0.10, sc: 0.45, wet: 0.25 },
+  { name: "Гран-при Японии",            shape: "Сузука",       laps: 53, lt: 95.9,  pit: 23.3, df: 0.93, pw: 0.59, ot: 0.57, sc: 0.30, wet: 0.35 },
+  { name: "Гран-при Майами",            shape: "Майами",       laps: 57, lt: 92.1,  pit: 23.4, df: 0.50, pw: 0.82, ot: 0.31, sc: 0.40, wet: 0.20 },
+  { name: "Гран-при Эмилии-Романьи",    shape: "Имола",        laps: 63, lt: 80.9,  pit: 28.2, df: 0.41, pw: 0.85, ot: 0.29, sc: 0.40, wet: 0.25 },
+  { name: "Гран-при Монако",            shape: "Монако",       laps: 78, lt: 77.9,  pit: 18.4, df: 0.83, pw: 0.00, ot: 0.00, sc: 0.55, wet: 0.30 },
+  { name: "Гран-при Испании",           shape: "Барселона",    laps: 66, lt: 79.5,  pit: 23.4, df: 0.86, pw: 0.61, ot: 0.54, sc: 0.25, wet: 0.30 },
+  { name: "Гран-при Канады",            shape: "Монреаль",     laps: 70, lt: 80.0,  pit: 20.6, df: 0.02, pw: 0.66, ot: 0.52, sc: 0.55, wet: 0.35 },
+  { name: "Гран-при Австрии",           shape: "Шпильберг",    laps: 71, lt: 70.4,  pit: 21.4, df: 0.43, pw: 0.59, ot: 0.30, sc: 0.40, wet: 0.40 },
+  { name: "Гран-при Великобритании",    shape: "Сильверстоун", laps: 52, lt: 91.1,  pit: 31.4, df: 0.88, pw: 0.61, ot: 0.40, sc: 0.40, wet: 0.45 },
+  { name: "Гран-при Бельгии",           shape: "Спа",          laps: 44, lt: 107.8, pit: 20.4, df: 0.45, pw: 0.51, ot: 0.32, sc: 0.45, wet: 0.55 },
+  { name: "Гран-при Венгрии",           shape: "Хунгароринг",  laps: 70, lt: 83.1,  pit: 20.7, df: 0.62, pw: 0.41, ot: 0.32, sc: 0.35, wet: 0.30 },
+  { name: "Гран-при Нидерландов",       shape: "Зандворт",     laps: 72, lt: 75.1,  pit: 24.3, df: 1.00, pw: 0.67, ot: 0.38, sc: 0.40, wet: 0.40 },
+  { name: "Гран-при Италии",            shape: "Монца",        laps: 53, lt: 83.6,  pit: 26.9, df: 0.21, pw: 0.97, ot: 0.50, sc: 0.35, wet: 0.25 },
+  { name: "Гран-при Азербайджана",      shape: "Баку",         laps: 51, lt: 107.8, pit: 22.8, df: 0.00, pw: 0.84, ot: 0.71, sc: 0.60, wet: 0.15 },
+  { name: "Гран-при Сингапура",         shape: "Сингапур",     laps: 62, lt: 97.7,  pit: 30.4, df: 0.20, pw: 0.41, ot: 0.22, sc: 0.75, wet: 0.35 },
+  { name: "Гран-при США",               shape: "Остин",        laps: 56, lt: 98.8,  pit: 22.1, df: 0.76, pw: 0.64, ot: 0.58, sc: 0.45, wet: 0.30 },
+  { name: "Гран-при Мексики",           shape: "Мехико",       laps: 71, lt: 81.1,  pit: 24.0, df: 0.14, pw: 1.00, ot: 0.43, sc: 0.45, wet: 0.25 },
+  { name: "Гран-при Бразилии",          shape: "Интерлагос",   laps: 71, lt: 82.7,  pit: 26.4, df: 0.28, pw: 0.33, ot: 0.61, sc: 0.50, wet: 0.55 },
+  { name: "Гран-при Лас-Вегаса",        shape: "Лас-Вегас",    laps: 50, lt: 97.2,  pit: 23.4, df: 0.24, pw: 0.97, ot: 1.00, sc: 0.55, wet: 0.10 },
+  { name: "Гран-при Катара",            shape: "Лусаил",       laps: 57, lt: 84.6,  pit: 27.1, df: 0.87, pw: 0.59, ot: 0.46, sc: 0.35, wet: 0.05 },
+  { name: "Гран-при Абу-Даби",          shape: "Яс-Марина",    laps: 58, lt: 88.5,  pit: 24.2, df: 0.48, pw: 0.59, ot: 0.42, sc: 0.40, wet: 0.05 },
 ];
 
 function allDrivers() { return TEAMS.flatMap(t => t.drivers.map(d => ({ abbrev: d.abbrev, team: t.name }))); }
