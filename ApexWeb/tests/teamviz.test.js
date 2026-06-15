@@ -109,3 +109,11 @@ test("driverCard: stamps data-driver when overall is provided; omits it otherwis
   const noTip = driverCard({ team: "McLaren", abbrev: "NOR", name: "Норрис" }, { sub: "x" });
   assert.doesNotMatch(noTip, /data-driver=/, "no tip-attrs without overall");
 });
+
+import { attachPersonTips } from "../src/ui/teamviz.js";
+
+test("attachPersonTips: a no-op (no throw) when there is no DOM", () => {
+  assert.equal(typeof attachPersonTips, "function");
+  assert.doesNotThrow(() => attachPersonTips(null));
+  assert.doesNotThrow(() => attachPersonTips({}));  // no document in node → early return
+});

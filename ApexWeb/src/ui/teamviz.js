@@ -126,3 +126,40 @@ export function staffSkillTip(role, val, team) {
     + `<div style="height:6px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden;margin-bottom:8px"><div style="height:6px;width:${v}%;background:${col};border-radius:3px"></div></div>`
     + `<div style="font-size:11px;color:#A1A1AA;line-height:1.55">${STAFF_TIP[role] || ""}</div>`;
 }
+
+// Hover skill tooltips: one body-level singleton + a delegated listener on `root`. Targets carry
+// data-driver/-ovr/-team/-name/-age (pilots) or data-staff/-val/-team (staff). Desktop hover; the tip
+// is pointer-events:none so it never blocks buttons under it. Idempotent — safe to call every render.
+let _personTipEl = null;
+export function attachPersonTips(root) {
+  if (typeof document === "undefined" || !root || !root.addEventListener) return;
+  if (!_personTipEl) {
+    _personTipEl = document.createElement("div");
+    _personTipEl.id = "apex-person-tip";
+    _personTipEl.style.cssText = "position:fixed;z-index:9999;pointer-events:none;min-width:240px;max-width:320px;"
+      + "background:#18181b;border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:12px;display:none;"
+      + "box-shadow:0 10px 30px rgba(0,0,0,.55);color:#ECEDEE;font-family:inherit";
+    document.body.appendChild(_personTipEl);
+  }
+  const tip = _personTipEl;
+  const place = (el) => {
+    const r = el.getBoundingClientRect(), tw = tip.offsetWidth, th = tip.offsetHeight;
+    let left = Math.min(Math.max(8, r.left), window.innerWidth - tw - 8);
+    let top = r.bottom + 8;
+    if (top + th > window.innerHeight - 8) top = Math.max(8, r.top - th - 8);
+    tip.style.left = left + "px"; tip.style.top = top + "px";
+  };
+  const show = (el) => {
+    const ds = el.dataset;
+    const html = ds.driver ? driverSkillTip(ds.driver, ds.ovr, ds.team, ds.name, ds.age)
+      : ds.staff ? staffSkillTip(ds.staff, ds.val, ds.team) : "";
+    if (!html) return;
+    tip.innerHTML = html; tip.style.display = "block"; place(el);
+  };
+  const hide = () => { tip.style.display = "none"; };
+  if (root._apexTipOver) { root.removeEventListener("mouseover", root._apexTipOver); root.removeEventListener("mouseout", root._apexTipOut); }
+  root._apexTipOver = (e) => { const t = e.target.closest && e.target.closest("[data-driver],[data-staff]"); if (t) show(t); };
+  root._apexTipOut = (e) => { const t = e.target.closest && e.target.closest("[data-driver],[data-staff]"); if (t && (!e.relatedTarget || !t.contains(e.relatedTarget))) hide(); };
+  root.addEventListener("mouseover", root._apexTipOver);
+  root.addEventListener("mouseout", root._apexTipOut);
+}
