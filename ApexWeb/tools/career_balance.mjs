@@ -76,9 +76,18 @@ console.log(`dev: player parts floor +${(myParts.floor || 0).toFixed(3)} pu +${(
 if (!(Object.values(myParts).some(v => v > 0))) { console.error("player car did not develop over the season"); process.exit(1); }
 if (spread > 0.45) { console.error(`grid spread ${spread.toFixed(3)} too wide — development ran away`); process.exit(1); }
 const antBefore = career.drivers["ANT"].overall, aloBefore = career.drivers["ALO"].overall;
+const antAttr0 = { ...career.drivers["ANT"].attrs }, aloAttr0 = { ...career.drivers["ALO"].attrs };
 const next = newSeason(career);
 console.log(`drivers: ANT ${antBefore.toFixed(3)}->${next.drivers["ANT"].overall.toFixed(3)} (age ${next.drivers["ANT"].age}), ALO ${aloBefore.toFixed(3)}->${next.drivers["ALO"].overall.toFixed(3)}; player morale ${Object.keys(career.drivers).filter(a => career.drivers[a].teamIdx === 0).map(a => Math.round(career.drivers[a].morale * 100) + "%").join("/")}`);
 if (!(next.drivers["ANT"].overall > antBefore && next.drivers["ALO"].overall < aloBefore)) { console.error("driver development curve broken (young should rise, veteran fall)"); process.exit(1); }
+// D5: attributes develop independently and within bounds
+const antPaceUp = next.drivers["ANT"].attrs.pace - antAttr0.pace;
+const aloPaceDn = aloAttr0.pace - next.drivers["ALO"].attrs.pace, aloIqDn = aloAttr0.race_iq - next.drivers["ALO"].attrs.race_iq;
+console.log(`attrs (D5): ANT pace ${antAttr0.pace.toFixed(3)}->${next.drivers["ANT"].attrs.pace.toFixed(3)}; ALO pace -${aloPaceDn.toFixed(3)} vs race_iq -${aloIqDn.toFixed(3)}`);
+if (!(antPaceUp > 0)) { console.error("a young driver's pace did not improve (D5 attr dev)"); process.exit(1); }
+if (!(aloPaceDn > aloIqDn)) { console.error("a veteran's pace should fade faster than craft (D5 attr dev)"); process.exit(1); }
+for (const ab in next.drivers) { const a0 = career.drivers[ab] && career.drivers[ab].attrs, a1 = next.drivers[ab].attrs;
+  if (a0 && a1) for (const k in a1) if (Math.abs(a1[k] - a0[k]) > 0.05) { console.error(`attr ${k} drifted ${(a1[k] - a0[k]).toFixed(3)} for ${ab} — too fast (D5)`); process.exit(1); } }
 console.log(`staff: designer ${Math.round(career.staff.designer * 100)}, design office L${career.staff.facilities.design}, upkeep ${upkeep(career.staff).toFixed(0)}k/race`);
 const counts = {}; for (const a in career.drivers) counts[career.drivers[a].teamIdx] = (counts[career.drivers[a].teamIdx] || 0) + 1;
 const badTeams = Object.entries(counts).filter(([, n]) => n !== 2);
