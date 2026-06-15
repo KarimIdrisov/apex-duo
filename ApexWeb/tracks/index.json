@@ -4,7 +4,15 @@
     "name": "Мадрид"
   },
   {
+    "slug": "monako",
+    "name": "Монако"
+  },
+  {
     "slug": "montsa",
     "name": "Монца"
+  },
+  {
+    "slug": "spa",
+    "name": "Спа"
   }
 ]
