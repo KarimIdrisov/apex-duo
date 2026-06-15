@@ -3,6 +3,7 @@
 // Skeleton is built ONCE (so the lever buttons survive ~12 Hz updates and clicks
 // land); only values + the board + car dots are mutated each snapshot.
 import { TRACK, TRACK_PATH, DRIVER_INFO } from "../data.js";
+import { teamColor, teamLogoSrc } from "./teamviz.js";
 import { describe } from "../commentary.js";
 import { sfx } from "../audio.js";
 import * as screen3d from "./race3d_screen.js";
@@ -17,7 +18,7 @@ const ORDER = ["attack", "defend", "none"];
 const ORDER_L = { attack: "⚔ Атака", defend: "🛡 Защита", none: "Нейтр" };
 const SPEEDS = [1, 2, 4];
 
-const logo = (a, s = 18) => { const l = DRIVER_INFO[a] && DRIVER_INFO[a].logo; return l ? `<img src="assets/teams/${l}.png" alt="" style="height:${s}px;width:${s}px;object-fit:contain;vertical-align:middle;margin-right:6px">` : ""; };
+const logo = (a, s = 18) => { const info = DRIVER_INFO[a]; return info ? `<img src="${teamLogoSrc(info.team)}" alt="" style="height:${s}px;width:${s}px;object-fit:contain;vertical-align:middle;margin-right:6px">` : ""; };
 const tyreIcon = (t, s = 18) => `<img src="assets/tyres/${t}.png" alt="${t}" style="height:${s}px;width:${s}px;object-fit:contain;vertical-align:middle">`;
 
 // ---- real circuit geometry (fit into a 100x100 viewBox) + arc-length sampler. Rebindable via
@@ -354,7 +355,8 @@ function board(cars, ctx) {
     const intv = c.retired ? "—" : (i === 0 ? "—" : fmtGap((cars[i - 1].lap + cars[i - 1].lapFrac) - prog));
     const mine = c.player === ctx.myPlayer, team = !mine && c.isPlayer;
     const bg = mine ? "background:rgba(0,111,238,.22)" : team ? "background:rgba(0,111,238,.10)" : "";
-    return `<tr style="${bg};border-top:1px solid var(--border)">
+    const accent = teamColor((DRIVER_INFO[c.abbrev] || {}).team);
+    return `<tr style="${bg};border-top:1px solid var(--border);border-left:3px solid ${accent}">
       <td style="padding:5px 6px;font-weight:700">${c.pos}</td>
       <td style="padding:5px 2px">${delta(c)}</td>
       <td style="padding:5px 6px">${logo(c.abbrev, 18)}<b>${c.abbrev}</b></td>
