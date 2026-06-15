@@ -21,7 +21,9 @@ export function initStaff(teamFacility, seed) {
   const r = mix32((Math.round(f * 1000) + (seed >>> 0) * 7919) >>> 0) / 4294967296;
   const base = clamp01(f + (r - 0.5) * 0.06);
   const lv = Math.max(0, Math.min(FAC_MAX, Math.round(f * 3)));
-  return { designer: base, strategist: base, pitCrew: base, facilities: { design: lv, pit: lv, factory: lv } };
+  const dft = () => ({ name: "—", specialty: null, rating: base, salary: salaryForStaff(base) });   // default in-house staff
+  return { designer: base, strategist: base, pitCrew: base, facilities: { design: lv, pit: lv, factory: lv },
+    people: { designer: dft(), strategist: dft(), pitCrew: dft() } };
 }
 
 // personnel the sim reads: pit crew + pit facility -> pitMult (lower = faster); strategist + design -> strategy.
@@ -64,4 +66,57 @@ export function upgradeFacility(career, which) {
   career.money -= cost;
   career.staff.facilities[which] = lvl + 1;
   return true;
+}
+
+// --- D6: named staff market + specialties ---
+
+// specialty tags (identity/flavor) — each belongs to one role; the rating jump is the mechanical effect.
+export const SPECIALTIES = {
+  aero:       { label: "Аэродинамик", role: "designer" },
+  mechanical: { label: "Механик",     role: "designer" },
+  tactician:  { label: "Тактик",      role: "strategist" },
+  pitace:     { label: "Ас пит-стопа", role: "pitCrew" },
+};
+
+// a fictional market of specialists (≥3 per role; names invented, no real people).
+export const STAFF_MARKET_POOL = [
+  { id: "d1", name: "Адриан Коул",  role: "designer",   specialty: "aero",       rating: 0.93 },
+  { id: "d2", name: "Лука Ферри",   role: "designer",   specialty: "mechanical", rating: 0.85 },
+  { id: "d3", name: "Йонас Берг",   role: "designer",   specialty: "aero",       rating: 0.78 },
+  { id: "s1", name: "Мария Сантос", role: "strategist", specialty: "tactician",  rating: 0.91 },
+  { id: "s2", name: "Том Прайс",    role: "strategist", specialty: "tactician",  rating: 0.83 },
+  { id: "s3", name: "Икэр Руис",    role: "strategist", specialty: "tactician",  rating: 0.76 },
+  { id: "p1", name: "Ганс Вебер",   role: "pitCrew",    specialty: "pitace",     rating: 0.90 },
+  { id: "p2", name: "Дэв Капур",    role: "pitCrew",    specialty: "pitace",     rating: 0.82 },
+  { id: "p3", name: "Сэм О'Брайен", role: "pitCrew",    specialty: "pitace",     rating: 0.75 },
+];
+
+// staff wage ($k/race) for a rating — used for the hire fee + displayed salary (cheap; a star ~$0.2M).
+export function salaryForStaff(rating) { return Math.round(40 + Math.pow(Math.max(0, rating - 0.6), 1.6) * 900); }
+
+// the hireable market for a season seed — deterministic order (refreshes by seed), each priced.
+export function staffMarket(seed) {
+  const s = seed >>> 0;
+  return STAFF_MARKET_POOL
+    .map(p => ({ ...p, salary: salaryForStaff(p.rating), _o: mix32((s * 2654435761 + p.id.charCodeAt(0) * 131 + p.id.charCodeAt(1)) >>> 0) }))
+    .sort((a, b) => a._o - b._o)
+    .map(({ _o, ...p }) => p);
+}
+
+// hire a specialist: pay a lump fee (≈8 races of wage), jump that role's rating, record the person.
+export function hireStaff(career, person) {
+  if (!career || !career.staff || !person || !STAFF_ROLES.includes(person.role)) return false;
+  const fee = salaryForStaff(person.rating) * 8;
+  if (career.money < fee) return false;
+  career.money -= fee;
+  career.staff[person.role] = clamp01(person.rating);
+  career.staff.people = career.staff.people || {};
+  career.staff.people[person.role] = { name: person.name, specialty: person.specialty, rating: person.rating, salary: salaryForStaff(person.rating) };
+  return true;
+}
+
+// total staff wage bill ($k/race) — a displayed readout (NOT deducted, to keep the economy safe).
+export function staffSalaries(staff) {
+  if (!staff || !staff.people) return 0;
+  return STAFF_ROLES.reduce((s, r) => s + ((staff.people[r] && staff.people[r].salary) || 0), 0);
 }

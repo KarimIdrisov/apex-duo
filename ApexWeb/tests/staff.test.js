@@ -39,3 +39,34 @@ test("upgradeStaff / upgradeFacility spend money and improve; refused when broke
   assert.equal(upgradeFacility(c, "design"), true);
   assert.equal(c.staff.facilities.design, lvl + 1);
 });
+
+// --- D6: named staff market + specialties ---
+import { STAFF_MARKET_POOL, staffMarket, hireStaff, staffSalaries, SPECIALTIES, salaryForStaff } from "../src/staff.js";
+
+test("D6: staffMarket lists hireable specialists for every role, deterministic, priced", () => {
+  const m1 = staffMarket(1), m2 = staffMarket(1);
+  assert.deepEqual(m1, m2);                                       // deterministic
+  assert.notDeepEqual(staffMarket(1), staffMarket(2));           // refreshes by seed
+  for (const role of STAFF_ROLES) assert.ok(m1.some(p => p.role === role), `market has a ${role}`);
+  assert.ok(m1.every(p => p.rating > 0 && p.rating <= 0.99 && p.salary > 0 && SPECIALTIES[p.specialty]));
+  assert.ok(STAFF_MARKET_POOL.length >= 9);
+});
+
+test("D6: hireStaff sets the role to the specialist's rating, pays the fee, records the person; refused when broke", () => {
+  const c = { money: 1e6, staff: initStaff(0.6, 1) };
+  const person = staffMarket(1).find(p => p.role === "designer" && p.rating > c.staff.designer);
+  const before = c.money;
+  assert.equal(hireStaff(c, person), true);
+  assert.equal(c.staff.designer, person.rating);                 // the rating jump is the mechanical effect
+  assert.equal(c.staff.people.designer.name, person.name);
+  assert.equal(c.staff.people.designer.specialty, person.specialty);
+  assert.ok(c.money < before);
+  assert.equal(hireStaff({ money: 1, staff: initStaff(0.6, 1) }, person), false);   // broke
+});
+
+test("D6: staffSalaries sums the hired wages (readout); initStaff seeds cheap default staff", () => {
+  const s = initStaff(0.75, 1);
+  assert.ok(s.people && s.people.designer);
+  assert.ok(staffSalaries(s) > 0 && staffSalaries(s) < 400);
+  assert.ok(salaryForStaff(0.95) > salaryForStaff(0.70));
+});
