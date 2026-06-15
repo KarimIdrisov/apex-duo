@@ -14,7 +14,7 @@ export const POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
 // prize money ($k) by race-finish position — a simple per-race payout (M2 deepens income).
 export const PRIZE = [1200, 1000, 850, 720, 620, 540, 470, 410, 360, 320, 280, 250, 220, 200, 180, 160, 150, 140, 130, 120, 110, 100];
 
-export const CAREER_V = 7;            // career save schema version
+export const CAREER_V = 8;            // career save schema version
 export const REG_RESET = 0.5;         // each season's regulation change trims everyone's car development
 export const RUNNING_COST = 800;      // $k per-race operating cost (M5 facilities refine it)
 
@@ -63,7 +63,7 @@ export function newCareer({ teamIdx = 0, seed = 1, coop = false } = {}) {
     driverPts, teamPts,
     board: { targetPos: Math.min(TEAMS.length, teamIdx + 1), confidence: 0.5 },  // meet your tier (P{teamIdx+1})
     sponsors: defaultSponsors(teamIdx, s), costCap: false, pendingOffers: titleOffers(teamIdx, s),
-    carDev: {}, project: null, devSpentThisSeason: 0,
+    parts: {}, project: null, devSpentThisSeason: 0,
     drivers: initDrivers(),
     staff: initStaff(TEAMS[teamIdx].facility, s),
     academy: [],
@@ -155,6 +155,11 @@ export function migrate(career) {
     career.news = career.news || [];
     career.v = 7;
   }
+  if (career.v < 8) {
+    career.parts = career.parts || {};   // parts replace the old carDev deltas (dev reset on upgrade; regs reset anyway)
+    delete career.carDev;
+    career.v = 8;
+  }
   return career;
 }
 // accept a season-start title-sponsor offer: replace the title deal, clear the offers.
@@ -199,7 +204,7 @@ export function newSeason(career) {
   fresh.season = career.season + 1;
   fresh.money = career.money;
   // deep-copy carried state so the prior season's career object stays immutable
-  fresh.carDev = JSON.parse(JSON.stringify(career.carDev || {}));   // development carries over (M8 adds regulation resets)
+  fresh.parts = JSON.parse(JSON.stringify(career.parts || {}));     // part development carries over (regs reset below)
   fresh.devSpentThisSeason = 0;
   fresh.drivers = JSON.parse(JSON.stringify(career.drivers || initDrivers()));
   developDrivers(fresh.drivers);             // age up, develop/decline, tick contracts
@@ -207,7 +212,7 @@ export function newSeason(career) {
   fresh.staff = JSON.parse(JSON.stringify(career.staff || initStaff((TEAMS[career.teamIdx] || TEAMS[0]).facility, career.seed || 1)));
   fresh.academy = JSON.parse(JSON.stringify(career.academy || []));
   developAcademy(fresh);                       // juniors grow toward potential each season
-  for (const tn in fresh.carDev) for (const k in fresh.carDev[tn]) fresh.carDev[tn][k] *= REG_RESET;   // regs change: redevelop
+  for (const tn in fresh.parts) for (const k in fresh.parts[tn]) fresh.parts[tn][k] *= REG_RESET;      // regs change: redevelop parts
   fresh.board.confidence = career.board.confidence ?? 0.5;     // confidence carries between seasons
   pushNews(fresh, `Сезон ${fresh.season}: смена регламента — разработка частично обнулена.`);
   return fresh;

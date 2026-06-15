@@ -114,15 +114,15 @@ test("newCareer at v3 carries carDev + a null project + a season dev-spend count
   assert.ok(c.v >= 3);
   assert.deepEqual(c.project, null);
   assert.equal(c.devSpentThisSeason, 0);
-  assert.ok(c.carDev && typeof c.carDev === "object");
+  assert.ok(c.parts && typeof c.parts === "object");
 });
 
 test("advanceRound develops the car: a finished project lands + AI teams gain", () => {
   const c = newCareer({ teamIdx: 0, seed: 1 });
-  startProject(c, "power", "small");                  // completes after 1 round
+  startProject(c, "pu", "small");                     // completes after 1 round (part project)
   advanceRound(c);
-  assert.ok(c.carDev["McLaren"].power > 0, "player gain applied on advance");
-  assert.ok(c.carDev[TEAMS[8].name].power > 0, "AI developed");
+  assert.ok(c.parts["McLaren"].pu > 0, "player part gain applied on advance");
+  assert.ok(c.parts[TEAMS[8].name].pu > 0, "AI developed parts");
 });
 
 test("migrate upgrades a v2 save to v3 (adds carDev/project)", () => {
@@ -130,7 +130,7 @@ test("migrate upgrades a v2 save to v3 (adds carDev/project)", () => {
   const up = migrate(v2);
   assert.equal(up.v, CAREER_V);
   assert.deepEqual(up.project, null);
-  assert.ok(up.carDev && typeof up.carDev === "object");
+  assert.ok(up.parts && typeof up.parts === "object");   // D3: migrate ends at v8 (carDev -> parts)
 });
 
 // --- M4 drivers ---
@@ -247,9 +247,9 @@ test("applyResult moves confidence and posts a board news line", () => {
 
 test("newSeason applies a regulation reset that reduces car development", () => {
   const c = newCareer({ teamIdx: 0, seed: 1 });
-  c.carDev["McLaren"] = { power: 0.10, aero: 0.08, tyre: 0, fuel: 0, rel: 0 };
+  c.parts["McLaren"] = { fw: 0, rw: 0, floor: 0.10, sidepods: 0, susp: 0, pu: 0.08 };
   const c2 = newSeason(c);
-  assert.ok(c2.carDev["McLaren"].power < 0.10, "regs reset trims development");
+  assert.ok(c2.parts["McLaren"].floor < 0.10, "regs reset trims part development");
   assert.ok(c2.news.some(n => /регламент/i.test(n)), "a regs-change news line is posted");
 });
 
@@ -278,4 +278,13 @@ test("migrate upgrades a v6 save to v7 (adds confidence + news)", () => {
   assert.equal(up.v, CAREER_V);
   assert.equal(up.board.confidence, 0.5);
   assert.deepEqual(up.news, []);
+});
+
+// --- D3 parts migration ---
+test("D3: migrate upgrades a v7 save to v8 (carDev -> parts)", () => {
+  const v7 = { v: 7, teamIdx: 1, seed: 3, season: 1, round: 0, money: 0, driverPts: {}, teamPts: {}, board: { targetPos: 2, confidence: 0.5 }, sponsors: [], costCap: false, pendingOffers: [], carDev: { McLaren: { power: 0.1 } }, project: null, devSpentThisSeason: 0, drivers: {}, staff: {}, academy: [], news: [], lastResult: null, history: [], done: false };
+  const up = migrate(v7);
+  assert.equal(up.v, CAREER_V);
+  assert.ok(up.parts && typeof up.parts === "object");
+  assert.equal(up.carDev, undefined, "old carDev removed");
 });
