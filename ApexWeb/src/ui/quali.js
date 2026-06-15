@@ -6,6 +6,7 @@
 // (quali_release / quali_abort / quali_push / quali_speed / quali_pause / ready). The host pushes a fresh
 // snapshot ~15 Hz; the repaint gate keeps controls clickable while the clock patches in place.
 import { DRIVER_INFO, QUALI2 } from "../data.js";
+import { teamColor } from "./teamviz.js";
 
 // mm:ss for the game-seconds session clock.
 const fmtClock = sec => { const s = Math.max(0, Math.floor(sec)); const m = Math.floor(s / 60); return `${m}:${(s - m * 60).toString().padStart(2, "0")}`; };
@@ -84,7 +85,8 @@ export function render(root, ctx) {
         : (row.eliminated || row.phase === "pit" ? "нет времени" : "—"));
     const gapTxt = row.gap != null ? "+" + row.gap.toFixed(3) : "";
     const dot = row.tyre === "fresh" ? "fresh" : "used";
-    const col = DRIVER_INFO[row.abbrev] && DRIVER_INFO[row.abbrev].color;
+    const info = DRIVER_INFO[row.abbrev];
+    const col = info ? teamColor(info.team) : null;
 
     rows += `
       <div class="${cls.join(" ")}">
@@ -147,7 +149,7 @@ export function render(root, ctx) {
         <p class="label q-set-lbl">комплектов софта: ${me.softSets}</p>`;
     }
     control = `
-      <div class="panel q-card">
+      <div class="panel q-card" style="border-left:4px solid ${(me && DRIVER_INFO[me.abbrev]) ? teamColor(DRIVER_INFO[me.abbrev].team) : "var(--border)"}">
         <div class="q-card-head">
           <h3 style="margin:0">Твой болид</h3>
           <span class="q-card-status${me.eliminated ? " out" : ""}">${statusTxt}</span>
