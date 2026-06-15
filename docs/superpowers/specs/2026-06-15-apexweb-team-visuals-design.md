@@ -73,8 +73,10 @@ Imports `TEAMS`, `DRIVER_INFO`, `TEAM_LOGO` from `../data.js` (read-only). API:
 export function teamColor(team) { … }          // team name → hex (from TEAMS[].color); "#888" fallback
 export function teamInk(hex) { … }              // hex → readable text colour on it: dark "#0a0a0c" if the
                                                 // colour is light (luminance > 0.55), else "#fff". (testable)
-export const DRIVER_NUM = { NOR:4, PIA:81, ANT:12, RUS:63, VER:1, HAD:6, LEC:16, HAM:44, SAI:55, ALB:23,
-  ALO:14, STR:18, GAS:10, COL:43, LAW:30, LIN:36, OCO:31, BEA:87, HUL:27, BOR:5, PER:11, BOT:77 };
+export const DRIVER_NUM = { NOR:1, PIA:81, ANT:12, RUS:63, VER:3, HAD:6, LEC:16, HAM:44, SAI:55, ALB:23,
+  ALO:14, STR:18, GAS:10, COL:43, LAW:30, LIN:41, OCO:31, BEA:87, HUL:27, BOR:5, PER:11, BOT:77 };
+  // ↑ confirmed real 2026 grid numbers (verified online): Norris #1 (reigning champion), Verstappen #3
+  // (switched from 33), Lindblad #41 (rookie), Hadjar #6, Bortoleto #5.
 export function teamLogoSrc(team) { return `assets/teams/${TEAM_LOGO[team]}.png`; }
 export function carImgSrc(team)   { return `assets/cars/${TEAM_LOGO[team]}.png`; }
 export function tyreIcon(compound, size) { … }  // <img assets/tyres/…> (existing pattern, centralised)
@@ -93,8 +95,8 @@ an `<img src="assets/drivers/<ABBREV>.png">` layered on top; `onerror="this.styl
 the block when the file is missing. So real photos show when present, the team-coloured number block
 otherwise — no extra JS, no per-driver checks.
 
-**Numbers caveat:** the established numbers are correct; the **2026 rookies HAD (6), LIN (36), BOR (5)** are
-best-guesses — the user can fix any in one line of `DRIVER_NUM`.
+**Numbers:** all 22 are the **confirmed real 2026 grid numbers** (verified online via the official 2026
+number announcement) — no guesses. Notably Norris runs **#1** as reigning champion and Verstappen **#3**.
 
 > `carSilhouette(team)` (the original SVG car) is **dropped** — the real renders supersede it. `carImgSrc`
 > can `onerror`-hide if a render is missing (degrades to no car image, not a broken icon).
