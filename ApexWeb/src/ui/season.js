@@ -16,6 +16,8 @@ const m$ = k => `$${(k / 1000).toFixed(2)}M`;
 export function render(root, ctx) {
   const c = ctx.careerView;
   if (!c) { root.innerHTML = `<div class="panel"><p class="label">Загрузка карьеры…</p></div>`; return; }
+  ctx._padTab = ctx._padTab || "overview";
+  const emptyMsg = t => `<div class="panel"><p class="label">${t}</p></div>`;
   const cons = constructorStandings(c);
   const drv = driverStandings(c).slice(0, 10);
   const lr = c.lastResult;
@@ -127,25 +129,31 @@ export function render(root, ctx) {
       ${blocked ? `<p class="label">Сначала выбери спонсора.</p>` : ""}</div>`;
   }
 
-  root.innerHTML = `
-    <div class="panel"><h2>Сезон ${c.season} · ${me ? me.team : ""} (P${me ? me.pos : "-"})</h2>
+  const headerPanel = `<div class="panel"><h2>Сезон ${c.season} · ${me ? me.team : ""} (P${me ? me.pos : "-"})</h2>
       <p class="label">Доверие совета: ${Math.round((c.board && c.board.confidence != null ? c.board.confidence : 0.5) * 100)}% · цель P${c.board ? c.board.targetPos : "-"}</p>
-      ${lr ? `<p class="label">${lr.gp}: ${podium}</p>` : ""}</div>
-    ${(c.news && c.news.length) ? `<div class="panel"><p class="label">📰 Новости</p>${c.news.slice(0, 8).map(n => `<p class="label" style="margin:2px 0">• ${n}</p>`).join("")}</div>` : ""}
-    <div style="display:flex;gap:12px;flex-wrap:wrap">${finances}${spons}</div>
-    ${devPanel}
-    ${driversPanel}
-    ${staffPanel}
-    ${transferPanel}
-    ${academyPanel}
-    ${offers}
-    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      ${lr ? `<p class="label">${lr.gp}: ${podium}</p>` : ""}</div>`;
+  const newsPanel = (c.news && c.news.length) ? `<div class="panel"><p class="label">📰 Новости</p>${c.news.slice(0, 8).map(n => `<p class="label" style="margin:2px 0">• ${n}</p>`).join("")}</div>` : "";
+  const financeTab = `<div style="display:flex;gap:12px;flex-wrap:wrap">${finances}${spons}</div>`;
+  const standingsTab = `<div style="display:flex;gap:12px;flex-wrap:wrap">
       <div class="panel" style="flex:1;min-width:240px"><p class="label">Кубок конструкторов</p>
         <table style="width:100%;border-collapse:collapse"><tbody>${consTbl}</tbody></table></div>
       <div class="panel" style="flex:1;min-width:240px"><p class="label">Личный зачёт (топ-10)</p>
         <table style="width:100%;border-collapse:collapse"><tbody>${drvTbl}</tbody></table></div>
-    </div>
-    ${footer}`;
+    </div>`;
+  const TABS = [["overview", "Обзор"], ["finance", "Финансы"], ["car", "Машина"], ["drivers", "Пилоты"], ["staff", "Команда"], ["transfers", "Трансферы"], ["academy", "Академия"], ["standings", "Зачёт"]];
+  const TAB_CONTENT = {
+    overview:  headerPanel + newsPanel + offers,
+    finance:   financeTab,
+    car:       devPanel || emptyMsg("Нет данных по машине"),
+    drivers:   driversPanel || emptyMsg("Нет пилотов"),
+    staff:     staffPanel || emptyMsg("Нет данных по команде"),
+    transfers: transferPanel || emptyMsg("Нет доступных трансферов"),
+    academy:   academyPanel || emptyMsg("Академия недоступна"),
+    standings: standingsTab,
+  };
+  const tabBar = `<div class="pad-tabs">${TABS.map(([k, l]) => `<button class="pad-tab${k === ctx._padTab ? " on" : ""}" data-tab="${k}">${l}</button>`).join("")}</div>`;
+  root.innerHTML = tabBar + `<div id="pad-content">${TAB_CONTENT[ctx._padTab] || TAB_CONTENT.overview}</div>` + `<div class="pad-foot">${footer}</div>`;
+  root.querySelectorAll(".pad-tab").forEach(b => b.onclick = () => { ctx._padTab = b.dataset.tab; render(root, ctx); });
 
   root.querySelectorAll("button.offer").forEach(b => b.onclick = () => { root.querySelectorAll("button.offer").forEach(x => x.disabled = true); ctx.send({ cmd: "career_sponsor", player: ctx.myPlayer, offerIdx: +b.dataset.i }); });
   root.querySelectorAll("button.devbtn").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_project", player: ctx.myPlayer, indicator: b.dataset.k, size: b.dataset.sz }); });
