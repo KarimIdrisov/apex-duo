@@ -59,16 +59,15 @@ export function driverCard(d, opts = {}) {
     ? `<img src="${carImgSrc(d.team)}" alt="" onerror="this.style.display='none'" style="position:absolute;right:-6px;bottom:-22px;height:120px;object-fit:contain;opacity:.10;pointer-events:none">`
     : "";
   const sub = opts.sub ? `<div class="label" style="margin-top:3px">${opts.sub}</div>` : "";
-  const act = opts.action ? `<div style="flex:0 0 auto">${opts.action}</div>` : "";
+  const act = opts.action ? `<div style="margin-top:6px">${opts.action}</div>` : "";
   return `<div${tip} style="position:relative;overflow:hidden;background:var(--content2);border:1px solid var(--border);border-left:4px solid ${col};border-radius:var(--r-md);padding:11px 12px;min-height:64px">`
-    + `<div style="position:relative;display:flex;align-items:center;gap:10px">`
+    + `<div style="position:relative;display:flex;align-items:flex-start;gap:10px">`
     +   driverAvatar(d.abbrev, d.team, 46)
     +   `<div style="min-width:0;flex:1">`
     +     `<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><b>${d.name}</b>`
     +       `<span style="font-size:10px;font-weight:600;color:${ink};background:${col};border-radius:4px;padding:1px 6px">${d.team}</span></div>`
-    +     sub
+    +     sub + act
     +   `</div>`
-    +   act
     + `</div>` + car + `</div>`;
 }
 
