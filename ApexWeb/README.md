@@ -119,7 +119,7 @@ node tools/editor_server.mjs
 
 ```
 cd ApexWeb
-node --test                 # модульные тесты чистого ядра (319: rng/data/sim/fuel/tyres/track/overtake/events/weather/team/ai_strategy/setup/practice/practice_session/quali/quali_session/weekend/net/commentary/shell/teamviz + карьерный слой; sim.test.js гоняет сотни полных гонок — ~12 мин)
+node --test                 # модульные тесты чистого ядра (330: rng/data/sim/fuel/tyres/track/overtake/events/weather/team/ai_strategy/setup/practice/practice_session/quali/quali_session/weekend/net/commentary/shell/teamviz + карьерный слой; sim.test.js гоняет сотни полных гонок — ~12 мин)
 node tools/balance.mjs      # балансные коридоры (DNF, разброс, питы/топливо, сектора, обгоны, боевые приказы, живые SC/инциденты, погода, атрибуты, стратегия, сложность)
 ```
 
