@@ -51,3 +51,24 @@ test("asset presence: every grid driver has a photo and every team a car render 
     assert.ok(existsSync(here(`../assets/cars/${TEAM_LOGO[t.name]}.png`)), `missing car render for ${t.name}`);
   }
 });
+
+import { driverAvatar, driverCard } from "../src/ui/teamviz.js";
+
+test("driverAvatar: number block base + photo layer with an onerror fallback", () => {
+  const html = driverAvatar("VER", "Red Bull", 48);
+  assert.match(html, /assets\/drivers\/VER\.png/, "photo src by abbrev");
+  assert.match(html, /onerror/, "photo hides on error → reveals the colour block");
+  assert.match(html, />3</, "the colour-block shows the driver number 3");
+  assert.match(html, /#3671c6/, "uses the Red Bull team colour");
+});
+
+test("driverCard: shows name, team chip, avatar; car render only when opts.car", () => {
+  const d = { team: "McLaren", abbrev: "NOR", name: "Норрис" };
+  const withCar = driverCard(d, { car: true, sub: "ovr 0.950" });
+  assert.match(withCar, /Норрис/);
+  assert.match(withCar, /assets\/drivers\/NOR\.png/, "avatar photo present");
+  assert.match(withCar, /assets\/cars\/mclaren\.png/, "car render present when opts.car");
+  assert.match(withCar, /ovr 0\.950/, "sub line rendered");
+  const noCar = driverCard(d, {});
+  assert.doesNotMatch(noCar, /assets\/cars\//, "no car render without opts.car");
+});

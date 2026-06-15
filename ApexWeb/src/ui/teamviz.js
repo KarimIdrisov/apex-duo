@@ -32,3 +32,33 @@ export function carImgSrc(team)   { return `assets/cars/${TEAM_LOGO[team]}.png`;
 export function tyreIcon(compound, size = 16) {
   return `<img src="assets/tyres/${compound}.png" alt="${compound}" style="height:${size}px;width:${size}px;object-fit:contain;vertical-align:middle">`;
 }
+
+// A fixed-size avatar: base layer = team-colour block with the driver number (teamInk),
+// photo layered on top. onerror hides the photo so the block shows when the file is missing.
+export function driverAvatar(abbrev, team, size = 44) {
+  const col = teamColor(team), ink = teamInk(col);
+  const num = (DRIVER_NUM[abbrev] != null) ? DRIVER_NUM[abbrev] : abbrev;
+  const fs = Math.round(size * 0.42);
+  return `<span style="position:relative;display:inline-block;width:${size}px;height:${size}px;border-radius:8px;overflow:hidden;background:${col};vertical-align:middle;flex:0 0 auto">`
+    + `<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:${fs}px;color:${ink}">${num}</span>`
+    + `<img src="assets/drivers/${abbrev}.png" alt="" onerror="this.style.display='none'" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:top center">`
+    + `</span>`;
+}
+
+// A team-coloured driver card: avatar + name + team chip + a sub-line, optional car render + action HTML.
+// d = { team, abbrev, name }. opts = { car?:bool, sub?:html, action?:html }.
+export function driverCard(d, opts = {}) {
+  const col = teamColor(d.team), ink = teamInk(col);
+  const car = opts.car
+    ? `<img src="${carImgSrc(d.team)}" alt="" onerror="this.style.display='none'" style="position:absolute;right:6px;bottom:0;height:46px;object-fit:contain;opacity:.92;pointer-events:none">`
+    : "";
+  const sub = opts.sub ? `<div class="label" style="margin-top:2px">${opts.sub}</div>` : "";
+  const act = opts.action || "";
+  return `<div style="position:relative;overflow:hidden;background:var(--content2);border-left:4px solid ${col};border-radius:var(--r-md);padding:10px;display:flex;align-items:center;gap:10px;min-height:64px">`
+    + driverAvatar(d.abbrev, d.team, 48)
+    + `<div style="min-width:0;flex:1">`
+    +   `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><b>${d.name}</b>`
+    +     `<span style="font-size:11px;color:${ink};background:${col};border-radius:4px;padding:1px 6px">${d.team}</span></div>`
+    +   sub + act
+    + `</div>` + car + `</div>`;
+}
