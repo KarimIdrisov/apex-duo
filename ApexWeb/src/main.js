@@ -126,7 +126,7 @@ function onCommand(cmd) {
       if (ctx.career) { chooseTitleSponsor(ctx.career, cmd.offerIdx); saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
     case "career_project":
-      if (ctx.career) { startProject(ctx.career, cmd.indicator, cmd.size); saveCareer(ctx.career); publishCareer(); rerender(); }
+      if (ctx.career) { startProject(ctx.career, cmd.part, cmd.size); saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
     case "career_resign":
       if (ctx.career) { reSign(ctx.career, cmd.abbrev); saveCareer(ctx.career); publishCareer(); rerender(); }
@@ -247,7 +247,7 @@ function buildField() {
     const mMod = dr ? moraleMod(dr.morale) : 0;
     return {
       idx: idx++, name: d.name, abbrev: d.abbrev, skill: overall,
-      car: composeCar(ctx.career ? effectiveCar(t.car, ctx.career.carDev[t.name]) : t.car), color: t.color, team: t.name, isPlayer: isPlayerTeam, player,
+      car: composeCar(ctx.career ? effectiveCar(t.car, ctx.career.parts[t.name]) : t.car), color: t.color, team: t.name, isPlayer: isPlayerTeam, player,
       attrs: driverAttrs(d.abbrev, overall), personnel: (ctx.career && isPlayerTeam) ? composePersonnel(ctx.career.staff) : genPersonnel(t.facility, ti),
       setup, setupBonus: (player
         ? pracSetupBonus(player) + PRAC2.TRACK_PACE * pracTrackKnow(player)
@@ -280,7 +280,7 @@ function analyzeStrategy(strategy) {
 function practiceCars() {
   const t = TEAMS[ctx.teamIdx] || TEAMS[0];
   const personnel = ctx.career ? composePersonnel(ctx.career.staff) : genPersonnel(t.facility, ctx.teamIdx || 0);   // staff crew/facility → personnel
-  const car = composeCar(ctx.career ? effectiveCar(t.car, ctx.career.carDev[t.name]) : t.car);
+  const car = composeCar(ctx.career ? effectiveCar(t.car, ctx.career.parts[t.name]) : t.car);
   const roster = teamRoster(ctx.teamIdx);
   const mk = di => { const d = roster[di] || roster[0]; return { drv: { skill: d.skill, attrs: driverAttrs(d.abbrev, d.skill) }, car, personnel }; };
   return { p1: mk(0), p2: mk(1) };
