@@ -1,5 +1,6 @@
 // ApexWeb/src/ui/teamviz.js — shared visual layer: team colours, readable ink, driver numbers,
-// asset paths, tyre icon, and (Task 3) the driver avatar + card builders. Pure UI; reads data.js
+// asset paths, tyre icon, driver avatar + card builders, and the hover skill-tooltip API
+// (driverSkillTip/staffSkillTip + attachPersonTips). Pure UI; reads data.js/team.js/staff.js
 // (read-only). No sim/network state.
 import { TEAMS, TEAM_LOGO } from "../data.js";
 import { driverAttrs, ATTR_KEYS } from "../team.js";
