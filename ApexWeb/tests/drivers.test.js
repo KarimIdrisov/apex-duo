@@ -36,6 +36,19 @@ test("morale: beating the expected position lifts it, missing drops it; mod is c
   assert.ok(moraleMod(1.0) > 0 && moraleMod(0.2) < 0);
 });
 
+// --- D2 real driver skills ---
+import { RESULTS_2024, realOverall } from "../src/drivers.js";
+
+test("D2: realOverall calibrates to 2024 results; rookies keep the estimate; blend dampens car-conflation", () => {
+  assert.ok(RESULTS_2024.VER > RESULTS_2024.ALB);
+  assert.ok(realOverall("VER", 0.944) >= 0.94, "champion calibrates high");
+  assert.equal(realOverall("ANT", 0.934), 0.934, "a rookie (no 2024 points) keeps the estimate");
+  // Albon: a respected driver in a weak car — the blend keeps him above his raw-points value
+  assert.ok(realOverall("ALB", 0.852) > 0.74 + 0.21 * Math.sqrt(12 / 437), "blend > pure points");
+  const d = initDrivers();
+  assert.ok(d["VER"].overall >= 0.94 && d["ANT"].overall === 0.934);
+});
+
 test("reSign pays a fee, extends the contract, lifts morale; refused when broke", () => {
   const career = { money: 100000, drivers: initDrivers() };
   const ok = reSign(career, "NOR");

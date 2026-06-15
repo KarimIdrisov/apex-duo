@@ -12,6 +12,22 @@ export const DRIVER_AGE = {
 export const DRIVER_NAME = {};
 for (const t of TEAMS) for (const d of t.drivers) DRIVER_NAME[d.abbrev] = d.name;
 
+// real 2024 F1 championship points, for drivers who raced in 2024 (D2 skill calibration). NOTE:
+// points conflate car+driver — a strong driver in a weak car (Albon) is underrated by raw points,
+// so we BLEND with the driver-aware estimate. Bradley-Terry (car-removed) is the ideal refinement.
+export const RESULTS_2024 = {
+  VER: 437, NOR: 374, LEC: 356, PIA: 292, SAI: 290, RUS: 245, HAM: 223, PER: 152,
+  ALO: 70, GAS: 42, HUL: 41, STR: 24, OCO: 23, ALB: 12, BEA: 7, COL: 5, LAW: 4, BOT: 0,
+};
+const pointsToSkill = p => 0.74 + 0.21 * Math.sqrt(Math.max(0, p) / 437);
+// a driver's overall calibrated to real 2024 results (blended 55/45 with the estimate); rookies /
+// 2026 newcomers with no 2024 points (ANT, HAD, LIN, BOR…) keep the estimate. Career-only (initDrivers).
+export function realOverall(abbrev, estimate) {
+  const p = RESULTS_2024[abbrev];
+  if (p == null) return estimate;
+  return Math.round((0.55 * estimate + 0.45 * pointsToSkill(p)) * 1000) / 1000;
+}
+
 export const MORALE_PACE = 0.5;   // s/lap swing from morale extremes (centered on the 0.6 start)
 
 const clampOverall = v => Math.max(0.50, Math.min(0.99, v));
@@ -27,7 +43,7 @@ export function salaryFor(overall) { return Math.round(120 + Math.pow(Math.max(0
 export function initDrivers() {
   const d = {};
   TEAMS.forEach((t, i) => t.drivers.forEach(dr => {
-    const overall = dr.skill;
+    const overall = realOverall(dr.abbrev, dr.skill);   // D2: calibrated to real 2024 results
     d[dr.abbrev] = {
       teamIdx: i, age: DRIVER_AGE[dr.abbrev] ?? 28, overall, morale: 0.6,
       contractSeasons: dr.skill > 0.85 ? 3 : 2, salary: salaryFor(overall),
