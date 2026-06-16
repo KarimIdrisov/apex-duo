@@ -110,7 +110,7 @@ static func display_font(weight: int = 600, tracking: int = 0) -> FontVariation:
 static func base_theme() -> Theme:
 	var t := Theme.new()
 	t.default_font = body_font(400)
-	t.default_font_size = 14
+	t.default_font_size = 15
 	return t
 
 # Полноэкранный слой-виньетка (§6). mouse_filter=IGNORE, чтобы не перехватывать

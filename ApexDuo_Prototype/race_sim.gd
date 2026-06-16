@@ -48,8 +48,8 @@ const CLIP_PENALTY := 0.32     # s/lap lost when battery spent  (× 0.6 + 0.8·p
 								# "annoying, not race-ending" (was 0.55).
 const OT_PACE := -0.55         # s/lap Overtake boost           (× 0.6 + 0.8·power)
 const SETUP_PEN := 0.45        # s/lap at setup_q=0 — car-setup miss penalty
-                               # (max < CAR_K track-character swing: setup matters,
-                               # never dominates; perfect setup = 0)
+							   # (max < CAR_K track-character swing: setup matters,
+							   # never dominates; perfect setup = 0)
 # --- Unified setup model (6 grouped axes, dual ideal) — spec 2026-06-11 -------
 # 6 axes: 0 aero_balance · 1 ride_rake · 2 mech_balance · 3 diff · 4 brakes_cool
 # · 5 gears. Two hidden ideals (opt_quali / opt_race) diverge on axes 0,1,4 so a
@@ -458,8 +458,8 @@ class Driver:
 	var time_penalty: float = 0.0  # added to finish_time + finish_key (jump-start, etc.)
 	var finish_time: float = -1.0
 	var finish_key: float = 0.0    # classification: shared-timeline instant the
-	                               # finish line was crossed (sub-tick precise);
-	                               # finish_time is kept for gap display only
+								   # finish line was crossed (sub-tick precise);
+								   # finish_time is kept for gap display only
 	var pit_timer: float = 0.0     # >0 = in pit lane / stalled, distance frozen
 	var ai_pit_wear: float = 0.0
 	var yield_laps: int = 0        # team order: ease off to let teammate through
@@ -516,21 +516,21 @@ class Driver:
 	var attack_laps: int = 0       # consecutive laps camped within attack range
 	var attack_backed: bool = false  # stalled attack abandoned — strike at the stops
 	var atk_latch: bool = false    # fight is live: hysteresis floor stays at the
-	                               # release threshold across non-DRS (banking) sectors
+								   # release threshold across non-DRS (banking) sectors
 	var pressure: float = 0.0      # 0..1 hunted-pressure: builds under a sustained
-	                               # threat behind, decays by composure; raises error risk
+								   # threat behind, decays by composure; raises error risk
 	var cover_pit: bool = false    # M-S1: strategist calls a stop to cover a rival's pit
 	var pit_plan: int = 1          # M-S2: planned stops (2 where wear maths demand it)
 	# --- car setup (practice weekend phase) — dual ideal (quali vs race) ---
 	var setup_q_quali: float = 0.6 # 0..1 vs opt_quali → drives QUALIFYING pace
 	var setup_q_race: float = 0.6  # 0..1 vs opt_race → drives RACE pace + tyre wear/temp
 	var blister: float = 0.0       # 0..1 thermal blistering (over-aggressive setup on a hot
-	                               # track); permanent in-stint, clears on a pit stop
+								   # track); permanent in-stint, clears on a pit stop
 	var eng_skill: float = 0.5     # race engineer telemetry (per car slot) — baseline
-	                               # setup quality + sharper practice feedback
+								   # setup quality + sharper practice feedback
 	var follow_pen: float = 0.0    # this tick's net following term (dirty air − slipstream)
 	var da_pen: float = 0.0        # dirty-air part only — excluded from the M-A2 stall
-	                               # edge (an armed Overtake waives it); the tow stays in
+								   # edge (an armed Overtake waives it); the tow stays in
 	var edge_ema: float = 0.0      # lap-smoothed fight pace edge on the car ahead
 	func progress() -> float:
 		return float(lap) + lap_frac

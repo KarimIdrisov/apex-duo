@@ -1,0 +1,26 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "pitwall_v2",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["app.py"],
+      "cwd": "experiments/pitwall_v2/pitwall",
+      "port": 5000
+    },
+    {
+      "name": "apexweb",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8077"],
+      "cwd": "ApexWeb",
+      "port": 8077
+    },
+    {
+      "name": "apexweb-editor",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["tools/editor_server.mjs"],
+      "cwd": "ApexWeb",
+      "port": 8000
+    }
+  ]
+}

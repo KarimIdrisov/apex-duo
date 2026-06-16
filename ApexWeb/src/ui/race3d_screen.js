@@ -10,6 +10,7 @@ const tyreIcon = (t, s = 16) => `<img src="assets/tyres/${t}.png" alt="${t}" sty
 
 // camera modes cycled by the overlay button; race3d.js reads ctx._cam3d each frame
 const CAM_STATES = [
+  { mode: "tv", label: "ТВ-режиссёр" },
   { mode: "orbit", label: "обзор" },
   { mode: "chase", target: "player", label: "погоня: моя" },
   { mode: "chase", target: "leader", label: "погоня: лидер" },
@@ -36,7 +37,7 @@ function build(root, ctx, onExit) {
       <canvas id="s3d-canvas" style="display:block;width:100%;height:100%"></canvas>
       <div style="position:absolute;top:14px;left:14px;display:flex;align-items:center;gap:10px">
         <button class="btn" id="s3d-back">← 2D</button>
-        <button class="btn" id="s3d-cam">Камера: обзор</button>
+        <button class="btn" id="s3d-cam">Камера: ТВ-режиссёр</button>
         <div style="background:rgba(10,10,12,.62);border-radius:10px;padding:6px 12px;font-weight:700">
           ${TRACK.gp} · круг <span id="s3d-lap">0</span>/${TRACK.laps} <span id="s3d-chip" style="margin-left:6px;font-weight:500"></span>
         </div>
@@ -46,7 +47,7 @@ function build(root, ctx, onExit) {
     </div>`;
   root.querySelector("#s3d-back").onclick = () => onExit();
   root.querySelector("#s3d-cam").onclick = () => cycleCam(ctx, root);
-  ctx._cam3dIdx = 0; ctx._cam3d = { mode: "orbit" };
+  ctx._cam3dIdx = 0; ctx._cam3d = { mode: "tv" };
   ctx._s3dReady = true;
   ctx._r3d = null;
   const cv = root.querySelector("#s3d-canvas");
@@ -62,5 +63,4 @@ function update(root, ctx, snap) {
     const bg = mine ? "background:rgba(0,111,238,.30)" : team ? "background:rgba(0,111,238,.14)" : "";
     return `<div style="display:flex;justify-content:space-between;padding:3px 6px;border-radius:5px;${bg}"><span><b>${c.pos}</b> ${c.abbrev}</span><span style="color:#a1a1aa">${c.retired ? "DNF" : (c.tyre || "")[0].toUpperCase()}</span></div>`;
   }).join("");
-  $("#s3d-me").innerHTML = `<b>P${me.pos} ${me.abbrev}</b> · ${tyreIcon(me.tyre)} <span style="text-transform:capitalize">${me.tyre}</span> · ${me.tyreAge} кр`;
-}
+  $("#s3d-me").innerHTML = `<b>P${me.pos} ${me.abbrev}</b> · ${tyreIcon(me.tyre)} <span style="text-transform

@@ -1,7 +1,8 @@
 // ApexWeb/src/ui/lobby.js
 import { TEAMS, TEAM_LOGO, DIFFICULTY } from "../data.js";
 import { teamColor, teamInk, carImgSrc } from "./teamviz.js";
-import { hostGame, joinGame, startSolo, startCareerSolo, hostCareer } from "../main.js";
+import { hostGame, joinGame, startSolo, startCareerSolo, hostCareer, continueCareer, deleteCareerSave } from "../main.js";
+import { loadCareer } from "../career_store.js";
 
 const logoSrc = i => `assets/teams/${TEAM_LOGO[TEAMS[i].name]}.png`;
 const teamCard = i => {
@@ -20,9 +21,19 @@ export function render(root, ctx) {
   ctx.difficulty = DIFFICULTY[ctx.diffKey].ai;
   const teamOpts = TEAMS.map((t,i)=>`<option value="${i}" ${i===ctx.teamIdx?"selected":""}>${t.name}</option>`).join("");
   const diffOpts = Object.entries(DIFFICULTY).map(([k,d])=>`<option value="${k}" ${k===ctx.diffKey?"selected":""}>${d.label}</option>`).join("");
+  const saved = loadCareer();
+  const TOTAL = 23;
+  const resumeHtml = saved ? `
+      <div style="background:var(--content2);border-radius:var(--r-md);padding:10px;margin-bottom:14px">
+        <p class="label" style="margin:0 0 6px">Сохранённая карьера</p>
+        <div style="font-weight:800;margin-bottom:8px">${(TEAMS[saved.teamIdx]||{}).name || "Команда"} — ${(saved.done || saved.round >= TOTAL) ? `сезон ${saved.season} завершён` : `сезон ${saved.season} · этап ${Math.min(saved.round + 1, TOTAL)}/${TOTAL}`}</div>
+        <button class="primary" id="resume" style="width:100%">▶ Продолжить карьеру</button>
+        <button id="wipe" style="width:100%;margin-top:6px;background:transparent;border:none;color:var(--muted);opacity:.8;text-decoration:underline;cursor:pointer;font-size:12px">Удалить сохранение</button>
+      </div>` : "";
   root.innerHTML = `
     <div class="panel">
       <h2>Apex Web — кооп-уикенд</h2>
+      ${resumeHtml}
       <p class="label">Команда</p>
       <div id="teamcard">${teamCard(ctx.teamIdx)}</div>
       <div style="height:8px"></div>
@@ -52,19 +63,4 @@ export function render(root, ctx) {
   };
   root.querySelector("#host").onclick = async (e) => {
     e.target.disabled = true; e.target.textContent = "Создаём комнату…";
-    if (root.querySelector("#career").checked) hostCareer(ctx.teamIdx);   // career begins when the partner joins
-    const code = await hostGame(useP2P);   // stay in lobby; the weekend starts when the partner joins
-    root.querySelector("#status").innerHTML =
-      `<div style="margin-top:6px">Код комнаты — передай напарнику:</div>
-       <div style="font-size:20px;font-weight:700;color:var(--good);user-select:all;word-break:break-all;margin:6px 0">${code}</div>
-       <div>Ждём, когда напарник войдёт по коду…</div>`;
-  };
-  root.querySelector("#solo").onclick = () => {
-    if (root.querySelector("#career").checked) startCareerSolo(ctx.teamIdx); else startSolo();   // career or one-off weekend
-  };
-  root.querySelector("#join").onclick = async () => {
-    const code = root.querySelector("#code").value.trim();
-    await joinGame(code, useP2P);
-    root.querySelector("#status").textContent = "Подключено. Ждём старт уикенда…";
-  };
-}
+    if 

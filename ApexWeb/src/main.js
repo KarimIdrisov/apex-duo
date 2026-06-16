@@ -19,15 +19,17 @@ import { sfx } from "./audio.js";
 import { defaultRaceTrack, trackFromEdited } from "./track_build.js";
 import { loadAll } from "./track_store.js";
 import * as seasonUI from "./ui/season.js";
-import { newCareer, newSeason, currentRound, applyResult, advanceRound, chooseTitleSponsor, constructorStandings } from "./career.js";
+import * as resultUI from "./ui/result_career.js";
+import { newCareer, newSeason, currentRound, isSeasonOver, applyResult, advanceRound, chooseTitleSponsor, constructorStandings, takeLoan, acceptAcquisition, declineAcquisition, setDriverTraining, resolveDriverRequest } from "./career.js";
+const applyBoost = (car, b) => b ? { ...car, power: Math.min(1.2, car.power + b), aero: Math.min(1.2, car.aero + b) } : car;   // living-grid rival bump
 import { pushNews } from "./news.js";
 import { careerTrack } from "./track_build.js";
-import { effectiveCar, startProject } from "./development.js";
+import { effectiveCar, effectiveCarPU, applyRaceMods, applyConceptBias, aiConcept, startProject, startPUProject, startPUProgram } from "./development.js";
 import { moraleMod, reSign, DRIVER_NAME } from "./drivers.js";
-import { composePersonnel, upgradeStaff, upgradeFacility, hireStaff, staffMarket } from "./staff.js";
+import { composePersonnel, upgradeStaff, startFacilityProject, hireFromMarket, staffMarketAll, reSignStaff } from "./staff.js";
 import { signDriver, negotiateSign } from "./market.js";
 import { signJunior, promoteJunior } from "./academy.js";
-import { saveCareer } from "./career_store.js";
+import { saveCareer, loadCareer, hasCareer, clearCareer } from "./career_store.js";
 
 const SCREENS = { lobby, practice1: practice, practice2: practice, practice3: practice, quali, race, result: race };
 const isPractice = p => p === "practice1" || p === "practice2" || p === "practice3";
@@ -93,8 +95,9 @@ function rerender() {
   // screens repaint often; re-triggering the fade every rebuild froze panels at opacity 0 → BLACK SCREEN.
   // On a same-phase rebuild, mark #app `no-anim` to suppress the entrance.
   const cls = [];
-  // wide #app for the 2-col dashboards: race/result and the practice setup grid (room for a wide slider track)
-  if (phase === "race" || phase === "result" || isPractice(phase) || phase === "quali") cls.push("wide");
+  // wide #app for the 2-col dashboards: race/result, the practice setup grid, and the paddock (its
+  // dashboards/tabs lay out in multiple columns on desktop instead of one narrow stack)
+  if (phase === "race" || phase === "result" || isPractice(phase) || phase === "quali" || ctx.careerView) cls.push("wide");
   if (phase === ctx._renderedPhase) cls.push("no-anim");          // rebuild of the same screen → no re-entrance
   ctx._renderedPhase = phase;
   root.className = cls.join(" ");
@@ -102,7 +105,9 @@ function rerender() {
   // the loop's reschedule and freeze the whole session ("что-то сломалось" / black screen). Log + show a
   // notice instead, keeping the loop alive and the cause diagnosable in the console.
   try {
-    const mod = (ctx.careerView && ctx.atPaddock) ? seasonUI : SCREENS[phase];
+    const mod = (ctx.careerView && ctx.atResults) ? resultUI
+              : (ctx.careerView && ctx.atPaddock) ? seasonUI
+              : SCREENS[phase];
     mod.render(root, ctx);
   } catch (e) {
     console.error(`[render] phase "${phase}" threw:`, e);
@@ -127,7 +132,29 @@ function onCommand(cmd) {
       if (ctx.career) { chooseTitleSponsor(ctx.career, cmd.offerIdx); saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
     case "career_project":
-      if (ctx.career) { startProject(ctx.career, cmd.part, cmd.size); saveCareer(ctx.career); publishCareer(); rerender(); }
+      if (ctx.career) { startProject(ctx.career, cmd.part, cmd.size, cmd.approach); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_concept":
+      if (ctx.career && ctx.career.concept !== cmd.concept) {
+        const c = ctx.career, preseason = (c.round === 0 || c.done);
+        if (preseason) { c.concept = cmd.concept; saveCareer(c); publishCareer(); rerender(); }   // free before round 1 / over winter
+        else if (c.money >= 3500) { c.money -= 3500; c.capSpent = (c.capSpent || 0) + 3500; c.concept = cmd.concept; saveCareer(c); publishCareer(); rerender(); }   // mid-season re-design fee
+      }
+      break;
+    case "career_devfocus":
+      if (ctx.career) { ctx.career.devFocus = Math.max(0, Math.min(0.6, +cmd.focus || 0)); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_train":
+      if (ctx.career) { setDriverTraining(ctx.career, cmd.abbrev, cmd.focus); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_driver_req":
+      if (ctx.career) { resolveDriverRequest(ctx.career, cmd.abbrev, !!cmd.accept); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_pu_project":
+      if (ctx.career) { startPUProject(ctx.career, cmd.part, cmd.size); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_pu_program":
+      if (ctx.career) { startPUProgram(ctx.career, cmd.kind); saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
     case "career_resign":
       if (ctx.career) { reSign(ctx.career, cmd.abbrev); saveCareer(ctx.career); publishCareer(); rerender(); }
@@ -135,24 +162,30 @@ function onCommand(cmd) {
     case "career_upgrade":
       if (ctx.career) {
         if (cmd.kind === "staff") upgradeStaff(ctx.career, cmd.key);
-        else if (cmd.kind === "facility") upgradeFacility(ctx.career, cmd.key);
+        else if (cmd.kind === "facility") startFacilityProject(ctx.career, cmd.key);   // T4: build over time
         saveCareer(ctx.career); publishCareer(); rerender();
       }
       break;
     case "career_hire":
       if (ctx.career) {
-        const person = staffMarket(ctx.career.season || 1).find(p => p.id === cmd.id);   // same seed host & client
-        const ok = person ? hireStaff(ctx.career, person) : false;
-        if (person) pushNews(ctx.career, ok ? `${person.name} нанят в команду.` : `Не удалось нанять: ${person.name}.`);
+        const person = staffMarketAll(ctx.career, ctx.career.season || 1).find(p => p.id === cmd.id);   // same seed host & client
+        const ok = person ? hireFromMarket(ctx.career, person) : false;   // free agent → hire, rival → poach
+        if (person) pushNews(ctx.career, ok ? `${person.name} ${person.team ? "переманен из " + person.team : "нанят в команду"}.` : `Не удалось: ${person.name}.`);
         saveCareer(ctx.career); publishCareer(); rerender();
       }
+      break;
+    case "career_staff_train":
+      if (ctx.career) { ctx.career.staffTrain = ctx.career.staffTrain || {}; ctx.career.staffTrain[cmd.role] = !ctx.career.staffTrain[cmd.role]; saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_resign_staff":
+      if (ctx.career) { reSignStaff(ctx.career, cmd.role); saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
     case "career_sign":
       if (ctx.career) {
         const meS = constructorStandings(ctx.career).find(s => s.isPlayer);
         const strength = meS ? 1 - (meS.pos - 1) / (TEAMS.length - 1) : 0.5;
-        const r = negotiateSign(ctx.career, cmd.inAbbrev, cmd.outAbbrev, { teamStrength: strength, seed: (ctx.career.round + 1) * 131 + cmd.inAbbrev.charCodeAt(0) });
-        pushNews(ctx.career, r.ok ? `Трансфер: ${cmd.inAbbrev} подписан.` : `Трансфер ${cmd.inAbbrev} сорвался: ${r.reason}.`);
+        const r = negotiateSign(ctx.career, cmd.inAbbrev, cmd.outAbbrev, { teamStrength: strength, length: cmd.length || 2, seed: (ctx.career.round + 1) * 131 + cmd.inAbbrev.charCodeAt(0) });
+        pushNews(ctx.career, r.ok ? `Трансфер: ${cmd.inAbbrev} подписан (${cmd.length || 2} сез).` : `Трансфер ${cmd.inAbbrev} сорвался: ${r.reason}.`);
         saveCareer(ctx.career); publishCareer(); rerender();
       }
       break;
@@ -164,6 +197,21 @@ function onCommand(cmd) {
       break;
     case "career_reserve":
       if (ctx.career) { ctx.career.reserve = (ctx.career.reserve === cmd.abbrev ? null : cmd.abbrev); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_to_paddock":                 // dismiss the post-race results screen -> paddock
+      if (ctx.career) { ctx.atResults = false; ctx.atPaddock = true; publishCareer(); rerender(); }
+      break;
+    case "career_loan":
+      if (ctx.career) { takeLoan(ctx.career, +cmd.amount || 0); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_sign_sponsor":
+      if (ctx.career && ctx.career.sponsorOffer) { ctx.career.sponsors = [...(ctx.career.sponsors || []), ctx.career.sponsorOffer]; ctx.career.sponsorOffer = null; saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_acquire_accept":
+      if (ctx.career) { acceptAcquisition(ctx.career, !!cmd.rebrand); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_acquire_decline":
+      if (ctx.career) { declineAcquisition(ctx.career); saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
     case "career_start_weekend":
       if (ctx.career && !ctx.career.done && !(ctx.career.pendingOffers && ctx.career.pendingOffers.length)) {
@@ -230,6 +278,29 @@ function startRaceHost() {
   // apply the quali grid as the start order (fastest quali -> P1), spread by slot
   // starting grid comes from the quali session (P1..P22); fall back to a one-shot grid if quali was skipped
   const grid = ctx.qualiSession ? finalGrid(ctx.qualiSession) : buildGrid(field.map(f => ({ ...f, risk: 0.5 })), ctx.track, 1234);
+  // E4: serve any PU grid penalty — drop the player's car(s) back N places on the start grid.
+  if (ctx.career && ctx.career.pu && ctx.career.pu.penalty > 0) {
+    const pen = ctx.career.pu.penalty;
+    for (const f of field) {
+      if (!f.isPlayer) continue;
+      const from = grid.findIndex(g => g.idx === f.idx);
+      if (from >= 0) { const [g] = grid.splice(from, 1); grid.splice(Math.min(grid.length, from + pen), 0, g); }
+    }
+    ctx.career.pu.penalty = 0; saveCareer(ctx.career);   // served once
+  }
+  // E9: serve rivals' PU grid penalties — drop each penalized AI team's cars back N places.
+  if (ctx.career && ctx.career.aiPu) {
+    let served = false;
+    for (const f of field) {
+      if (f.isPlayer) continue;
+      const a = ctx.career.aiPu[f.team];
+      if (a && a.penalty > 0) {
+        const from = grid.findIndex(g => g.idx === f.idx);
+        if (from >= 0) { const [g] = grid.splice(from, 1); grid.splice(Math.min(grid.length, from + a.penalty), 0, g); served = true; }
+      }
+    }
+    if (served) { for (const tn in ctx.career.aiPu) if (ctx.career.aiPu[tn].penalty > 0) ctx.career.aiPu[tn].penalty = 0; saveCareer(ctx.career); }
+  }
   grid.forEach((g, slot) => {
     const c = ctx.race.cars[g.idx];
     c.lap = 0; c.lapFrac = -slot * (GRID_GAP / ctx.track.lt); c.startPos = slot + 1;
@@ -265,7 +336,7 @@ function buildField() {
     const mMod = dr ? moraleMod(dr.morale) : 0;
     return {
       idx: idx++, name: d.name, abbrev: d.abbrev, skill: overall,
-      car: composeCar(ctx.career ? effectiveCar(t.car, ctx.career.parts[t.name]) : t.car), color: t.color, team: t.name, isPlayer: isPlayerTeam, player,
+      car: composeCar(ctx.career ? (isPlayerTeam ? applyRaceMods(effectiveCarPU(t.car, ctx.career.parts[t.name], ctx.career.puParts), ctx.career, ctx.track) : applyBoost(applyConceptBias(effectiveCar(t.car, ctx.career.parts[t.name]), aiConcept(t.name)), (ctx.career.gridBoost || {})[t.name])) : t.car), color: t.color, team: t.name, isPlayer: isPlayerTeam, player,
       attrs: (dr && dr.attrs) ? dr.attrs : driverAttrs(d.abbrev, overall), personnel: (ctx.career && isPlayerTeam) ? composePersonnel(ctx.career.staff) : genPersonnel(t.facility, ti),
       setup, setupBonus: (player
         ? pracSetupBonus(player) + PRAC2.TRACK_PACE * pracTrackKnow(player)
@@ -298,7 +369,7 @@ function analyzeStrategy(strategy) {
 function practiceCars() {
   const t = TEAMS[ctx.teamIdx] || TEAMS[0];
   const personnel = ctx.career ? composePersonnel(ctx.career.staff) : genPersonnel(t.facility, ctx.teamIdx || 0);   // staff crew/facility → personnel
-  const car = composeCar(ctx.career ? effectiveCar(t.car, ctx.career.parts[t.name]) : t.car);
+  const car = composeCar(ctx.career ? applyRaceMods(effectiveCarPU(t.car, ctx.career.parts[t.name], ctx.career.puParts), ctx.career, ctx.track) : t.car);
   const roster = teamRoster(ctx.teamIdx);
   const mk = di => { const d = roster[di] || roster[0]; const cd = ctx.career && ctx.career.drivers ? ctx.career.drivers[d.abbrev] : null;
     return { drv: { skill: d.skill, attrs: (cd && cd.attrs) ? cd.attrs : driverAttrs(d.abbrev, d.skill) }, car, personnel }; };
@@ -358,16 +429,20 @@ function hostLoop(ts) {
     ctx._acc = (ctx._acc || 0) + dt * (ctx.speed || 1) * SIM_RATE;   // sim-seconds owed
     let guard = 0;
     while (ctx._acc >= STEP && !ctx.race.finished && guard++ < 400) { ctx.race.step(STEP); ctx._acc -= STEP; }
-    if ((++ctx._frame % 5) === 0) pushRaceState();          // throttle broadcast/render to ~12 Hz
+    if (!ctx.race.finished && (++ctx._frame % 5) === 0) pushRaceState();   // throttle ~12Hz; STOP once finished so the
+    //   results/paddock screen isn't re-rendered every frame (that destroyed buttons mid-click — the freeze bug)
     if (ctx.race.finished && !ctx._raceClosed) {
       ctx._raceClosed = true;
       if (ctx.career) {
         const cls = ctx.race.order().map(c => ({ abbrev: c.abbrev, team: c.team, retired: c.retired }));
-        applyResult(ctx.career, cls);
+        const pcars = ctx.race.cars.filter(c => c.isPlayer);   // E4/E6: share of racing time the team spent in push → PU wear
+        const pushFrac = pcars.length ? pcars.reduce((s, c) => s + ((c.pushTicks || 0) / Math.max(1, c.runTicks || 0)), 0) / pcars.length : 0;
+        const starts = {}; for (const cc of ctx.race.cars) starts[cc.abbrev] = cc.startPos;   // G1: grid → poles + quali H2H
+        applyResult(ctx.career, cls, { pushFrac, starts });
         advanceRound(ctx.career);            // -> next round (or done)
         saveCareer(ctx.career);
-        ctx.atPaddock = true; publishCareer();
-        pushRaceState(); rerender();         // show the paddock with results + finances
+        ctx.atResults = true; ctx.atPaddock = false; publishCareer();
+        pushRaceState(); rerender();         // show the post-race RESULTS screen (podium + finances) -> paddock on "В паддок"
       } else {
         pushRaceState();
         ctx.weekend.setReady("p1"); ctx.weekend.setReady("p2");  // non-career -> result screen
@@ -381,125 +456,3 @@ function hostLoop(ts) {
   }
   if (ctx.role === "host" && ctx.weekend.phase === "quali" && ctx.qualiSession && !ctx.qualiSession.paused) {
     const dt = Math.min(0.1, ctx._qLastTs ? (ts - ctx._qLastTs) / 1000 : 0);
-    qualiStep(ctx.qualiSession, dt * SIM_RATE);
-    if (ctx.qualiSession.clock <= 0 && ctx.qualiSession.segment <= 3) advanceSegment(ctx.qualiSession);
-    if ((++ctx._qFrame % 4) === 0) pushQuali();
-  }
-  ctx._qLastTs = ts;
-  ctx._pracLastTs = ts;
-  ctx._lastTs = ts;
-  requestAnimationFrame(hostLoop);
-}
-
-// CLIENT: render from snapshots; commands go to host
-function onMessage(m) {
-  if (m.type === "snapshot") { ctx.snapshot = m; rerender(); }
-  if (m.type === "phase")    { ctx.weekend.phase = m.phase; rerender(); }
-  if (m.type === "career")   { ctx.careerView = m.career; ctx.careerReadyView = m.ready; ctx.atPaddock = m.atPaddock; rerender(); }
-  if (ctx.role === "host" && m.type === "command") onCommand(m);
-  if (ctx.role === "host" && m.type === "hello") {
-    if (ctx.weekend.phase === "lobby") {
-      if (ctx.careerPending != null) beginCoopCareer(); else ctx.weekend.start();  // partner joined -> begin
-    } else {                                                 // late joiner mid-weekend: resync
-      ctx.net.send({ type: "phase", phase: ctx.weekend.phase });
-      if (ctx.snapshot) ctx.net.send({ type: "snapshot", ...ctx.snapshot });
-    }
-  }
-}
-
-// connection entry points used by lobby UI
-export async function hostGame(useP2P) {
-  ctx.role = "host"; ctx.myPlayer = "p1";
-  ctx.net = useP2P ? new P2PNet("host") : new LocalNet("dev", "host");
-  ctx.net.onMessage(onMessage);
-  const code = useP2P ? await ctx.net.host() : "dev";
-  requestAnimationFrame(hostLoop);
-  return code;
-}
-export async function joinGame(code, useP2P) {
-  ctx.role = "client"; ctx.myPlayer = "p2";
-  ctx.net = useP2P ? new P2PNet("client") : new LocalNet("dev", "client");
-  ctx.net.onMessage(onMessage);
-  if (useP2P) await ctx.net.join(code);
-  ctx.net.send({ type: "hello" });   // ask the host to sync us to the current phase
-}
-
-// solo: single player engineers car p1; teammate + grid are AI. No network.
-export function startSolo() {
-  ctx.role = "host"; ctx.myPlayer = "p1"; ctx.solo = true; ctx.net = null;
-  ctx.track = ctx.track || defaultRaceTrack();   // default Barcelona (with mini) unless a quick-race set it
-  ctx.weekend.solo = true;
-  requestAnimationFrame(hostLoop);
-  ctx.weekend.start();
-}
-
-// ---- Career (M1) ----------------------------------------------------------
-// keep host + client rendering from the same career view
-function publishCareer() {
-  ctx.careerView = ctx.career;
-  ctx.careerReadyView = ctx.careerReady;
-  if (ctx.net) ctx.net.send({ type: "career", career: ctx.career, ready: ctx.careerReady, atPaddock: !!ctx.atPaddock });
-}
-// configure ctx for the career's current round (track visual + sim track) before a weekend.
-function loadRoundTrack() {
-  const round = currentRound(ctx.career);
-  ctx.track = careerTrack(round);
-  ctx.trackName = round.shape;
-}
-// reset the per-weekend scratch so the next round starts clean.
-function resetWeekendState() {
-  ctx.seed = null; ctx.pracSession = null; ctx.qualiSession = null;
-  ctx.race = null; ctx.setups = null; ctx._raceClosed = false;
-}
-// SOLO career: single player engineers p1; teammate + grid AI.
-export function startCareerSolo(teamIdx) {
-  ctx.role = "host"; ctx.myPlayer = "p1"; ctx.solo = true; ctx.net = null;
-  ctx.teamIdx = teamIdx;
-  ctx.career = newCareer({ teamIdx, seed: 1000 + Math.floor(Math.random() * 100000), coop: false });
-  ctx.careerReady = { p1: false, p2: false };
-  resetWeekendState(); loadRoundTrack(); ctx.atPaddock = true; publishCareer();
-  ctx.weekend.solo = true;
-  requestAnimationFrame(hostLoop);
-  rerender();
-}
-// CO-OP career: host creates it; the first weekend begins when the partner joins (see onMessage hello).
-export function hostCareer(teamIdx) { ctx.careerPending = teamIdx; }
-function beginCoopCareer() {
-  ctx.teamIdx = ctx.careerPending;
-  ctx.career = newCareer({ teamIdx: ctx.careerPending, seed: 1000 + Math.floor(Math.random() * 100000), coop: true });
-  ctx.careerReady = { p1: false, p2: false };
-  ctx.careerPending = null;
-  resetWeekendState(); loadRoundTrack(); ctx.atPaddock = true; publishCareer();
-  rerender();
-}
-// advance the season after both players are ready (or solo).
-// begin the upcoming round's weekend from the paddock.
-function startWeekendFromPaddock() {
-  ctx.careerReady = { p1: false, p2: false };
-  ctx.atPaddock = false;
-  resetWeekendState(); loadRoundTrack();
-  ctx.weekend._goto("practice1");                          // fires onPhase -> practice + broadcasts
-}
-function startNewSeason() {
-  ctx.career = newSeason(ctx.career);
-  ctx.careerReady = { p1: false, p2: false };
-  resetWeekendState(); loadRoundTrack(); ctx.atPaddock = true; publishCareer(); rerender();
-}
-
-// quick race straight onto an edited track (from the editor's 🏁 button) — skip lobby/practice/quali.
-export function startQuickRace(edited) {
-  ctx.role = "host"; ctx.myPlayer = "p1"; ctx.solo = true; ctx.net = null;
-  ctx.track = trackFromEdited(edited);
-  ctx.trackName = edited.name || null;            // 3D/minimap reads the edited circuit by name
-  ctx.weekend.solo = true;
-  requestAnimationFrame(hostLoop);
-  ctx.weekend._goto("race");                      // jump to the race phase (fires onPhase -> startRaceHost)
-}
-
-const _quick = (typeof localStorage !== "undefined") ? localStorage.getItem("apexweb_race_track") : null;
-if (_quick) {
-  localStorage.removeItem("apexweb_race_track");
-  const saved = loadAll()[_quick];
-  if (saved && Array.isArray(saved.points) && saved.points.length >= 8) startQuickRace({ name: _quick, ...saved });
-  else rerender();                                // stale flag -> normal boot
-} else { rerender(); }

@@ -1,11 +1,15 @@
 // ApexWeb/src/career.js — pure career/season state: calendar, standings, prize money, board
 // objective. No UI, no I/O. M1 evolves only meta state (the sim is untouched). Deterministic.
 import { TEAMS } from "./data.js";
-import { defaultSponsors, titleOffers, evaluateSponsor } from "./sponsors.js";
-import { tickDevelopment } from "./development.js";
-import { initDrivers, developDrivers, updateMorale } from "./drivers.js";
-import { driverAttrs, assignTraits } from "./team.js";
-import { initStaff, upkeep, salaryForStaff } from "./staff.js";
+import { backerFor } from "./backers.js";
+import { suitorOffer, parentPullout, moneyEvent, gridChurn } from "./team_events.js";
+import { defaultSponsors, titleOffers, evaluateSponsor, replacementSponsor } from "./sponsors.js";
+import { tickDevelopment, SUPPLY_INCOME, SUPPLY_FEE, runInParts, PU_POOL, PU_GRID_PEN, puWearForRace } from "./development.js";
+import { gapDays, offseasonDays } from "./season_dates.js";
+import { initDrivers, developDrivers, updateMorale, tickDriverRace, makeDriverRequest, maybeGainTrait, zeroDriverStats, salaryFor, DRIVER_NAME } from "./drivers.js";
+import { driverAttrs, assignTraits, TRAITS } from "./team.js";
+import { initStaff, upkeep, salaryForStaff, applyCalendarLoad, initTeamStaff, tickStaffTrain, tickFacility, FAC_LABEL, STAFF_ROLES, ROLE_LABEL } from "./staff.js";
+import { mix32 } from "./rng.js";
 import { aiChurn } from "./market.js";
 import { developAcademy } from "./academy.js";
 import { pushNews, boardReaction, confidenceDelta } from "./news.js";
@@ -16,9 +20,29 @@ export const POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
 // prize money ($k) by race-finish position — a simple per-race payout (M2 deepens income).
 export const PRIZE = [1200, 1000, 850, 720, 620, 540, 470, 410, 360, 320, 280, 250, 220, 200, 180, 160, 150, 140, 130, 120, 110, 100];
 
-export const CAREER_V = 12;           // career save schema version
+export const CAREER_V = 24;           // career save schema version
 export const REG_RESET = 0.5;         // each season's regulation change trims everyone's car development
 export const RUNNING_COST = 800;      // $k per-race operating cost (M5 facilities refine it)
+export const CAP_LIMIT = 22000;       // $k — soft season cap on discretionary spend (dev + staff + transfers)
+export const LOAN_INTEREST = 0.18;    // total interest on a loan, repaid over LOAN_RACES
+export const LOAN_RACES = 8;
+// season-end Constructors' Cup prize fund ($k) by final championship position (1-based). FLAT, like
+// real F1: last gets ~43% of first (~2.3× spread) — deliberately anti-runaway, not top-heavy.
+export const PRIZE_FUND_BASE = 16000;   // P1 payout ($k); last ≈ 0.43× this
+export function constructorPrizeFund(pos, teams = 11) {
+  const N = Math.max(2, teams), p = Math.max(1, Math.min(N, pos | 0));
+  return Math.round(PRIZE_FUND_BASE * (0.43 + 0.57 * (N - p) / (N - 1)));
+}
+// book a discretionary spend against the season cost cap (dev/staff/transfers call this).
+export function bookSpend(career, cost) { if (career && cost > 0) career.capSpent = (career.capSpent || 0) + cost; }
+// take a loan: cash now, repaid with interest over LOAN_RACES via applyResult. One active loan at a time.
+export function takeLoan(career, amount) {
+  if (!career || career.loan || !(amount > 0)) return false;
+  const total = Math.round(amount * (1 + LOAN_INTEREST));
+  career.money += amount;
+  career.loan = { borrowed: amount, total, remaining: total, perRace: Math.ceil(total / LOAN_RACES) };
+  return true;
+}
 
 // the season calendar: each round picks a real circuit shape (a track_shapes.js key) for the
 // visual + geometry, plus the sim characteristics. lt/pit/pw/df/ot are BAKED from real FastF1 2024
@@ -66,9 +90,19 @@ export function newCareer({ teamIdx = 0, seed = 1, coop = false } = {}) {
     driverPts, teamPts,
     board: { targetPos, confidence: 0.5, podiums: 0, pointFinishes: 0, objectives: seasonObjectives(targetPos) },  // meet your tier (P{teamIdx+1}) + season objectives (D8)
     sponsors: defaultSponsors(teamIdx, s), costCap: false, pendingOffers: titleOffers(teamIdx, s),
-    parts: {}, project: null, devSpentThisSeason: 0,
+    parts: {}, projects: [], unproven: [], devSpentThisSeason: 0,   // E1: parallel projects + run-in debts
+    devFocus: 0, nextCar: {},                                       // F1: this/next-year development split
+
+    concept: "balanced",                                            // E3 car concept
+    pu: { pool: PU_POOL, used: 1, wear: 0, penalty: 0 }, aiPu: {},   // E4 PU season allocation · E9 AI PU pools
+    capSpent: 0, loan: null, seasonPayout: null, sponsorOffer: null,
+    backer: backerFor(TEAMS[teamIdx].name),    // funding archetype (works/independent + grant + PU)
+    puParts: { power: 0, eff: 0, rel: 0 }, puProject: null, puProgram: null,   // engine program (Phase B)
+    acquisitionOffer: null, identity: null, gridBoost: {},                     // events (Phase C)
     drivers: initDrivers(),
     staff: initStaff(TEAMS[teamIdx].facility, s),
+    teamStaff: initTeamStaff(TEAMS.map(t => ({ name: t.name, facility: t.facility })), s),   // T1 named staff in every team
+    staffTrain: {}, facilityProject: null, _myTeamName: TEAMS[teamIdx].name,                  // T3 training · T4 construction
     academy: [], reserve: null,
     news: [],
     lastResult: null, history: [], done: false,
@@ -80,7 +114,7 @@ export function isSeasonOver(career) { return career.round >= CALENDAR.length; }
 
 // award points + book the race ledger (prize + sponsor income − running cost). classification =
 // finishing order [{abbrev, team, retired}] (index 0 = winner). Mutates career; returns a summary.
-export function applyResult(career, classification) {
+export function applyResult(career, classification, raceInfo = {}) {
   const podium = [];
   let prize = 0, teamPts = 0, bestPos = 99;
   const myTeam = TEAMS[career.teamIdx].name;
@@ -103,151 +137,66 @@ export function applyResult(career, classification) {
     sponsorIncome += r.payout;
     sp.happiness = Math.max(0, Math.min(1, sp.happiness + r.dHappiness));
   }
+  // living sponsors: a deal whose happiness collapses walks away; a fresh offer surfaces to refill a slot.
+  const leavers = (career.sponsors || []).filter(s => s.happiness < 0.16);
+  if (leavers.length) {
+    career.sponsors = (career.sponsors || []).filter(s => s.happiness >= 0.16);
+    for (const s of leavers) pushNews(career, `Спонсор ${s.name} разорвал контракт — низкое довольство.`);
+  }
+  if (!career.sponsorOffer && (career.sponsors || []).length < 3) career.sponsorOffer = replacementSponsor(career.teamIdx, (career.seed >>> 0) + career.round * 7919);
   // driver morale (whole field) from finish vs the team-tier expectation; salaries (player team) as expense.
+  // Player drivers get the richer per-race tick (G1 stats + G2 in-season training + G3 form/morale).
   let salaries = 0;
+  const playerRes = [];
   classification.forEach((c, i) => {
     const dr = career.drivers && career.drivers[c.abbrev];
     if (!dr) return;
-    updateMorale(dr, i + 1, 2 + dr.teamIdx * 2);   // a 2-car expectation band (lead + teammate), so the #2 isn't perma-unhappy
-    if (dr.teamIdx === career.teamIdx) salaries += dr.salary;
+    if (dr.teamIdx === career.teamIdx) {
+      salaries += dr.salary;
+      playerRes.push({ abbrev: c.abbrev, dr, finishPos: i + 1, start: (raceInfo.starts && raceInfo.starts[c.abbrev]) || null, retired: !!c.retired, points: i < POINTS.length ? POINTS[i] : 0, expectedPos: 2 + dr.teamIdx * 2 });
+    } else {
+      updateMorale(dr, i + 1, 2 + dr.teamIdx * 2);   // AI: cheap morale only
+    }
   });
+  if (playerRes.length) {
+    const keyOf = r => r.retired ? 99 + r.finishPos : r.finishPos;     // retired counts behind any finisher
+    const pair = playerRes.length === 2;
+    const raceAhead = pair ? (keyOf(playerRes[0]) <= keyOf(playerRes[1]) ? playerRes[0].abbrev : playerRes[1].abbrev) : null;
+    const qAhead = (pair && playerRes[0].start && playerRes[1].start) ? (playerRes[0].start <= playerRes[1].start ? playerRes[0].abbrev : playerRes[1].abbrev) : null;
+    for (const r of playerRes) {
+      const beatTeammate = pair ? (r.abbrev === raceAhead) : null;
+      tickDriverRace(r.dr, { finishPos: r.finishPos, expectedPos: r.expectedPos, retired: r.retired, points: r.points, isPole: r.start === 1, beatTeammate });
+      if (qAhead === r.abbrev) r.dr.stats.qH2H += 1;
+      const req = makeDriverRequest(r.dr, r.abbrev);
+      if (req && !r.dr._reqNewsed) { pushNews(career, `💬 ${req.text}`); r.dr._reqNewsed = true; }
+    }
+  }
   const up = upkeep(career.staff);
-  const net = prize + sponsorIncome - RUNNING_COST - salaries - up;
+  const loanPay = (career.loan && career.loan.remaining > 0) ? Math.min(career.loan.perRace, career.loan.remaining) : 0;
+  const grant = career.backer ? Math.round((career.backer.grant || 0) / CALENDAR.length) : 0;   // parent/owner funding floor (per race)
+  const supply = career.backer ? (career.backer.puMaker ? SUPPLY_INCOME : -SUPPLY_FEE) : 0;       // PU-maker sells engines (+) / customer buys (−)
+  const net = prize + grant + supply + sponsorIncome - RUNNING_COST - salaries - up - loanPay;
   career.money += net;
+  if (career.loan) { career.loan.remaining -= loanPay; if (career.loan.remaining <= 0.5) { career.loan = null; pushNews(career, "Кредит полностью погашен."); } }
   const summary = {
     round: career.round, gp: CALENDAR[career.round].name, podium, bestPos,
-    prize, sponsorIncome, runningCost: RUNNING_COST, salaries, upkeep: up, net,
+    prize, grant, supply, sponsorIncome, runningCost: RUNNING_COST, salaries, upkeep: up, loanPay, net, money: career.money,
     classification: classification.map((c, i) => ({ pos: i + 1, abbrev: c.abbrev, team: c.team, retired: !!c.retired })),
   };
   career.board.confidence = Math.max(0, Math.min(1, (career.board.confidence ?? 0.5) + confidenceDelta(bestPos, career.board.targetPos)));
   pushNews(career, boardReaction(bestPos, career.board.targetPos, summary.gp));
   if (bestPos <= 3) career.board.podiums = (career.board.podiums || 0) + 1;          // D8: objective counters
   if (bestPos <= 10) career.board.pointFinishes = (career.board.pointFinishes || 0) + 1;
-  career.lastResult = summary;
-  career.history.push(summary);
-  return summary;
-}
-
-// upgrade an older save in place to the current schema.
-export function migrate(career) {
-  if (!career) return career;
-  if (career.v < 2) {
-    career.sponsors = career.sponsors || defaultSponsors(career.teamIdx, career.seed || 1);
-    career.costCap = career.costCap ?? false;
-    career.pendingOffers = career.pendingOffers || [];
-    career.v = 2;
-  }
-  if (career.v < 3) {
-    career.carDev = career.carDev || {};
-    career.project = career.project ?? null;
-    career.devSpentThisSeason = career.devSpentThisSeason ?? 0;
-    career.v = 3;
-  }
-  if (career.v < 4) {
-    career.drivers = career.drivers || initDrivers();
-    career.v = 4;
-  }
-  if (career.v < 5) {
-    career.staff = career.staff || initStaff((TEAMS[career.teamIdx] || TEAMS[0]).facility, career.seed || 1);
-    career.v = 5;
-  }
-  if (career.v < 6) {
-    career.academy = career.academy || [];
-    career.v = 6;
-  }
-  if (career.v < 7) {
-    if (career.board) career.board.confidence = career.board.confidence ?? 0.5;
-    career.news = career.news || [];
-    career.v = 7;
-  }
-  if (career.v < 8) {
-    career.parts = career.parts || {};   // parts replace the old carDev deltas (dev reset on upgrade; regs reset anyway)
-    delete career.carDev;
-    career.v = 8;
-  }
-  if (career.v < 9) {
-    for (const a in (career.drivers || {})) {           // D5: backfill the persistent attr vector + traits
-      const dr = career.drivers[a];
-      if (!dr.attrs) { dr.attrs = driverAttrs(a, dr.overall); dr.traits = assignTraits(a); }
-    }
-    career.v = 9;
-  }
-  if (career.v < 10) {
-    if (career.staff && !career.staff.people) {          // D6: backfill named staff from the current scalars
-      const mk = r => ({ name: "—", specialty: null, rating: career.staff[r], salary: salaryForStaff(career.staff[r]) });
-      career.staff.people = { designer: mk("designer"), strategist: mk("strategist"), pitCrew: mk("pitCrew") };
-    }
-    career.v = 10;
-  }
-  if (career.v < 11) {
-    for (const j of (career.academy || [])) { if (j.slPoints == null) { j.slPoints = 0; j.series = j.series || "F2"; } }   // D7: feeder state
-    career.reserve = career.reserve ?? null;
-    career.v = 11;
-  }
-  if (career.v < 12) {
-    if (career.board && !career.board.objectives) {     // D8: season objectives + counters
-      career.board.objectives = seasonObjectives(career.board.targetPos);
-      career.board.podiums = career.board.podiums || 0; career.board.pointFinishes = career.board.pointFinishes || 0;
-    }
-    career.v = 12;
-  }
-  return career;
-}
-// accept a season-start title-sponsor offer: replace the title deal, clear the offers.
-export function chooseTitleSponsor(career, offerIdx) {
-  const chosen = career.pendingOffers && career.pendingOffers[offerIdx];
-  if (!chosen) return;
-  const secondaries = (career.sponsors || []).filter(s => s.kind !== "title");
-  career.sponsors = [{ ...chosen, kind: "title" }, ...secondaries];
-  career.pendingOffers = [];
-}
-export { reSign } from "./drivers.js";
-
-// advance to the next round. Returns true if a next round exists, false if the season ended.
-export function advanceRound(career) {
-  tickDevelopment(career);          // progress the player project + AI dev for the round just completed
-  career.round += 1;
-  if (isSeasonOver(career)) { career.done = true; return false; }
-  return true;
-}
-
-export function constructorStandings(career) {
-  return TEAMS.map((t, i) => ({ team: t.name, color: t.color, pts: career.teamPts[t.name], isPlayer: i === career.teamIdx }))
-    .sort((a, b) => b.pts - a.pts).map((r, i) => ({ ...r, pos: i + 1 }));
-}
-export function driverStandings(career) {
-  const info = {}; for (const d of allDrivers()) info[d.abbrev] = d.team;
-  return Object.keys(career.driverPts).map(a => ({ abbrev: a, team: info[a], pts: career.driverPts[a] }))
-    .sort((a, b) => b.pts - a.pts).map((r, i) => ({ ...r, pos: i + 1 }));
-}
-export function boardOutcome(career) {
-  const standings = constructorStandings(career);
-  const me = standings.find(s => s.isPlayer);
-  const finalPos = me ? me.pos : TEAMS.length;
-  const target = career.board.targetPos;
-  const met = me ? finalPos <= target : false;
-  const confidence = career.board.confidence ?? 0.5;
-  return { finalPos, target, met, confidence, sacked: !met && confidence < 0.25, objectives: evaluateObjectives(career) };
-}
-// start a new season: reset round + points, keep team + money + seed, bump the season number.
-export function newSeason(career) {
-  const fresh = newCareer({ teamIdx: career.teamIdx, seed: career.seed, coop: career.coop });
-  fresh.season = career.season + 1;
-  fresh.money = career.money;
-  // deep-copy carried state so the prior season's career object stays immutable
-  fresh.parts = JSON.parse(JSON.stringify(career.parts || {}));     // part development carries over (regs reset below)
-  fresh.devSpentThisSeason = 0;
-  fresh.drivers = JSON.parse(JSON.stringify(career.drivers || initDrivers()));
-  developDrivers(fresh.drivers);             // age up, develop/decline, tick contracts
-  aiChurn(fresh, (fresh.seed >>> 0) + fresh.season * 2246822519);   // deterministic AI silly-season
-  fresh.staff = JSON.parse(JSON.stringify(career.staff || initStaff((TEAMS[career.teamIdx] || TEAMS[0]).facility, career.seed || 1)));
-  fresh.academy = JSON.parse(JSON.stringify(career.academy || []));
-  developAcademy(fresh, fresh.season);         // D7: juniors race a feeder season (SL points + dev by results)
-  const reg = regResetFor(fresh.season);                       // D8: regulation arc — a big shake-up on a cycle
-  for (const tn in fresh.parts) for (const k in fresh.parts[tn]) fresh.parts[tn][k] *= reg;            // regs change: redevelop parts
-  fresh.board.confidence = career.board.confidence ?? 0.5;     // confidence carries between seasons
-  fresh.board.objectives = seasonObjectives(fresh.board.targetPos); fresh.board.podiums = 0; fresh.board.pointFinishes = 0;   // D8: new season's objectives
-  pushNews(fresh, regArcNote(fresh.season));                   // D8: telegraph the regulation cadence
-  pushNews(fresh, `Сезон ${fresh.season}: смена регламента — разработка частично обнулена.`);
-  return fresh;
-}
+  const mev = moneyEvent(career, career.round, (career.seed >>> 0) + career.round * 17);   // rare one-off money event
+  if (mev) { career.money += mev.delta; pushNews(career, mev.news); summary.event = mev.news; }
+  // E1: bed in freshly-fitted parts (decay the run-in reliability debt). E2: regenerate aero/R&D capacity
+  // by championship position (trailers test more — honest ATR sliding scale).
+  runInParts(career);
+  // E4: wear the PU. Power tracks stress it; developed PU reliability spares it. Spending a unit beyond
+  // the season pool draws a grid penalty next race.
+  if (career.pu) {
+    const trk = CALENDAR[career.round] || {};
+    const puRel = (career.puParts && career.puParts.rel) || 0;
+    career.pu.wear = (career.pu.wear || 0) + puWearForRace(trk, puRel, raceInfo.pushFrac || 0);
+    while (career.pu.wear >= 1) {
+      career.pu.wear -= 1;

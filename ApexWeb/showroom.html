@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Apex Web — 3D шоурум</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #0a0a0c; overflow: hidden; font: 14px/1.4 system-ui, sans-serif; color: #e8e8ee; }
+    #sr-canvas { display: block; width: 100vw; height: 100vh; }
+    .hud { position: absolute; top: 14px; left: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .hud .btn, .hud select { background: rgba(14,14,18,.72); color: #e8e8ee; border: 1px solid #2a2a32; border-radius: 10px; padding: 7px 13px; font-weight: 600; cursor: pointer; }
+    .hud .chip { background: rgba(14,14,18,.72); border-radius: 10px; padding: 7px 13px; }
+    .hint { position: absolute; bottom: 12px; left: 14px; color: #9aa0aa; background: rgba(14,14,18,.6); border-radius: 8px; padding: 6px 10px; }
+  </style>
+</head>
+<body>
+  <canvas id="sr-canvas"></canvas>
+  <div class="hud">
+    <button class="btn" id="sr-cam">Камера: ТВ-режиссёр</button>
+    <button class="btn" id="sr-pause">⏸ Пауза</button>
+    <button class="btn" id="sr-rain">☂ Дождь</button>
+    <select id="sr-track" title="Трасса"></select>
+    <div class="chip">Круг <span id="sr-lap">0</span></div>
+  </div>
+  <div class="hint">Перетаскивай — вращать (в обзоре) · колесо — зум · переключай камеры кнопкой</div>
+  <script type="module" src="./src/showroom.js"></script>
+</body>
+</html>

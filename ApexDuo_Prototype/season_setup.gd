@@ -130,7 +130,7 @@ func _make_team_tile(idx: int, team: Dictionary) -> PanelContainer:
 	abbrev_lbl.text = _team_abbrev(team.get("name", "???"))
 	abbrev_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	abbrev_lbl.add_theme_color_override("font_color", t_color if selected else DesignSystem.TEXT_3)
-	abbrev_lbl.add_theme_font_size_override("font_size", 10)
+	abbrev_lbl.add_theme_font_size_override("font_size", 13)
 	col.add_child(abbrev_lbl)
 
 	if selected:

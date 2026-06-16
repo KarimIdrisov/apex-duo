@@ -55,6 +55,7 @@ var _practice_logs: Dictionary = {}   # car_id -> RichTextLabel (run log)
 var _practice_run_btns: Dictionary = {}  # car_id -> {type: Button}
 var _practice_best_lbls: Dictionary = {}  # car_id -> Label (best time)
 var _practice_budget_lbls: Dictionary = {}  # car_id -> Label (slots/sets left)
+var _practice_fb_indicators: Dictionary = {}  # car_id -> Array[Label] (6 per car)
 
 # interactive qualifying phase
 var quali_sim: QualiSim               # active qualifying session (null when not running)
@@ -104,14 +105,22 @@ var season_race := false         # this race is part of a Season
 var fast_to_end := false         # quick-sim: run the race to the finish instantly
 var _track_char_set := false     # true once the track character strip has been populated
 var team_gap_label: Label        # inter-team-car gap on the tactics panel
-var track_char_label: RichTextLabel  # 2026 energy/aero track character strip (set once at race start)
-var weather_chip_label: Label    # live weather state indicator (hidden when dry)
+# Info strip chips (F1-dashboard-style row at the top of the race HUD)
+var info_laps_val: Label         # laps chip value — updated every tick
+var info_sc_chip: Control        # safety car chip — shown only when SC active
+var info_weather_chip: Control   # weather chip — shown only when not dry
+var info_weather_val: Label      # weather chip value label
+var info_energy_val: Label       # energy limit chip — set once at race start
+var info_zones_val: Label        # aero zones chip — set once at race start
+var info_corners_val: Label      # corners chip — set once at race start
+var info_straight_val: Label     # straight length chip — set once at race start
 var track_map: TrackMap          # live circuit minimap with moving cars
 var race_view_3d: RaceView3D     # optional 3D race view (toggle from the HUD)
 var view_3d_btn: Button          # 2D ↔ 3D toggle button
 var view_is_3d := false          # which race view is currently shown
 
 var _team_tex: Dictionary = {}    # team name → Texture2D
+var _tyre_tex: Dictionary = {}    # compound → Texture2D
 # Timing tower (F1 Manager-style 22-row panel with 17 mini-sector blocks each)
 var _tt_panel: PanelContainer
 var _tt_rows: Array = []
@@ -120,9 +129,14 @@ const TT_MINI_TOTAL: int = 17
 const TT_COL_MINI_W: int = 8
 const TT_COL_MINI_H: int = 14
 const TT_COL_SEP: int = 4
+# Mini-sector block colours (4-tier; empty + slow are brightened for contrast).
+const MS_EMPTY := Color("#34344e")   # not yet driven this lap — visible slot
+const MS_SLOW  := Color("#6d6d92")   # done, slower than personal best
 
 # ---------------------------------------------------------------- lifecycle
 func _ready() -> void:
+	# Global UI upscale — bumps every font/control uniformly (canvas_items stretch).
+	get_window().content_scale_factor = 1.08
 	DesignSystem.setup_fonts()
 	theme = Palette.base_theme()
 	add_child(Palette.vignette_layer())
@@ -243,8 +257,7 @@ func _start(m: String) -> void:
 	# Set the 2026 track character strip once at race start (host/solo/local have sim ready).
 	if sim != null:
 		_set_track_char_label(sim.track.energy_limit, sim.track.aero_zones, sim.track.corners, sim.track.straight_km, sim.track.evolution)
-	elif track_char_label != null:
-		track_char_label.text = ""   # client: will be filled on first snapshot
+	# client: info strip chips filled on first snapshot in _update_hud
 	if paddock_btn != null:
 		paddock_btn.visible = season_race
 	var hello := "Зелёный свет!"
@@ -492,7 +505,7 @@ func _make_snapshot() -> Dictionary:
 		ds.append({
 			"id": d.id, "name": d.name, "progress": d.progress(),
 			"compound": d.compound, "wear": d.tire_wear, "temp": d.tyre_temp, "pit": d.pit_count,
-			"finished": d.finished, "finish_time": d.finish_time,
+			"finished": d.finished, "finish_time": d.finish_time, "finish_key": d.finish_key,
 			"pace": d.pace_mode, "role": d.role, "team": d.team,
 				"dir_pace": d.dir_pace, "dir_intent": d.dir_intent,
 			"soc": d.soc, "ers": d.ers_mode, "overtake": d.overtake, "clipped": d.clipped, "save": d.save,
@@ -508,6 +521,7 @@ func _make_snapshot() -> Dictionary:
 		"wet": sim.wetness, "weather_state": sim.weather_state,
 		"energy_limit": sim.track.energy_limit, "aero_zones": sim.track.aero_zones,
 		"corners": sim.track.corners, "straight_km": sim.track.straight_km, "evolution": sim.track.evolution,
+		"base_laptime": sim.track.base_laptime,
 		"team_pit_cooldown": sim.team_pit_cooldown,
 		"events": sim.event_log.slice(maxi(0, sim.event_log.size() - 12))}
 
@@ -537,7 +551,7 @@ func _collect_entries() -> Array:
 		out.append({
 			"id": d.id, "name": d.name, "progress": d.progress(),
 			"compound": d.compound, "wear": d.tire_wear, "temp": d.tyre_temp, "pit": d.pit_count,
-			"finished": d.finished, "finish_time": d.finish_time,
+			"finished": d.finished, "finish_time": d.finish_time, "finish_key": d.finish_key,
 			"pace": d.pace_mode, "role": d.role, "team": d.team,
 				"dir_pace": d.dir_pace, "dir_intent": d.dir_intent,
 			"soc": d.soc, "ers": d.ers_mode, "overtake": d.overtake, "clipped": d.clipped, "save": d.save,
@@ -549,6 +563,7 @@ func _collect_entries() -> Array:
 			# HUD v2 fields
 			"abbrev": _driver_abbrev(d),
 			"team_name": F1_2026.TEAMS[d.team_idx]["name"] if d.team_idx >= 0 and d.team_idx < F1_2026.TEAMS.size() else "",
+			"team_abbrev": F1_2026.TEAMS[d.team_idx].get("abbrev", "???") if d.team_idx >= 0 and d.team_idx < F1_2026.TEAMS.size() else "???",
 			"grid_pos": d.grid_pos,
 			"ms_times": d.mini_times_this_lap.duplicate(),
 			"ms_best": d.mini_best.duplicate(),
@@ -557,16 +572,41 @@ func _collect_entries() -> Array:
 		})
 	return out
 
+# Race-position comparator for leaderboard entries. Mirrors RaceSim._cmp_position
+# but keeps DNF cars below running cars for the LIVE order (they only rank by
+# classification once the race is over and everyone is finished/retired).
+# Crucially: cars that crossed the finish line rank by finish_key (the shared-
+# timeline crossing instant), NOT by progress() — which collapses to total_laps
+# for every finisher and would otherwise scramble the final classification.
+func _cmp_entry_position(a: Dictionary, b: Dictionary) -> bool:
+	var a_fin: bool = bool(a.get("finished", false)) and not bool(a.get("dnf", false))
+	var b_fin: bool = bool(b.get("finished", false)) and not bool(b.get("dnf", false))
+	if a_fin != b_fin:
+		return a_fin                      # classified finishers ahead of the rest
+	if a_fin:                             # both finished — earlier crossing wins
+		var ak: float = float(a.get("finish_key", 0.0))
+		var bk: float = float(b.get("finish_key", 0.0))
+		if ak != bk:
+			return ak < bk
+		return int(a.get("id", 0)) < int(b.get("id", 0))
+	# both still running (or retired) — by track progress, id breaks ties
+	var ap: float = float(a.get("progress", 0.0))
+	var bp: float = float(b.get("progress", 0.0))
+	if ap != bp:
+		return ap > bp
+	return int(a.get("id", 0)) < int(b.get("id", 0))
+
 func _update_hud() -> void:
 	var entries := _collect_entries()
 	if entries.is_empty():
 		status_label.text = "Ожидание данных…"
 		_update_net_label()
 		return
-	entries.sort_custom(func(a, b): return a["progress"] > b["progress"])
+	entries.sort_custom(_cmp_entry_position)
 	var leader: Dictionary = entries[0]
 	var total_laps: int = snapshot.get("laps", 50) if game_mode == "client" else sim.track.laps
 	var race_done: bool = snapshot.get("finished", false) if game_mode == "client" else sim.finished
+	var blt: float = float(snapshot.get("base_laptime", BASE_LT)) if game_mode == "client" else (sim.track.base_laptime if sim != null else BASE_LT)
 
 	# Client: set track character strip once from the first valid snapshot (one-shot).
 	if game_mode == "client" and not _track_char_set and snapshot.has("energy_limit"):
@@ -577,6 +617,14 @@ func _update_hud() -> void:
 		_track_char_set = true
 
 	var leader_lap := int(leader["progress"])
+
+	# Update info strip chips.
+	var sc_on: bool = bool(snapshot.get("sc", false)) if game_mode == "client" else (sim.sc_active if sim != null else false)
+	if info_laps_val != null:
+		info_laps_val.text = "%d/%d" % [min(leader_lap + 1, total_laps), total_laps]
+	if info_sc_chip != null:
+		info_sc_chip.visible = sc_on
+
 	var state := "ГОНКА"
 	if race_done:
 		state = "ФИНИШ"
@@ -620,26 +668,25 @@ func _update_hud() -> void:
 		else:
 			row_sb.bg_color = DesignSystem.BG_RAISED
 
-		# Position
+		# Position (number always current, colour only on car change)
 		var pos_lbl: Label = row["pos_lbl"]
 		pos_lbl.text = "P%d" % (i + 1)
-		pos_lbl.add_theme_color_override("font_color",
-			DesignSystem.GOLD if is_player else DesignSystem.TEXT_2)
-
-		# Team stripe colour
-		(row["stripe"] as ColorRect).color = e_color
-
-		# Team logo
-		var logo: TextureRect = row["logo"]
-		var team_nm: String = String(e.get("team_name", ""))
-		if team_nm in _team_tex:
-			logo.texture = _team_tex[team_nm]
-
-		# Driver abbreviation
-		var abbrev_lbl: Label = row["abbrev_lbl"]
-		abbrev_lbl.text = String(e.get("abbrev", "???"))
-		abbrev_lbl.add_theme_color_override("font_color",
-			DesignSystem.GOLD if is_player else e_color)
+		var cur_id: int = int(e.get("id", -1))
+		var car_changed: bool = cur_id != int(row.get("last_id", -1))
+		if car_changed:
+			row["last_id"] = cur_id
+			pos_lbl.add_theme_color_override("font_color",
+				DesignSystem.GOLD if is_player else DesignSystem.TEXT_2)
+			# Team stripe colour
+			(row["stripe"] as ColorRect).color = e_color
+			# Team logo texture
+			var team_nm: String = String(e.get("team_name", ""))
+			var logo_tr: TextureRect = row["logo"]
+			logo_tr.texture = _team_tex.get(team_nm) as Texture2D
+			# Driver abbreviation
+			(row["abbrev_lbl"] as Label).text = String(e.get("abbrev", "???"))
+			(row["abbrev_lbl"] as Label).add_theme_color_override("font_color",
+				DesignSystem.GOLD if is_player else e_color)
 
 		# Position delta vs qualifying grid
 		var delta_lbl: Label = row["delta_lbl"]
@@ -668,9 +715,9 @@ func _update_hud() -> void:
 			pit_lbl.text = "×%d" % pc if pc > 0 else "—"
 			pit_lbl.add_theme_color_override("font_color", DesignSystem.TEXT_3)
 
-		# Tyre compound colour dot + age
+		# Tyre compound icon
 		var compound: String = String(e.get("compound", "medium"))
-		_set_tyre_col(row["tyre_icon"], compound)
+		(row["tyre_icon"] as TextureRect).texture = _tyre_tex.get(compound) as Texture2D
 		(row["tyre_age"] as Label).text = str(int(e.get("tyre_laps", 0)))
 
 		# Best lap
@@ -690,7 +737,7 @@ func _update_hud() -> void:
 		if e["finished"] and leader["finished"]:
 			gap_s = float(e["finish_time"]) - float(leader["finish_time"])
 		else:
-			gap_s = (float(leader["progress"]) - float(e["progress"])) * BASE_LT
+			gap_s = (float(leader["progress"]) - float(e["progress"])) * blt
 		if is_dnf:
 			gap_lbl.text = "СХОД"
 			gap_lbl.add_theme_color_override("font_color", DesignSystem.RED)
@@ -712,9 +759,11 @@ func _update_hud() -> void:
 			if e["finished"] and ahead["finished"]:
 				int_s = float(e["finish_time"]) - float(ahead["finish_time"])
 			else:
-				int_s = (float(ahead["progress"]) - float(e["progress"])) * BASE_LT
+				int_s = (float(ahead["progress"]) - float(e["progress"])) * blt
 			int_lbl.text = "+%.3f" % maxf(0.0, int_s)
-			int_lbl.add_theme_color_override("font_color", DesignSystem.TEXT_2)
+			# blue = DRS range (<1s = in combat), normal otherwise
+			var int_col: Color = DesignSystem.BLUE if int_s < 1.0 else DesignSystem.TEXT_2
+			int_lbl.add_theme_color_override("font_color", int_col)
 
 		# Mini-sector blocks (4-tier colours)
 		var ms_times: Array = e.get("ms_times", [])
@@ -726,7 +775,7 @@ func _update_hud() -> void:
 			var blk: ColorRect = ms_blocks[bi2]
 			var t: float = float(ms_times[bi2]) if bi2 < ms_times.size() else -1.0
 			if t < 0.0:
-				blk.color = Color("#1e1e28")
+				blk.color = MS_EMPTY
 			else:
 				var gb: float = float(ms_global_arr[bi2]) if bi2 < ms_global_arr.size() else -1.0
 				var pb: float = float(ms_best_arr[bi2])   if bi2 < ms_best_arr.size()   else -1.0
@@ -738,7 +787,7 @@ func _update_hud() -> void:
 				elif pv > 0.0 and t < pv:
 					blk.color = DesignSystem.GREEN
 				else:
-					blk.color = Color("#555566")
+					blk.color = MS_SLOW
 
 		# Last lap
 		var last_lbl: Label = row["last_lbl"]
@@ -884,6 +933,7 @@ func _update_panels(entries: Array) -> void:
 				ot.text = "⚡ Обгон (в пределах 1 c)"
 	# inter-team-car gap on the tactics panel
 	if team_gap_label != null:
+		var panel_blt: float = sim.track.base_laptime if sim != null else BASE_LT
 		var tp: Array = []
 		for e in entries:
 			if e["team"]:
@@ -892,7 +942,7 @@ func _update_panels(entries: Array) -> void:
 			var first_ahead: bool = tp[0]["progress"] >= tp[1]["progress"]
 			var ahead_e: Dictionary = tp[0] if first_ahead else tp[1]
 			var trail_e: Dictionary = tp[1] if first_ahead else tp[0]
-			var g := absf(tp[0]["progress"] - tp[1]["progress"]) * BASE_LT
+			var g: float = absf(tp[0]["progress"] - tp[1]["progress"]) * panel_blt
 			team_gap_label.text = "%s впереди %s: %.1f c" % [
 				ahead_e["name"], trail_e["name"], g]
 
@@ -941,8 +991,6 @@ func _update_panels(entries: Array) -> void:
 			(p["stack_label"] as Label).text = stack_warn
 
 func _update_weather_chip() -> void:
-	if weather_chip_label == null:
-		return
 	var wstate: String
 	if game_mode == "client":
 		wstate = String(snapshot.get("weather_state", RaceSim.WEATHER_DRY))
@@ -950,23 +998,25 @@ func _update_weather_chip() -> void:
 		wstate = sim.weather_state
 	else:
 		wstate = RaceSim.WEATHER_DRY
-	if wstate == RaceSim.WEATHER_DRY:
-		weather_chip_label.visible = false
+	var is_dry: bool = wstate == RaceSim.WEATHER_DRY
+	if info_weather_chip != null:
+		info_weather_chip.visible = not is_dry
+	if is_dry:
 		return
-	weather_chip_label.visible = true
 	var wlabels: Dictionary = {
 		RaceSim.WEATHER_VARIABLE: "ПЕРЕМЕННО",
 		RaceSim.WEATHER_RAIN:     "ДОЖДЬ",
 		RaceSim.WEATHER_STORM:    "ЛИВЕНЬ",
 	}
-	weather_chip_label.text = "☁ %s" % String(wlabels.get(wstate, wstate.to_upper()))
 	var chip_color: Color
 	match wstate:
 		RaceSim.WEATHER_VARIABLE: chip_color = Color("#aaccff")
 		RaceSim.WEATHER_RAIN:     chip_color = Color("#66aaff")
 		RaceSim.WEATHER_STORM:    chip_color = Color("#ee8844")
 		_:                        chip_color = Color("#66c2ff")
-	weather_chip_label.add_theme_color_override("font_color", chip_color)
+	if info_weather_val != null:
+		info_weather_val.text = String(wlabels.get(wstate, wstate.to_upper()))
+		info_weather_val.add_theme_color_override("font_color", chip_color)
 
 func _update_net_label() -> void:
 	if net_label == null:
@@ -1107,28 +1157,25 @@ func _arch_label(a: String) -> String:
 		"modern": return "современная трасса"
 	return ""
 
-# Build the BBCode string for the 2026 track character strip (set once at start).
-func _track_char_bbcode(energy_limit: float, aero_zones: int, corners: int, straight_km: float, evolution: float) -> String:
-	var tier_word: String
-	var tier_col: String
-	if energy_limit < 0.70:
-		tier_word = "НИЗКИЙ"
-		tier_col = "#e23b3b"
-	elif energy_limit < 0.90:
-		tier_word = "СРЕДНИЙ"
-		tier_col = "#f2c14e"
-	else:
-		tier_word = "ВЫСОКИЙ"
-		tier_col = "#5dd17a"
-	var zones_str: String = "нет" if aero_zones == 0 else str(aero_zones)
-	var evo_word: String = "слабая" if evolution < 0.5 else ("средняя" if evolution < 0.7 else "сильная")
-	return "Энерголимит: [color=%s]%s[/color] · Прямые зоны: %s · Поворотов: %d · Длинная прямая: %.2f км · Эволюция трассы: [color=#66c2ff]%s[/color]" % [
-		tier_col, tier_word, zones_str, corners, straight_km, evo_word]
-
-# Set the track character strip label (called once at race start).
+# Populate the static info-strip chips with track character values (called once at race start).
 func _set_track_char_label(energy_limit: float, aero_zones: int, corners: int, straight_km: float, evolution: float) -> void:
-	if track_char_label != null:
-		track_char_label.text = _track_char_bbcode(energy_limit, aero_zones, corners, straight_km, evolution)
+	var tier_word: String
+	var tier_col: Color
+	if energy_limit < 0.70:
+		tier_word = "НИЗКИЙ";  tier_col = Color("#e23b3b")
+	elif energy_limit < 0.90:
+		tier_word = "СРЕДНИЙ"; tier_col = Color("#f2c14e")
+	else:
+		tier_word = "ВЫСОКИЙ"; tier_col = Color("#5dd17a")
+	if info_energy_val != null:
+		info_energy_val.text = tier_word
+		info_energy_val.add_theme_color_override("font_color", tier_col)
+	if info_zones_val != null:
+		info_zones_val.text = "нет" if aero_zones == 0 else str(aero_zones)
+	if info_corners_val != null:
+		info_corners_val.text = str(corners)
+	if info_straight_val != null:
+		info_straight_val.text = "%.2f км" % straight_km
 
 func _set_msg(s: String) -> void:
 	if msg_label:
@@ -1155,8 +1202,8 @@ func _tt_header_row() -> HBoxContainer:
 	var hb := HBoxContainer.new()
 	hb.add_theme_constant_override("separation", 4)
 	var cols: Array = [["#", 22], ["Гонщик", 58], ["Кр", 28], ["Пит", 24],
-	             ["Ш", 22], ["Лучший", 64], ["Отрыв", 58], ["Инт", 52],
-	             ["Мини-секторы", 145], ["Посл", 58]]
+				 ["Ш", 22], ["Лучший", 64], ["Отрыв", 58], ["Инт", 52],
+				 ["Мини-секторы", 145], ["Посл", 58]]
 	for col in cols:
 		var lbl := Label.new()
 		lbl.text = String(col[0])
@@ -1468,33 +1515,20 @@ func _build_race_ui(root: Control) -> void:
 	# into the tree, so _ready fires only after all children are in place.
 
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 10)
+	col.add_theme_constant_override("separation", 6)
 
 	var title := Label.new()
 	title.text = "APEX DUO — гонка"
-	title.add_theme_font_size_override("font_size", 26)
+	title.add_theme_font_size_override("font_size", 24)
 	title.add_theme_color_override("font_color", ACCENT)
 	title.add_theme_font_override("font", Palette.display_font(600, 3))
 	col.add_child(title)
 
-	status_label = _mklabel(16, "#9aa4b2")
+	status_label = _mklabel(17, "#9aa4b2")
 	col.add_child(status_label)
-	# 2026 track character strip — set once at race start, shows energy_limit tier + aero zones.
-	track_char_label = RichTextLabel.new()
-	track_char_label.bbcode_enabled = true
-	track_char_label.fit_content = true
-	track_char_label.scroll_active = false
-	track_char_label.add_theme_font_size_override("normal_font_size", 13)
-	track_char_label.add_theme_color_override("default_color", Color("#9aa4b2"))
-	track_char_label.text = ""
-	col.add_child(track_char_label)
-	net_label = _mklabel(15, "#66c2ff")
+	col.add_child(_build_info_strip())
+	net_label = _mklabel(16, "#66c2ff")
 	col.add_child(net_label)
-
-	# Weather chip — shown only when weather_state is not dry.
-	weather_chip_label = _mklabel(14, "#66c2ff")
-	weather_chip_label.visible = false
-	col.add_child(weather_chip_label)
 
 	var mid := HBoxContainer.new()
 	mid.add_theme_constant_override("separation", 16)
@@ -1542,10 +1576,77 @@ func _preload_assets() -> void:
 	}
 	for tname: String in slug_map:
 		var path := "res://assets/teams/%s.png" % slug_map[tname]
-		if ResourceLoader.exists(path, "Texture2D"):
+		if ResourceLoader.exists(path):
 			_team_tex[tname] = load(path)
+	for compound: String in ["soft", "medium", "hard", "inter", "wet"]:
+		var path := "res://assets/tyres/%s.png" % compound
+		if ResourceLoader.exists(path):
+			_tyre_tex[compound] = load(path)
 
-func _lb_cell(row: HBoxContainer, txt: String, w: int, col: Color, sz: int = 18) -> Label:
+# ---- F1-dashboard info chip helpers ----
+
+func _make_info_chip(lbl_text: String, init_val: String, val_color: Color = Color.WHITE) -> Dictionary:
+	var chip := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.06, 0.08, 0.11, 0.92)
+	sb.set_corner_radius_all(4)
+	sb.content_margin_left   = 8.0
+	sb.content_margin_right  = 8.0
+	sb.content_margin_top    = 4.0
+	sb.content_margin_bottom = 4.0
+	chip.add_theme_stylebox_override("panel", sb)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 1)
+	var top_lbl := Label.new()
+	top_lbl.text = lbl_text
+	top_lbl.add_theme_font_size_override("font_size", 10)
+	top_lbl.add_theme_color_override("font_color", Color("#6b7280"))
+	top_lbl.add_theme_font_override("font", Palette.display_font(400, 2))
+	var val_lbl := Label.new()
+	val_lbl.text = init_val
+	val_lbl.add_theme_font_size_override("font_size", 15)
+	val_lbl.add_theme_color_override("font_color", val_color)
+	val_lbl.add_theme_font_override("font", Palette.display_font(600, 0))
+	col.add_child(top_lbl)
+	col.add_child(val_lbl)
+	chip.add_child(col)
+	return {"chip": chip, "val": val_lbl}
+
+func _build_info_strip() -> HBoxContainer:
+	var strip := HBoxContainer.new()
+	strip.add_theme_constant_override("separation", 4)
+	var d: Dictionary
+	# Laps — updates every tick
+	d = _make_info_chip("КРУГИ", "0/—")
+	info_laps_val = d["val"] as Label
+	strip.add_child(d["chip"] as Control)
+	# Safety car — shown only when SC active
+	d = _make_info_chip("МАШ. БЕЗ.", "▶ SC", Color("#f2c14e"))
+	info_sc_chip = d["chip"] as Control
+	info_sc_chip.visible = false
+	strip.add_child(info_sc_chip)
+	# Weather — shown only when not dry
+	d = _make_info_chip("ПОГОДА", "—")
+	info_weather_chip = d["chip"] as Control
+	info_weather_val = d["val"] as Label
+	info_weather_chip.visible = false
+	strip.add_child(info_weather_chip)
+	# Static track chips — filled once at race start via _set_track_char_label
+	d = _make_info_chip("ЭЛ.ЛИМИТ", "—")
+	info_energy_val = d["val"] as Label
+	strip.add_child(d["chip"] as Control)
+	d = _make_info_chip("АЭР.ЗОНЫ", "—")
+	info_zones_val = d["val"] as Label
+	strip.add_child(d["chip"] as Control)
+	d = _make_info_chip("ПОВОРОТЫ", "—")
+	info_corners_val = d["val"] as Label
+	strip.add_child(d["chip"] as Control)
+	d = _make_info_chip("ПРЯМАЯ", "—")
+	info_straight_val = d["val"] as Label
+	strip.add_child(d["chip"] as Control)
+	return strip
+
+func _lb_cell(row: HBoxContainer, txt: String, w: int, col: Color, sz: int = 19) -> Label:
 	var l := Label.new()
 	l.text = txt
 	l.custom_minimum_size = Vector2(float(w), 0.0)
@@ -1560,7 +1661,7 @@ func _hdr_cell(row: HBoxContainer, txt: String, w: int) -> void:
 	l.text = txt
 	l.custom_minimum_size = Vector2(float(w), 0.0)
 	l.add_theme_color_override("font_color", DesignSystem.TEXT_3)
-	l.add_theme_font_size_override("font_size", 13)
+	l.add_theme_font_size_override("font_size", 14)
 	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(l)
 
@@ -1679,27 +1780,40 @@ func _toggle_view_3d() -> void:
 		view_3d_btn.text = "Вид: 3D ▸ 2D" if view_is_3d else "Вид: 2D ▸ 3D"
 
 func _build_leaderboard() -> Control:
-	var outer := VBoxContainer.new()
-	outer.add_theme_constant_override("separation", 1)
-	outer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	outer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	# wrap: pinned header + scrollable rows, so a short window can never push the
+	# bottom bar off-screen (the rows scroll instead).
+	var wrap := VBoxContainer.new()
+	wrap.add_theme_constant_override("separation", 1)
+	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL
 
-	# Header row
+	# Header row (pinned, outside the scroll)
 	var hdr := HBoxContainer.new()
 	hdr.add_theme_constant_override("separation", 0)
-	hdr.custom_minimum_size = Vector2(0.0, 26.0)
+	hdr.custom_minimum_size = Vector2(0.0, 24.0)
 	_hdr_cell(hdr, "ПОЗ", 44);  _hdr_cell(hdr, "", 3);  _hdr_cell(hdr, "", 40)
 	_hdr_cell(hdr, "ПИЛ", 56);  _hdr_cell(hdr, "Δ", 40);  _hdr_cell(hdr, "КР", 34)
 	_hdr_cell(hdr, "ПИТ", 52);  _hdr_cell(hdr, "ШИНА", 84)
 	_hdr_cell(hdr, "ЛУЧШИЙ", 94);  _hdr_cell(hdr, "ОТРЫВ", 94)
-	_hdr_cell(hdr, "ИНТ", 82);  _hdr_cell(hdr, "СЕКТОРЫ", 84);  _hdr_cell(hdr, "ПРОШ", 94)
-	outer.add_child(hdr)
+	_hdr_cell(hdr, "ИНТ", 82);  _hdr_cell(hdr, "СЕКТОРЫ", 108);  _hdr_cell(hdr, "ПРОШ", 94)
+	wrap.add_child(hdr)
+
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	wrap.add_child(scroll)
+
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 1)
+	outer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(outer)
 
 	board_rows.clear()
 
 	for _i in F1_2026.grid_size():
 		var row_panel := PanelContainer.new()
-		row_panel.custom_minimum_size = Vector2(0.0, 34.0)
+		row_panel.custom_minimum_size = Vector2(0.0, 31.0)
 		row_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var row_sb := StyleBoxFlat.new()
 		row_sb.bg_color = DesignSystem.BG_RAISED
@@ -1719,8 +1833,10 @@ func _build_leaderboard() -> Control:
 		stripe.color = DesignSystem.BORDER
 		row.add_child(stripe)
 		var logo := TextureRect.new()
-		logo.custom_minimum_size = Vector2(40.0, 22.0)
+		logo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		logo.custom_minimum_size = Vector2(40.0, 22.0)
+		logo.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		logo.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(logo)
 		var abbrev_lbl: Label = _lb_cell(row, "???", 56, DesignSystem.TEXT_1, 20)
@@ -1731,9 +1847,12 @@ func _build_leaderboard() -> Control:
 		tyre_wrap.custom_minimum_size = Vector2(84.0, 0.0)
 		tyre_wrap.add_theme_constant_override("separation", 4)
 		tyre_wrap.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		var tyre_icon := ColorRect.new()
-		tyre_icon.custom_minimum_size = Vector2(18.0, 18.0)
-		tyre_icon.color = Color("#888888")
+		var tyre_icon := TextureRect.new()
+		tyre_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tyre_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		tyre_icon.custom_minimum_size = Vector2(28.0, 28.0)
+		tyre_icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		tyre_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		tyre_wrap.add_child(tyre_icon)
 		var tyre_age := Label.new()
 		tyre_age.add_theme_font_size_override("font_size", 16)
@@ -1751,21 +1870,21 @@ func _build_leaderboard() -> Control:
 		if DesignSystem.mono_font != null:
 			int_lbl.add_theme_font_override("font", DesignSystem.mono_font)
 		var ms_wrap := HBoxContainer.new()
-		ms_wrap.custom_minimum_size = Vector2(84.0, 0.0)
-		ms_wrap.add_theme_constant_override("separation", 0)
+		ms_wrap.custom_minimum_size = Vector2(108.0, 0.0)
+		ms_wrap.add_theme_constant_override("separation", 1)
 		ms_wrap.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		var ms_blocks: Array = []
 		var ms_counts: Array = TT_MINI_COUNTS
 		for gi: int in ms_counts.size():
 			for _si in int(ms_counts[gi]):
 				var blk := ColorRect.new()
-				blk.custom_minimum_size = Vector2(4.0, 16.0)
-				blk.color = Color("#1e1e28")
+				blk.custom_minimum_size = Vector2(5.0, 22.0)
+				blk.color = MS_EMPTY
 				ms_wrap.add_child(blk)
 				ms_blocks.append(blk)
 			if gi < ms_counts.size() - 1:
 				var gap_rect := ColorRect.new()
-				gap_rect.custom_minimum_size = Vector2(2.0, 16.0)
+				gap_rect.custom_minimum_size = Vector2(4.0, 22.0)
 				gap_rect.color = Color(0.0, 0.0, 0.0, 0.0)
 				ms_wrap.add_child(gap_rect)
 		row.add_child(ms_wrap)
@@ -1782,9 +1901,10 @@ func _build_leaderboard() -> Control:
 			"tyre_icon": tyre_icon, "tyre_age": tyre_age,
 			"best_lbl": best_lbl, "gap_lbl": gap_lbl, "int_lbl": int_lbl,
 			"ms_blocks": ms_blocks, "last_lbl": last_lbl,
+			"last_id": -1,
 		})
 
-	return outer
+	return wrap
 
 # Real driver name for a car id (from the sim, or the client snapshot).
 func _driver_name(id: int) -> String:
@@ -1868,6 +1988,7 @@ func _make_panel(car_id: int, role: String, dname: String) -> Control:
 	v.add_child(head)
 
 	var tire := _mklabel(15, "#cccccc")
+	tire.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.add_child(tire)
 
 	var bar := ProgressBar.new()
@@ -1881,6 +2002,7 @@ func _make_panel(car_id: int, role: String, dname: String) -> Control:
 
 	# Live driver-trust readout — the engineer↔driver relationship, in-race.
 	var trust_label := _mklabel(14, Palette.MUTED_HEX, "Доверие пилота: —")
+	trust_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.add_child(trust_label)
 	var trust_bar := ProgressBar.new()
 	trust_bar.min_value = 0
@@ -1891,6 +2013,7 @@ func _make_panel(car_id: int, role: String, dname: String) -> Control:
 	trust_bar.add_theme_stylebox_override("background", Palette.bar_bg())
 	v.add_child(trust_bar)
 	var mood_label := _mklabel(14, "#9aa4b2", "Настрой: —")
+	mood_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.add_child(mood_label)
 
 	# Radio calls replace the old pace/intent toggles: discrete instructions the
@@ -1941,6 +2064,7 @@ func _make_panel(car_id: int, role: String, dname: String) -> Control:
 
 	var ot_btn := _small_button("⚡ Обгон (в пределах 1 c)")
 	ot_btn.toggle_mode = true
+	ot_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var cidO := car_id
 	ot_btn.toggled.connect(func(on): _on_overtake(cidO, on))
 	v.add_child(ot_btn)
@@ -1960,10 +2084,13 @@ func _make_panel(car_id: int, role: String, dname: String) -> Control:
 	# intent, crew busy status and double-stack warning.
 	v.add_child(HSeparator.new())
 	var partner_label := _mklabel(14, "#9aa4b2", "")
+	partner_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.add_child(partner_label)
 	var crew_label := _mklabel(14, "#f2c14e", "")
+	crew_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.add_child(crew_label)
 	var stack_label := _mklabel(14, "#e23b3b", "")
+	stack_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.add_child(stack_label)
 
 	panels.append({
@@ -2009,6 +2136,7 @@ func _begin_practice_session() -> void:
 	_practice_run_btns = {}
 	_practice_best_lbls = {}
 	_practice_budget_lbls = {}
+	_practice_fb_indicators = {}
 	for cid in _practice_car_ids():
 		_practice_runs[cid] = 0
 		_practice_best[cid] = 0.0
@@ -2104,7 +2232,7 @@ func _build_practice_card(cid: int) -> Control:
 
 	var head := Label.new()
 	head.text = "P%d · %s" % [cid + 1, _driver_name(cid)]
-	head.add_theme_font_size_override("font_size", 16)
+	head.add_theme_font_size_override("font_size", 20)
 	head.add_theme_color_override("font_color", TEAM_COL if cid == 4 else ENGI_COL)
 	head.add_theme_font_override("font", Palette.display_font(600, 1))
 	v.add_child(head)
@@ -2112,14 +2240,15 @@ func _build_practice_card(cid: int) -> Control:
 	var axis_names := ["Аэробаланс (перед/зад)", "Просвет / развал кузова",
 		"Механический баланс", "Дифференциал (вход/выход)",
 		"Тормоза / охлаждение", "Передаточные числа"]
+	_practice_fb_indicators[cid] = []
 	for ax in 6:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
 		var lbl := Label.new()
 		lbl.text = axis_names[ax]
-		lbl.add_theme_font_size_override("font_size", 13)
+		lbl.add_theme_font_size_override("font_size", 16)
 		lbl.add_theme_color_override("font_color", Color("#c8d0da"))
-		lbl.custom_minimum_size = Vector2(170, 0)
+		lbl.custom_minimum_size = Vector2(180, 0)
 		row.add_child(lbl)
 		var slider := HSlider.new()
 		slider.min_value = 0
@@ -2129,9 +2258,9 @@ func _build_practice_card(cid: int) -> Control:
 		slider.custom_minimum_size = Vector2(200, 22)
 		var val_lbl := Label.new()
 		val_lbl.text = str(int(slider.value))
-		val_lbl.add_theme_font_size_override("font_size", 13)
+		val_lbl.add_theme_font_size_override("font_size", 16)
 		val_lbl.add_theme_color_override("font_color", Color("#9aa4b2"))
-		val_lbl.custom_minimum_size = Vector2(30, 0)
+		val_lbl.custom_minimum_size = Vector2(34, 0)
 		var ax_c := ax
 		var cid_c := cid
 		slider.value_changed.connect(func(val: float) -> void:
@@ -2139,11 +2268,19 @@ func _build_practice_card(cid: int) -> Control:
 			val_lbl.text = str(int(val)))
 		row.add_child(slider)
 		row.add_child(val_lbl)
+		var ind := Label.new()
+		ind.text = "—"
+		ind.add_theme_font_size_override("font_size", 16)
+		ind.add_theme_color_override("font_color", Palette.FINE)
+		ind.custom_minimum_size = Vector2(36, 0)
+		ind.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		row.add_child(ind)
+		_practice_fb_indicators[cid].append(ind)
 		v.add_child(row)
 
 	# budget line (slots + tyre sets remaining this session)
 	var budget_lbl := Label.new()
-	budget_lbl.add_theme_font_size_override("font_size", 13)
+	budget_lbl.add_theme_font_size_override("font_size", 15)
 	budget_lbl.add_theme_color_override("font_color", Color("#9aa4b2"))
 	_practice_budget_lbls[cid] = budget_lbl
 	v.add_child(budget_lbl)
@@ -2160,8 +2297,8 @@ func _build_practice_card(cid: int) -> Control:
 		if int(spec["sets"]) > 0:
 			cost += "/%dк" % int(spec["sets"])
 		b.text = "%s (%s)" % [String(spec["ru"]), cost]
-		b.add_theme_font_size_override("font_size", 13)
-		b.custom_minimum_size = Vector2(150, 34)
+		b.add_theme_font_size_override("font_size", 15)
+		b.custom_minimum_size = Vector2(150, 40)
 		var rk_c: String = rk
 		b.pressed.connect(func() -> void: _on_practice_run(cid_b, rk_c))
 		type_btns[rk] = b
@@ -2171,7 +2308,7 @@ func _build_practice_card(cid: int) -> Control:
 
 	var best_lbl := Label.new()
 	best_lbl.text = "Лучший: —"
-	best_lbl.add_theme_font_size_override("font_size", 14)
+	best_lbl.add_theme_font_size_override("font_size", 17)
 	best_lbl.add_theme_color_override("font_color", Palette.GOLD)
 	_practice_best_lbls[cid] = best_lbl
 	v.add_child(best_lbl)
@@ -2181,7 +2318,7 @@ func _build_practice_card(cid: int) -> Control:
 	log.bbcode_enabled = true
 	log.scroll_following = true
 	log.custom_minimum_size = Vector2(420, 150)
-	log.add_theme_font_size_override("normal_font_size", 13)
+	log.add_theme_font_size_override("normal_font_size", 15)
 	_practice_logs[cid] = log
 	v.add_child(log)
 	return pc
@@ -2248,32 +2385,74 @@ func _on_practice_run(cid: int, rk: String) -> void:
 	var t: float = float(r["time"])
 	var band: float = float(r.get("band", 0.1))
 	var best: float = float(_practice_best[cid])
-	var delta_txt := ""
-	if best > 0.0:
-		delta_txt = "  (%+.3f)" % (t - best)
 	if best <= 0.0 or t < best:
 		_practice_best[cid] = t
 		_practice_best_lbls[cid].text = "Лучший: " + _fmt_laptime(t)
-	var phrases: Array = []
-	var unread := 0
 	var fb: Array = r["fb"]
-	for ax in 6:
-		var code: int = int(fb[ax])
-		if code == 9:
-			unread += 1
-		var p := _practice_fb_phrase(ax, code)
-		if p != "":
-			phrases.append(p)
-	var quote: String
-	if phrases.is_empty():
-		quote = "по ощущениям точнее не скажу" if unread > 0 \
-			else "баланс в окне — машина мне нравится!"
-	else:
-		quote = "; ".join(phrases)
-	var rname := String(spec["ru"])
+
+	# axes revealed per run type
+	var revealed_axes: Array = []
+	match rk:
+		"install": revealed_axes = [0, 1, 2, 3, 4, 5]
+		"short":   revealed_axes = [0, 3, 5]
+		"long":    revealed_axes = [1, 2, 4]
+
+	# update persistent per-axis indicator labels
+	if _practice_fb_indicators.has(cid):
+		var inds: Array = _practice_fb_indicators[cid]
+		for ax: int in revealed_axes:
+			var code: int = int(fb[ax])
+			var ind: Label = inds[ax]
+			match code:
+				0:
+					ind.text = "✓"
+					ind.add_theme_color_override("font_color", Palette.GOOD)
+				1:
+					ind.text = "▼"
+					ind.add_theme_color_override("font_color", Palette.WARN)
+				-1:
+					ind.text = "▲"
+					ind.add_theme_color_override("font_color", Palette.WARN)
+				2:
+					ind.text = "▼▼"
+					ind.add_theme_color_override("font_color", Palette.DANG)
+				-2:
+					ind.text = "▲▲"
+					ind.add_theme_color_override("font_color", Palette.DANG)
+				9:
+					ind.text = "?"
+					ind.add_theme_color_override("font_color", Palette.MUTED)
+
+	# structured per-axis log entry
+	var ax_short := ["Аэробаланс", "Просвет", "Мех. баланс", "Дифф", "Тормоза", "Передачи"]
+	var delta_bbcode := ""
+	if best > 0.0:
+		delta_bbcode = "  [color=#9aa4b2](%+.3f)[/color]" % (t - best)
 	var log: RichTextLabel = _practice_logs[cid]
-	log.append_text("[color=#9aa4b2]%s · точность ±%d[/color]  [color=#e8eef6]%s[/color]%s  [color=#f2c14e]«%s»[/color]\n" \
-		% [rname, int(band * 100.0), _fmt_laptime(t), delta_txt, quote])
+	log.append_text("[color=#9aa4b2]%s · ±%d%%[/color]  [color=#e8eef6]%s[/color]%s\n" \
+		% [String(spec["ru"]), int(band * 100.0), _fmt_laptime(t), delta_bbcode])
+	for ax: int in revealed_axes:
+		var code: int = int(fb[ax])
+		var icon: String
+		var col: String
+		match code:
+			0:  icon = "✓";  col = Palette.GOOD_HEX
+			1:  icon = "▼";  col = Palette.WARN_HEX
+			-1: icon = "▲";  col = Palette.WARN_HEX
+			2:  icon = "▼▼"; col = Palette.DANG_HEX
+			-2: icon = "▲▲"; col = Palette.DANG_HEX
+			9:  icon = "?";  col = Palette.MUTED_HEX
+			_:  icon = "—";  col = Palette.MUTED_HEX
+		var detail: String
+		if code == 0:
+			detail = ": в окне"
+		elif code == 9:
+			detail = ": не считываю"
+		else:
+			var phrase := _practice_fb_phrase(ax, code)
+			detail = (": " + phrase) if phrase != "" else ""
+		log.append_text("  [color=%s]%s %s%s[/color]\n" % [col, icon, ax_short[ax], detail])
+	log.append_text("\n")
 	_refresh_practice_budget(cid)
 
 
@@ -3087,7 +3266,7 @@ func _build_bottom_bar() -> Control:
 	var pause_btn := _small_button("Пауза / Продолжить")
 	pause_btn.pressed.connect(_on_pause)
 	h.add_child(pause_btn)
-	for s in [1.0, 2.0, 5.0]:
+	for s in [1.0, 2.0, 5.0, 10.0, 25.0, 50.0]:
 		var b := _small_button("×%d" % int(s))
 		var sv: float = s
 		b.pressed.connect(func(): _on_speed(sv))

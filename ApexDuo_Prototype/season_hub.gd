@@ -162,13 +162,13 @@ func _build_sidebar() -> PanelContainer:
 	var name_lbl := Label.new()
 	name_lbl.text = s.team_name
 	name_lbl.add_theme_color_override("font_color", team_color)
-	name_lbl.add_theme_font_size_override("font_size", 11)
+	name_lbl.add_theme_font_size_override("font_size", 14)
 	id_col.add_child(name_lbl)
 	var standing_lbl := Label.new()
 	var cpts: int = s.constructor_points()
 	standing_lbl.text = "P%d · %d очков" % [_team_position(s), cpts]
 	standing_lbl.add_theme_color_override("font_color", DesignSystem.TEXT_3)
-	standing_lbl.add_theme_font_size_override("font_size", 9)
+	standing_lbl.add_theme_font_size_override("font_size", 12)
 	id_col.add_child(standing_lbl)
 
 	# Divider
@@ -200,7 +200,7 @@ func _make_nav_item(idx: int, label: String) -> PanelContainer:
 	var lbl := Label.new()
 	lbl.text = label
 	lbl.add_theme_color_override("font_color", DesignSystem.GOLD if active else DesignSystem.TEXT_3)
-	lbl.add_theme_font_size_override("font_size", 10)
+	lbl.add_theme_font_size_override("font_size", 13)
 	panel.add_child(lbl)
 
 	var i_cap := idx
@@ -467,7 +467,7 @@ func _build_tab_bar() -> Control:
 		var tab_name: String = String(TAB_NAMES[i])
 		var btn := Button.new()
 		btn.text = tab_name
-		btn.add_theme_font_size_override("font_size", 14)
+		btn.add_theme_font_size_override("font_size", 16)
 		btn.add_theme_font_override("font", Palette.display_font(600, 1))
 		btn.custom_minimum_size = Vector2(110, 36)
 		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL

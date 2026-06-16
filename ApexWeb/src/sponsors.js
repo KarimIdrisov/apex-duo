@@ -35,6 +35,9 @@ function makeSponsor(teamIdx, seed, kind, n) {
   return { name, kind, retainer, bonus, objective, happiness: 0.6 };
 }
 
+// a fresh secondary-sponsor offer (deterministic) to refill a slot after one walks away mid-season.
+export function replacementSponsor(teamIdx, seed) { return makeSponsor(teamIdx, (seed >>> 0), "secondary", 20 + ((seed >>> 0) % 7)); }
+
 // the starting roster for a new career: 1 title + 2 secondary, deterministic.
 export function defaultSponsors(teamIdx, seed) {
   return [makeSponsor(teamIdx, seed, "title", 0), makeSponsor(teamIdx, seed, "secondary", 1), makeSponsor(teamIdx, seed, "secondary", 2)];
@@ -57,9 +60,4 @@ export function evaluateSponsor(sp, ctx) {
   let met = false;
   switch (sp.objective.type) {
     case OBJ.PODIUM: met = ctx.bestPos <= 3; break;
-    case OBJ.FINISH_ABOVE: met = ctx.bestPos <= sp.objective.param; break;
-    case OBJ.POINTS: met = ctx.points >= sp.objective.param; break;
-    case OBJ.BEAT: met = ctx.beat.has(sp.objective.param); break;
-  }
-  return { met, payout: sp.retainer + (met ? sp.bonus : 0), dHappiness: met ? 0.06 : -0.05 };
-}
+    case OBJ.FINISH_ABOVE: met = ctx.bestPos <= sp.objective.param; brea

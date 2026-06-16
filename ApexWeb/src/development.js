@@ -3,7 +3,7 @@
 // reads the 5 composed indicators (composeCar). AI develops parts deterministically (catch-up biased).
 import { mix32 } from "./rng.js";
 import { TEAMS } from "./data.js";
-import { devMult } from "./staff.js";
+import { devMult, staffRelBonus } from "./staff.js";
 import { academyDevBonus } from "./academy.js";
 
 export const INDICATORS = ["power", "aero", "tyre", "fuel", "rel"];
@@ -20,77 +20,46 @@ export const PART_CONTRIB = {
   pu:       { power: 0.70, fuel: 0.30, rel: 0.15 },
 };
 
-// upgrade sizes: part-level gain, $k cost, races to complete, risk (chance-weighted shortfall).
+// upgrade sizes: part-level gain, $k cost, DAYS to complete, risk (chance-weighted shortfall).
+// days are spent from the calendar gap between races — a small fits one normal (14d) gap; a large
+// needs a long gap (summer break) or several gaps. (`races` kept as a coarse legacy hint.)
+// days = DESIGN time (R&D); buildDays = MANUFACTURING time after design before the part is fitted (F2,
+// MM-style design→build→fit). The outcome is rolled when design finishes (you see what you got), then
+// the part is built, then fitted (applied + run-in).
 export const PROJECT_SIZE = {
-  small:  { gain: 0.012, cost: 1200, races: 1, risk: 0.10, label: "Малый" },
-  medium: { gain: 0.024, cost: 3000, races: 2, risk: 0.20, label: "Средний" },
-  large:  { gain: 0.042, cost: 6000, races: 3, risk: 0.32, label: "Крупный" },
+  small:  { gain: 0.012, cost: 1200, days: 8,  buildDays: 6,  races: 1, risk: 0.10, label: "Малый" },
+  medium: { gain: 0.024, cost: 3000, days: 20, buildDays: 12, races: 2, risk: 0.20, label: "Средний" },
+  large:  { gain: 0.042, cost: 6000, days: 34, buildDays: 20, races: 3, risk: 0.32, label: "Крупный" },
 };
 
 export const COST_CAP = 30000;
-const AI_DEV_RATE = 0.0060;   // per round, × facility × catch-up, spread over the team's parts
+const AI_DEV_RATE = 0.0060;          // per ~14-day race gap, × facility × catch-up, over the team's parts
+const AI_DEV_PER_DAY = AI_DEV_RATE / 14;   // calendar-driven: AI gains scale with the gap length
 
-const zeroParts = () => ({ fw: 0, rw: 0, floor: 0, sidepods: 0, susp: 0, pu: 0 });
-function clampInd(k, v) { return k === "rel" ? Math.max(0.3, Math.min(0.995, v)) : Math.max(0.3, Math.min(1.20, v)); }
+// --- E1: development approach, diminishing returns, outcome tiers, parallel projects, run-in -------
+// Each upgrade is now a gamble. Approach scales the target gain, the outcome variance, and the
+// reliability hit the new part carries until it's run in. Aggressive = bigger target but it can flop
+// and it hurts reliability; conservative = safe and modest.
+export const APPROACH = {
+  safe:       { gainK: 0.78, varK: 0.5, relDebt: 0.000, label: "Консервативный", hint: "надёжно, меньше прирост" },
+  balanced:   { gainK: 1.00, varK: 1.0, relDebt: 0.012, label: "Сбалансированный", hint: "баланс риска и отдачи" },
+  aggressive: { gainK: 1.35, varK: 2.0, relDebt: 0.032, label: "Агрессивный",     hint: "большой прирост, риск надёжности" },
+};
+export const PART_CEILING = 0.34;    // per-part development ceiling under current regs → diminishing returns
+export const RUNIN_RACES = 3;        // races a freshly-fitted part stays "unproven" (elevated breakage)
+const SIZE_DEBT = { small: 0.7, medium: 1.0, large: 1.3 };   // bigger parts carry more run-in risk
 
-// part levels -> indicator deltas via PART_CONTRIB.
-export function partsToDeltas(parts) {
-  const d = { power: 0, aero: 0, tyre: 0, fuel: 0, rel: 0 };
-  if (!parts) return d;
-  for (const p of PARTS) {
-    const lvl = parts[p] || 0, c = PART_CONTRIB[p];
-    for (const k in c) d[k] += lvl * c[k];
-  }
-  return d;
+// parallel programs: a bigger factory runs more at once (factory 0→1 slot, 2→2, 4→3).
+export function maxProjects(career) {
+  const fac = (career && career.staff && career.staff.facilities) ? (career.staff.facilities.factory || 0) : 0;
+  return 1 + Math.floor(fac / 2);
 }
-
-// base car + composed part deltas -> the effective car the sim composes. energy passes through.
-export function effectiveCar(baseCar, parts) {
-  const dlt = partsToDeltas(parts);
-  const out = { ...baseCar };
-  for (const k of INDICATORS) {
-    const b = baseCar[k] ?? (k === "tyre" || k === "fuel" ? 1 : 0.85);
-    out[k] = clampInd(k, b + (dlt[k] || 0));
-  }
-  return out;
-}
-
-// start a player upgrade project on a PART. Returns the project, or null (busy / can't afford / cost cap / invalid).
-export function startProject(career, part, size) {
-  if (career.project) return null;
-  const spec = PROJECT_SIZE[size];
-  if (!spec || !PARTS.includes(part)) return null;
-  if (career.money < spec.cost) return null;
-  if (career.costCap && (career.devSpentThisSeason || 0) + spec.cost > COST_CAP) return null;
-  career.money -= spec.cost;
-  career.devSpentThisSeason = (career.devSpentThisSeason || 0) + spec.cost;
-  career.project = { part, size, racesLeft: spec.races, gain: spec.gain, risk: spec.risk };
-  return career.project;
-}
-
-// advance development one round: progress the player's part project (complete -> risk-shaved gain,
-// scaled by design office + academy R&D) and develop every AI team's parts deterministically.
-export function tickDevelopment(career) {
-  career.parts = career.parts || {};
-  for (const t of TEAMS) career.parts[t.name] = career.parts[t.name] || zeroParts();
-  const events = [];
-  if (career.project) {
-    career.project.racesLeft -= 1;
-    if (career.project.racesLeft <= 0) {
-      const p = career.project;
-      const roll = mix32(((career.seed >>> 0) + career.round * 2654435761) >>> 0) / 4294967296;
-      const gain = p.gain * (1 - p.risk * roll) * devMult(career.staff) * (1 + academyDevBonus(career));
-      career.parts[TEAMS[career.teamIdx].name][p.part] += gain;
-      events.push({ type: "project_done", part: p.part, gain });
-      career.project = null;
-    }
-  }
-  TEAMS.forEach((t, i) => {
-    if (i === career.teamIdx) return;
-    const catchUp = 0.5 + i * 0.06;
-    const base = AI_DEV_RATE * (t.facility ?? 0.75) * catchUp;
-    career.parts[t.name].floor += base;   // AI spreads dev across the two biggest-bang parts
-    career.parts[t.name].pu += base;
-  });
-  return events;
-}
+// diminishing-returns factor as a part matures toward the regulation ceiling (never fully zero).
+export function maturityFactor(level) { return Math.max(0.15, 1 - (level || 0) / PART_CEILING); }
+// seeded outcome tier for a completed project. Aggressive widens BOTH tails (more прорыв AND more провал).
+export function projectOutcome(approachKey, roll) {
+  const a = APPROACH[approachKey] || APPROACH.balanced;
+  const tail = 0.10 * a.varK;   // провал mass
+  const brk  = 0.10 * a.varK;   // прорыв mass
+  if (roll < tail)         return { mult: 0.15, label: "провал",   extraDebt: 0.020 };
+  if (roll < 0.45)      

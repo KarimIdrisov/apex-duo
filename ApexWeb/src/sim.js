@@ -143,6 +143,8 @@ export class Race {
       const lt = this._lapTime(c);
       c.lapFrac += dt / lt;
       c.lapTimeAccum += dt;
+      c.runTicks = (c.runTicks || 0) + 1;                                  // E4: track running time + push usage
+      if (c.engine === "push") c.pushTicks = (c.pushTicks || 0) + 1;       //     → feeds PU wear (push spends the engine)
       if (c.lapFrac >= 1) {            // lap completed (phase 3 owns bookkeeping)
         const carry = (c.lapFrac - 1) * lt;   // time already spent past the line this tick (sub-step precision)
         c.lapFrac -= 1;
@@ -400,7 +402,12 @@ export class Race {
     // AI weather reaction: get onto the right tyre for the conditions (not blocked by stop count)
     // AI strategy: planned stops, SC opportunism, weather changes, emergency cliff (ai_strategy.js)
     if (c.player == null && !c.pitPending && c.tyreAge > 1) {
-      const want = pitDecision(c, { wetness: this.wetness, scActive: this.scActive || this.vscActive, laps: this.track.laps });
+      const ord = this.order();                          // car immediately behind, for undercut cover
+      const behind = ord[c.pos];                         // pos is 1-based → ord[c.pos] is one place back
+      const prog = x => x.lap + x.lapFrac;
+      const gapBehind = (behind && !behind.retired && behind.lap === c.lap) ? (prog(c) - prog(behind)) * this.track.lt : null;
+      const threatBehind = gapBehind != null && gapBehind < 2.5 && (behind.tyreAge || 0) >= 6 && !behind.pitPending;
+      const want = pitDecision(c, { wetness: this.wetness, scActive: this.scActive || this.vscActive, laps: this.track.laps, threatBehind, difficulty: this.difficulty });
       if (want) {
         c.pitPending = want.compound;
         if (want.reason !== "weather") c.aiStopsDone = (c.aiStopsDone || 0) + 1;  // consume a dry plan stop
@@ -459,23 +466,4 @@ export class Race {
     if (c.lap >= 1) {
       const mr = this._keyRng(c.idx, c.lap, 1);
       const focus = c.order === "attack" ? (1 - A(c).composure) : (1 - A(c).discipline);   // composed/disciplined err less
-      const wearTemp = 1 + c.wear / 100 + (1 - c.tyreTemp);                                 // worn/cold tyres → riskier
-      const p = ORDER_MISTAKE_BASE * (1 + ORDER_MISTAKE_RAMP * Math.min(c._orderLaps, ORDER_MISTAKE_RAMP_CAP)) * wearTemp * (0.5 + focus);
-      if (mr.unit() < p) {
-        c.tyreTemp = Math.max(0.1, c.tyreTemp - mr.range(ORDER_MISTAKE_SCRUB_MIN, ORDER_MISTAKE_SCRUB_MAX));
-        c._passCredit = 0;
-        this._emit({ type: "lockup", lap: c.lap, a: c.idx, abbr: c.abbrev });
-      }
-    }
-    c._orderBit = false;
-  }
-
-  // race position: more laps first, then further along current lap
-  order() {
-    return [...this.cars].sort((a, b) => {
-      const al = a.lap + a.lapFrac, bl = b.lap + b.lapFrac;
-      if (a.retired !== b.retired) return a.retired ? 1 : -1;
-      return bl - al;
-    }).map((c, i) => { c.pos = i + 1; return c; });
-  }
-}
+      const wearTemp = 1 + c.wear / 100 + (1 - c.tyreTemp);                                 // worn/cold 

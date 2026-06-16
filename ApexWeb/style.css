@@ -23,9 +23,14 @@ body{margin:0;color:var(--ink);
   font-family:Inter,system-ui,"Segoe UI",Roboto,sans-serif;
   background:radial-gradient(1100px 560px at 50% -12%, #16161d 0%, var(--bg) 62%);
   background-attachment:fixed;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
-#app{max-width:720px;margin:0 auto;padding:18px;transition:max-width .2s var(--ease)}
-#app.wide{max-width:1160px}
+#app{max-width:860px;margin:0 auto;padding:18px}
+#app.wide{max-width:1320px}
 #app.full3d{max-width:none;margin:0;padding:0}
+
+/* paddock: lay multi-panel content into responsive columns instead of one tall narrow stack */
+.prow{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start}
+.prow>.panel{flex:1 1 380px;min-width:300px;margin-bottom:0}
+#pad-content>.panel+.panel,#pad-content>.prow{margin-top:12px}
 
 /* race dashboard: leaderboard left, minimap + controls right, header on top */
 #dash{display:grid;grid-template-columns:minmax(0,1fr) 372px;
@@ -272,7 +277,7 @@ input[type=range].pw-range:disabled{opacity:.4;cursor:not-allowed}
 
 /* nav shell (sibling #nav above #app) — sticky top bar: brand + weekend stepper + career context */
 #nav{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--border)}
-.nav{display:flex;align-items:center;gap:12px;flex-wrap:wrap;max-width:1160px;margin:0 auto;padding:8px 18px}
+.nav{display:flex;align-items:center;gap:12px;flex-wrap:wrap;max-width:1320px;margin:0 auto;padding:8px 18px}
 .nav-brand{font-weight:700;font-size:15px;color:var(--ink);white-space:nowrap}
 .nav-steps{display:flex;align-items:center;gap:6px;flex:1;min-width:200px;flex-wrap:wrap}
 .nav-step{font-size:12px;color:var(--muted);padding:3px 8px;border-radius:var(--r-sm);white-space:nowrap}
@@ -286,7 +291,4 @@ input[type=range].pw-range:disabled{opacity:.4;cursor:not-allowed}
 
 /* paddock tabs */
 .pad-tabs{display:flex;gap:4px;flex-wrap:wrap;background:var(--content2);padding:4px;border-radius:var(--r-md);margin-bottom:12px}
-.pad-tab{padding:7px 12px;border-radius:var(--r-sm);background:transparent;color:var(--muted);font-weight:600;font-size:13px;border:none;cursor:pointer}
-.pad-tab:hover{color:var(--ink);background:rgba(255,255,255,.05)}
-.pad-tab.on{background:var(--accent);color:#fff}
-.pad-foot{margin-top:12px}
+.pad-tab{padding:7px 12px;border-radius:var(

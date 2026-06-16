@@ -1,0 +1,269 @@
+{
+  "year": 2024,
+  "tracks": [
+    {
+      "gp": "Bahrain",
+      "lt": 95.651,
+      "pit": 25.3,
+      "pw": 0.51,
+      "df": 0.22,
+      "ot": 0.29,
+      "passes_per_lap": 0.4,
+      "compound_soft": null,
+      "compound_hard": null
+    },
+    {
+      "gp": "Saudi Arabia",
+      "lt": 92.851,
+      "pit": 19.9,
+      "pw": 0.71,
+      "df": 0.82,
+      "ot": 0.29,
+      "passes_per_lap": 0.4,
+      "compound_soft": 0.506,
+      "compound_hard": 0.673
+    },
+    {
+      "gp": "Australia",
+      "lt": 81.532,
+      "pit": 20.7,
+      "pw": 0.64,
+      "df": 0.73,
+      "ot": 0.1,
+      "passes_per_lap": 0.18,
+      "compound_soft": null,
+      "compound_hard": null
+    },
+    {
+      "gp": "Japan",
+      "lt": 95.883,
+      "pit": 23.3,
+      "pw": 0.59,
+      "df": 0.93,
+      "ot": 0.57,
+      "passes_per_lap": 0.71,
+      "compound_soft": 0.4,
+      "compound_hard": 0.27
+    },
+    {
+      "gp": "China",
+      "lt": 100.288,
+      "pit": 24.5,
+      "pw": 0.79,
+      "df": 0.46,
+      "ot": 0.54,
+      "passes_per_lap": 0.67,
+      "compound_soft": 0.207,
+      "compound_hard": -0.173
+    },
+    {
+      "gp": "Miami",
+      "lt": 92.054,
+      "pit": 23.4,
+      "pw": 0.82,
+      "df": 0.5,
+      "ot": 0.31,
+      "passes_per_lap": 0.42,
+      "compound_soft": 0.526,
+      "compound_hard": 0.016
+    },
+    {
+      "gp": "Emilia Romagna",
+      "lt": 80.919,
+      "pit": 28.2,
+      "pw": 0.85,
+      "df": 0.41,
+      "ot": 0.29,
+      "passes_per_lap": 0.39,
+      "compound_soft": null,
+      "compound_hard": null
+    },
+    {
+      "gp": "Monaco",
+      "lt": 77.876,
+      "pit": 18.4,
+      "pw": 0.0,
+      "df": 0.83,
+      "ot": 0.0,
+      "passes_per_lap": 0.07,
+      "compound_soft": 1.371,
+      "compound_hard": -0.296
+    },
+    {
+      "gp": "Canada",
+      "lt": 79.982,
+      "pit": 20.6,
+      "pw": 0.66,
+      "df": 0.02,
+      "ot": 0.52,
+      "passes_per_lap": 0.65,
+      "compound_soft": null,
+      "compound_hard": null
+    },
+    {
+      "gp": "Spain",
+      "lt": 79.453,
+      "pit": 23.4,
+      "pw": 0.61,
+      "df": 0.86,
+      "ot": 0.54,
+      "passes_per_lap": 0.67,
+      "compound_soft": -0.216,
+      "compound_hard": 0.515
+    },
+    {
+      "gp": "Austria",
+      "lt": 70.408,
+      "pit": 21.4,
+      "pw": 0.59,
+      "df": 0.43,
+      "ot": 0.3,
+      "passes_per_lap": 0.41,
+      "compound_soft": null,
+      "compound_hard": null
+    },
+    {
+      "gp": "Britain",
+      "lt": 91.138,
+      "pit": 31.4,
+      "pw": 0.61,
+      "df": 0.88,
+      "ot": 0.4,
+      "passes_per_lap": 0.52,
+      "compound_soft": null,
+      "compound_hard": null
+    },
+    {
+      "gp": "Hungary",
+      "lt": 83.138,
+      "pit": 20.7,
+      "pw": 0.41,
+      "df": 0.62,
+      "ot": 0.32,
+      "passes_per_lap": 0.43,
+      "compound_soft": 1.026,
+      "compound_hard": 0.655
+    },
+    {
+      "gp": "Belgium",
+      "lt": 107.76,
+      "pit": 20.4,
+      "pw": 0.51,
+      "df": 0.45,
+      "ot": 0.32,
+      "passes_per_lap": 0.43,
+      "compound_soft": 0.104,
+      "compound_hard": -0.455
+    },
+    {
+      "gp": "Netherlands",
+      "lt": 75.123,
+      "pit": 24.3,
+      "pw": 0.67,
+      "df": 1.0,
+      "ot": 0.38,
+      "passes_per_lap": 0.5,
+      "compound_soft": 0.026,
+      "compound_hard": -0.243
+    },
+    {
+      "gp": "Italy",
+      "lt": 83.611,
+      "pit": 26.9,
+      "pw": 0.97,
+      "df": 0.21,
+      "ot": 0.5,
+      "passes_per_lap": 0.63,
+      "compound_soft": null,
+      "compound_hard": null
+    },
+    {
+      "gp": "Azerbaijan",
+      "lt": 107.826,
+      "pit": 22.8,
+      "pw": 0.84,
+      "df": 0.0,
+      "ot": 0.71,
+      "passes_per_lap": 0.86,
+      "compound_soft": null,
+      "compound_hard": null
+    },
+    {
+      "gp": "Singapore",
+      "lt": 97.707,
+      "pit": 30.4,
+      "pw": 0.41,
+      "df": 0.2,
+      "ot": 0.22,
+      "passes_per_lap": 0.32,
+      "compound_soft": 0.14,
+      "compound_hard": -0.169
+    },
+    {
+      "gp": "United States",
+      "lt": 98.818,
+      "pit": 22.1,
+      "pw": 0.64,
+      "df": 0.76,
+      "ot": 0.58,
+      "passes_per_lap": 0.72,
+      "compound_soft": null,
+      "compound_hard": null
+    },
+    {
+      "gp": "Mexico",
+      "lt": 81.055,
+      "pit": 24.0,
+      "pw": 1.0,
+      "df": 0.14,
+      "ot": 0.43,
+      "passes_per_lap": 0.55,
+      "compound_soft": null,
+      "compound_hard": null
+    },
+    {
+      "gp": "Brazil",
+      "lt": 82.731,
+      "pit": 26.4,
+      "pw": 0.33,
+      "df": 0.28,
+      "ot": 0.61,
+      "passes_per_lap": 0.75,
+      "compound_soft": null,
+      "compound_hard": null
+    },
+    {
+      "gp": "Las Vegas",
+      "lt": 97.216,
+      "pit": 23.4,
+      "pw": 0.97,
+      "df": 0.24,
+      "ot": 1.0,
+      "passes_per_lap": 1.19,
+      "compound_soft": null,
+      "compound_hard": null
+    },
+    {
+      "gp": "Qatar",
+      "lt": 84.641,
+      "pit": 27.1,
+      "pw": 0.59,
+      "df": 0.87,
+      "ot": 0.46,
+      "passes_per_lap": 0.58,
+      "compound_soft": 1.476,
+      "compound_hard": -0.156
+    },
+    {
+      "gp": "Abu Dhabi",
+      "lt": 88.474,
+      "pit": 24.2,
+      "pw": 0.59,
+      "df": 0.48,
+      "ot": 0.42,
+      "passes_per_lap": 0.54,
+      "compound_soft": 0.243,
+      "compound_hard": 0.63
+    }
+  ]
+}

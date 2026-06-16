@@ -30,6 +30,13 @@ export function planRace(c, track, seed, difficulty = 0.85) {
     const b = clamp(Math.round((2 * T) / 3 + drift), a + 6, T - 5);
     stops = [{ lap: a, compound: "medium" }, { lap: b, compound: "hard" }];
   }
+  // low-difficulty strategic BLUNDER: a rare real timing error (pits well off the optimal window) — so
+  // an easy/normal field is beatable through opportunism, not only because the AI is slower. Hard: ~0.
+  const blunder = (1 - difficulty) * 0.45;   // easy ~0.20 · normal ~0.09 · hard 0
+  if ((mix32(((seed >>> 0) + (c.idx >>> 0) * 374761393 + 555) >>> 0) % 1000) / 1000 < blunder) {
+    const bj = ((mix32(((seed >>> 0) + (c.idx >>> 0) * 668265263 + 99) >>> 0) % 1000) / 1000 - 0.5) * 18;   // ±9 laps
+    stops = stops.map(s => ({ ...s, lap: clamp(Math.round(s.lap + bj), 5, T - 4) }));
+  }
   return { stops, n: stops.length };
 }
 
@@ -46,6 +53,11 @@ export function pitDecision(c, ctx) {
   const lapsLeft = ctx.laps - c.lap;
   if (c.wear >= COMPOUNDS[c.tyre].cliff && lapsLeft > 4) return { compound: next ? next.compound : "hard", reason: "emergency" };
   if (!next) return null;
+  // undercut COVER (reactive AI, high difficulty only): a close threat behind near our stop window →
+  // pit early to protect track position. A sharp team covers; an easy field doesn't → it's exploitable.
+  if (ctx.threatBehind && (ctx.difficulty != null ? ctx.difficulty : 0.85) > 0.7 && c.lap >= next.lap - 3 && lapsLeft > 5 && c.wear > COMPOUNDS[c.tyre].cliff * 0.5) {
+    return { compound: next.compound, reason: "cover" };
+  }
   if (ctx.scActive && c.lap >= next.lap - 8 && lapsLeft > 5) return { compound: next.compound, reason: "sc" };
   if (c.lap >= next.lap && lapsLeft > 4) return { compound: next.compound, reason: "plan" };
   return null;
@@ -61,20 +73,4 @@ export function engineMode(c, ctx) {
 
 // pace-mode for an AI car (tyre management vs attack). Conservative defaults.
 export function paceMode(c, ctx) {
-  if (ctx.dirtyAir && !ctx.canPass) return "conserve";    // stuck behind: pushing only kills tyres
-  const iq = (c.attrs && c.attrs.race_iq != null) ? c.attrs.race_iq : 0.5;
-  const diff = ctx.difficulty != null ? ctx.difficulty : 0.85;
-  if (ctx.gapAhead != null && ctx.gapAhead < 1.0 && c.wear < COMPOUNDS[c.tyre].cliff * 0.7 && iq * diff > 0.5) return "push";
-  return "balanced";
-}
-
-// pick a combat order for an AI car: attack when a clear pace edge over a close car ahead and tyres are
-// healthy; defend when a faster car is close behind; else none. Pure; ctx is built in sim._aiDrive.
-export function combatOrder(c, ctx) {
-  const iq = (c.attrs && c.attrs.race_iq != null) ? c.attrs.race_iq : 0.5;
-  const diff = ctx.difficulty != null ? ctx.difficulty : 0.85;
-  const cliff = COMPOUNDS[c.tyre].cliff;
-  if (ctx.gapAhead != null && ctx.gapAhead < 0.8 && ctx.edgeAhead > 0.2 && c.wear < cliff * 0.8 && iq * diff > 0.45) return "attack";
-  if (ctx.gapBehind != null && ctx.gapBehind < 0.8 && ctx.behindFaster) return "defend";
-  return "none";
-}
+  if (ctx.dirtyAi

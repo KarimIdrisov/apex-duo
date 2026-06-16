@@ -1,0 +1,249 @@
+{
+  "years": [
+    2022,
+    2023,
+    2024
+  ],
+  "tracks": [
+    {
+      "gp": "Abu Dhabi",
+      "n_years": 1,
+      "lt": 88.47,
+      "pit": 24.2,
+      "pw": 0.6,
+      "df": 0.5,
+      "ot": 0.49,
+      "passes_per_lap": 0.54
+    },
+    {
+      "gp": "Australia",
+      "n_years": 2,
+      "lt": 82.27,
+      "pit": 21.7,
+      "pw": 0.54,
+      "df": 0.68,
+      "ot": 0.33,
+      "passes_per_lap": 0.4
+    },
+    {
+      "gp": "Austria",
+      "n_years": 2,
+      "lt": 70.33,
+      "pit": 21.6,
+      "pw": 0.58,
+      "df": 0.45,
+      "ot": 0.53,
+      "passes_per_lap": 0.58
+    },
+    {
+      "gp": "Azerbaijan",
+      "n_years": 1,
+      "lt": 107.83,
+      "pit": 22.8,
+      "pw": 0.84,
+      "df": 0.04,
+      "ot": 0.85,
+      "passes_per_lap": 0.86
+    },
+    {
+      "gp": "Bahrain",
+      "n_years": 2,
+      "lt": 96.71,
+      "pit": 25.0,
+      "pw": 0.51,
+      "df": 0.2,
+      "ot": 0.53,
+      "passes_per_lap": 0.57
+    },
+    {
+      "gp": "Belgium",
+      "n_years": 2,
+      "lt": 110.31,
+      "pit": 19.6,
+      "pw": 0.69,
+      "df": 0.53,
+      "ot": 0.64,
+      "passes_per_lap": 0.68
+    },
+    {
+      "gp": "Brazil",
+      "n_years": 1,
+      "lt": 82.73,
+      "pit": 26.4,
+      "pw": 0.34,
+      "df": 0.31,
+      "ot": 0.72,
+      "passes_per_lap": 0.75
+    },
+    {
+      "gp": "Britain",
+      "n_years": 2,
+      "lt": 91.95,
+      "pit": 27.4,
+      "pw": 0.4,
+      "df": 0.69,
+      "ot": 0.62,
+      "passes_per_lap": 0.66
+    },
+    {
+      "gp": "Canada",
+      "n_years": 2,
+      "lt": 78.85,
+      "pit": 20.1,
+      "pw": 0.49,
+      "df": 0.0,
+      "ot": 0.49,
+      "passes_per_lap": 0.54
+    },
+    {
+      "gp": "China",
+      "n_years": 2,
+      "lt": 89.01,
+      "pit": 22.1,
+      "pw": 0.55,
+      "df": 0.21,
+      "ot": 0.5,
+      "passes_per_lap": 0.55
+    },
+    {
+      "gp": "Emilia Romagna",
+      "n_years": 2,
+      "lt": 81.16,
+      "pit": 28.4,
+      "pw": 0.57,
+      "df": 0.35,
+      "ot": 0.24,
+      "passes_per_lap": 0.33
+    },
+    {
+      "gp": "Hungary",
+      "n_years": 2,
+      "lt": 83.37,
+      "pit": 22.2,
+      "pw": 0.41,
+      "df": 0.58,
+      "ot": 0.47,
+      "passes_per_lap": 0.53
+    },
+    {
+      "gp": "Italy",
+      "n_years": 2,
+      "lt": 84.95,
+      "pit": 26.4,
+      "pw": 0.99,
+      "df": 0.23,
+      "ot": 0.47,
+      "passes_per_lap": 0.53
+    },
+    {
+      "gp": "Japan",
+      "n_years": 2,
+      "lt": 101.77,
+      "pit": 26.6,
+      "pw": 0.65,
+      "df": 0.91,
+      "ot": 0.64,
+      "passes_per_lap": 0.68
+    },
+    {
+      "gp": "Las Vegas",
+      "n_years": 2,
+      "lt": 94.99,
+      "pit": 23.4,
+      "pw": 0.57,
+      "df": 0.38,
+      "ot": 1.0,
+      "passes_per_lap": 0.99
+    },
+    {
+      "gp": "Mexico",
+      "n_years": 1,
+      "lt": 81.06,
+      "pit": 24.0,
+      "pw": 1.0,
+      "df": 0.17,
+      "ot": 0.5,
+      "passes_per_lap": 0.55
+    },
+    {
+      "gp": "Miami",
+      "n_years": 2,
+      "lt": 92.9,
+      "pit": 22.6,
+      "pw": 0.81,
+      "df": 0.53,
+      "ot": 0.58,
+      "passes_per_lap": 0.62
+    },
+    {
+      "gp": "Monaco",
+      "n_years": 2,
+      "lt": 77.96,
+      "pit": 26.6,
+      "pw": 0.0,
+      "df": 0.79,
+      "ot": 0.0,
+      "passes_per_lap": 0.11
+    },
+    {
+      "gp": "Netherlands",
+      "n_years": 1,
+      "lt": 75.12,
+      "pit": 24.3,
+      "pw": 0.68,
+      "df": 1.0,
+      "ot": 0.44,
+      "passes_per_lap": 0.5
+    },
+    {
+      "gp": "Qatar",
+      "n_years": 2,
+      "lt": 77.44,
+      "pit": 24.5,
+      "pw": 0.58,
+      "df": 0.66,
+      "ot": 0.63,
+      "passes_per_lap": 0.67
+    },
+    {
+      "gp": "Saudi Arabia",
+      "n_years": 2,
+      "lt": 93.33,
+      "pit": 21.8,
+      "pw": 0.74,
+      "df": 0.81,
+      "ot": 0.49,
+      "passes_per_lap": 0.54
+    },
+    {
+      "gp": "Singapore",
+      "n_years": 1,
+      "lt": 97.71,
+      "pit": 30.4,
+      "pw": 0.42,
+      "df": 0.23,
+      "ot": 0.24,
+      "passes_per_lap": 0.32
+    },
+    {
+      "gp": "Spain",
+      "n_years": 3,
+      "lt": 82.01,
+      "pit": 23.7,
+      "pw": 0.6,
+      "df": 0.76,
+      "ot": 0.64,
+      "passes_per_lap": 0.68
+    },
+    {
+      "gp": "United States",
+      "n_years": 1,
+      "lt": 98.82,
+      "pit": 22.1,
+      "pw": 0.65,
+      "df": 0.77,
+      "ot": 0.69,
+      "passes_per_lap": 0.72
+    }
+  ]
+}

@@ -56,30 +56,27 @@ export function buyout(driver) { return freeAgent(driver) ? 0 : Math.round((driv
 // total cost to sign: transfer value + buyout.
 export function signCost(driver) { return driverValue(driver) + buyout(driver); }
 
-// will the driver accept a move to a team of this competitiveness (0..1, 1 = champions)? A star
-// balks at a weak team; ambition (younger) weights competitiveness more. Deterministic via seed.
-export function willJoin(driver, teamStrength, seed) {
+// interest 0..1 — how willing a driver is to join a team of `teamStrength` (1 = champions). A star
+// balks at a weak team; ambition (younger) weights competitiveness more. A longer offered contract adds
+// a little security appeal. This is the acceptance probability surfaced in the UI before you bid.
+export function interest(driver, teamStrength, length = 2) {
   const ambition = driver.age <= 28 ? 1 : 0.6;                 // veterans less fussy
   const demand = (driver.overall - 0.78) * 2.2 * ambition;     // how much competitiveness a star demands
-  const accept = 0.5 + ((teamStrength ?? 0.5) - demand);
-  const roll = mix32(((seed >>> 0) * 2246822519 + 12345) >>> 0) / 4294967296;
-  return roll < Math.max(0.05, Math.min(0.97, accept));
+  const lenBonus = (length - 2) * 0.05;                        // 3yr +0.05 (security), 1yr −0.05
+  return Math.max(0.05, Math.min(0.97, 0.5 + ((teamStrength ?? 0.5) - demand) + lenBonus));
 }
+export function willJoin(driver, teamStrength, seed, length = 2) {
+  const roll = mix32(((seed >>> 0) * 2246822519 + 12345) >>> 0) / 4294967296;
+  return roll < interest(driver, teamStrength, length);
+}
+// total cost of a signing at an offered contract length (longer = more guaranteed salary → costlier).
+const LEN_MULT = { 1: 0.85, 2: 1.0, 3: 1.2 };
+export function signCostAt(driver, length = 2) { return Math.round(signCost(driver) * (LEN_MULT[length] || 1)); }
 
-// negotiate a signing: swap inAbbrev in for outAbbrev (the player's). opts = { teamStrength, seed }.
+// negotiate a signing: swap inAbbrev in for outAbbrev (the player's). opts = { teamStrength, seed, length }.
 // Returns { ok, reason }. reason: "деньги" | "отказ" | "перебили" | "ошибка".
 export function negotiateSign(career, inAbbrev, outAbbrev, opts = {}) {
   const inDr = career.drivers[inAbbrev], outDr = career.drivers[outAbbrev];
   if (!inDr || !outDr) return { ok: false, reason: "ошибка" };
   if (inDr.teamIdx === career.teamIdx || outDr.teamIdx !== career.teamIdx) return { ok: false, reason: "ошибка" };
-  const cost = signCost(inDr);
-  if (career.money < cost) return { ok: false, reason: "деньги" };
-  const seed = (opts.seed ?? 1) >>> 0;
-  if (!willJoin(inDr, opts.teamStrength ?? 0.5, seed)) return { ok: false, reason: "отказ" };
-  if ((mix32((seed * 40503 + 777) >>> 0) / 4294967296) < 0.15) return { ok: false, reason: "перебили" };  // a rival outbid
-  career.money -= cost;
-  const rivalTeam = inDr.teamIdx;
-  inDr.teamIdx = career.teamIdx; outDr.teamIdx = rivalTeam;
-  inDr.contractSeasons = 3; inDr.morale = Math.min(1, (inDr.morale ?? 0.6) + 0.1);
-  return { ok: true, cost };
-}
+  const leng
