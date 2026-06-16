@@ -63,4 +63,23 @@ export function render(root, ctx) {
   };
   root.querySelector("#host").onclick = async (e) => {
     e.target.disabled = true; e.target.textContent = "Создаём комнату…";
-    if 
+    if (root.querySelector("#career").checked) hostCareer(ctx.teamIdx);   // career begins when the partner joins
+    const code = await hostGame(useP2P);   // stay in lobby; the weekend starts when the partner joins
+    root.querySelector("#status").innerHTML =
+      `<div style="margin-top:6px">Код комнаты — передай напарнику:</div>
+       <div style="font-size:20px;font-weight:700;color:var(--good);user-select:all;word-break:break-all;margin:6px 0">${code}</div>
+       <div>Ждём, когда напарник войдёт по коду…</div>`;
+  };
+  root.querySelector("#solo").onclick = () => {
+    if (root.querySelector("#career").checked) startCareerSolo(ctx.teamIdx); else startSolo();   // career or one-off weekend
+  };
+  root.querySelector("#join").onclick = async () => {
+    const code = root.querySelector("#code").value.trim();
+    await joinGame(code, useP2P);
+    root.querySelector("#status").textContent = "Подключено. Ждём старт уикенда…";
+  };
+  if (saved) {
+    root.querySelector("#resume").onclick = () => continueCareer();
+    root.querySelector("#wipe").onclick = () => { if (confirm("Удалить сохранённую карьеру? Это действие необратимо.")) { deleteCareerSave(); render(root, ctx); } };
+  }
+}

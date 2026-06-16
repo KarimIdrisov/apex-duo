@@ -466,4 +466,23 @@ export class Race {
     if (c.lap >= 1) {
       const mr = this._keyRng(c.idx, c.lap, 1);
       const focus = c.order === "attack" ? (1 - A(c).composure) : (1 - A(c).discipline);   // composed/disciplined err less
-      const wearTemp = 1 + c.wear / 100 + (1 - c.tyreTemp);                                 // worn/cold 
+      const wearTemp = 1 + c.wear / 100 + (1 - c.tyreTemp);                                 // worn/cold tyres → riskier
+      const p = ORDER_MISTAKE_BASE * (1 + ORDER_MISTAKE_RAMP * Math.min(c._orderLaps, ORDER_MISTAKE_RAMP_CAP)) * wearTemp * (0.5 + focus);
+      if (mr.unit() < p) {
+        c.tyreTemp = Math.max(0.1, c.tyreTemp - mr.range(ORDER_MISTAKE_SCRUB_MIN, ORDER_MISTAKE_SCRUB_MAX));
+        c._passCredit = 0;
+        this._emit({ type: "lockup", lap: c.lap, a: c.idx, abbr: c.abbrev });
+      }
+    }
+    c._orderBit = false;
+  }
+
+  // race position: more laps first, then further along current lap
+  order() {
+    return [...this.cars].sort((a, b) => {
+      const al = a.lap + a.lapFrac, bl = b.lap + b.lapFrac;
+      if (a.retired !== b.retired) return a.retired ? 1 : -1;
+      return bl - al;
+    }).map((c, i) => { c.pos = i + 1; return c; });
+  }
+}

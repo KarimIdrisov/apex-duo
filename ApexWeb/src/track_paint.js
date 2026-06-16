@@ -41,4 +41,35 @@ export function paintTrack(g, cl, C, pxPerWorld, halfW, opts = {}) {
       // and offsetPoint takes NORMALIZED units, so derive normalized-per-world from two sample points.
       const here = pointAt(cl, f), hereC = C(here), nextC = C(pointAt(cl, (f + 1 / STEPS) % 1));
       const pxPerNorm = Math.hypot(nextC[0] - hereC[0], nextC[1] - hereC[1]) * STEPS || 1;   // canvas px per 1.0 normalized
-      const normPerWorld = pxPe
+      const normPerWorld = pxPerWorld / pxPerNorm;
+      const p = offsetPoint(cl, f, s * latWorld * normPerWorld), c = C(p);
+      if (!started) { g.moveTo(c[0], c[1]); started = true; } else g.lineTo(c[0], c[1]);
+    }
+    g.lineWidth = width * pxPerWorld; g.strokeStyle = color; g.stroke();
+  };
+  for (const run of runs) {
+    const f0 = ((run.start - 4) % STEPS + STEPS) % STEPS / STEPS;       // overrun a touch past the corner ends
+    const f1 = (run.start + run.len + 4) % STEPS / STEPS;
+    offStroke(f0, f1, halfW * 1.7, halfW * 2.4, o.gravel);             // gravel trap (outer)
+    offStroke(f0, f1, halfW * 1.05, halfW * 1.0, o.runoff);           // paved run-off apron (just outside the kerb)
+  }
+
+  lap(0); g.lineWidth = (halfW * 2 + 9) * pxPerWorld; g.strokeStyle = o.shoulder; g.stroke();   // run-off shoulder (grass-green)
+  lap(0); g.lineWidth = (halfW * 2 + 1.8) * pxPerWorld; g.strokeStyle = o.line; g.stroke();     // white edge line (kerb rim overrides it in corners)
+  {                                                                                  // red/white kerb RIM along the centerline through corners (peeks out both edges)
+    const CH = 7, KW = (halfW * 2 + 2.6) * pxPerWorld;
+    for (const run of runs) for (let s = 0; s < run.len; s += CH) {
+      g.beginPath();
+      for (let j = 0; j <= CH && s + j <= run.len; j++) { const k = (run.start + s + j) % STEPS, c = C(pointAt(cl, k / STEPS)); j ? g.lineTo(c[0], c[1]) : g.moveTo(c[0], c[1]); }
+      g.lineWidth = KW; g.strokeStyle = (Math.floor(s / CH) % 2) ? o.kerbA : o.kerbB; g.stroke();
+    }
+  }
+  lap(0); g.lineWidth = halfW * 2 * pxPerWorld; g.strokeStyle = o.asphalt; g.stroke();          // asphalt on top -> kerb rim peeks out
+  lap(0); g.lineWidth = (halfW * 2 - 0.5) * pxPerWorld; g.strokeStyle = o.asphalt; g.stroke();  // (double-pass keeps the inner asphalt clean under the kerb rim)
+  g.globalAlpha = 0.5; lap(0); g.lineWidth = halfW * 0.95 * pxPerWorld; g.strokeStyle = o.rubber; g.stroke(); g.globalAlpha = 1;   // rubbered-in racing line down the middle
+  {                                                                                  // start/finish stripe (perpendicular across the road, computed in canvas space)
+    const p0 = C(pointAt(cl, 0)), p1 = C(pointAt(cl, 0.002));
+    let dx = p1[0] - p0[0], dy = p1[1] - p0[1], m = Math.hypot(dx, dy) || 1; const nx = -dy / m, ny = dx / m, L = halfW * pxPerWorld;
+    g.beginPath(); g.moveTo(p0[0] + nx * L, p0[1] + ny * L); g.lineTo(p0[0] - nx * L, p0[1] - ny * L); g.lineWidth = 1.6 * pxPerWorld; g.strokeStyle = o.start; g.stroke();
+  }
+}

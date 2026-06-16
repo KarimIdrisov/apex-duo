@@ -78,4 +78,103 @@ export function initDrivers() {
 }
 
 // advance all drivers one season: age up, develop attributes per the age curve (+ trait bias), drift
-// overall by the mean attr change (continuous — no re
+// overall by the mean attr change (continuous — no readout jump), refresh salary, tick contracts.
+export function developDrivers(drivers) {
+  for (const a in drivers) {
+    const dr = drivers[a];
+    dr.age += 1;
+    if (dr.attrs) {
+      const focus = new Set(trainingAttrs(dr.training));   // G2: winter training bonus on the focused attrs
+      let sum = 0;
+      for (const k of ATTR_KEYS) {
+        let nv = dr.attrs[k] + attrDrift(k, dr.age) + traitBias(dr.traits, k) + (focus.has(k) ? TRAIN_WINTER : 0);
+        nv = clamp01(nv);
+        sum += nv - dr.attrs[k]; dr.attrs[k] = nv;
+      }
+      dr.overall = clampOverall(dr.overall + sum / ATTR_KEYS.length);   // overall follows the development trend
+    } else {
+      dr.overall = clampOverall(dr.overall + ageDrift(dr.age));         // legacy fallback (no attrs)
+    }
+    dr.salary = salaryFor(dr.overall);
+    dr.contractSeasons = Math.max(0, dr.contractSeasons - 1);
+    dr.stats = zeroDriverStats();   // G1: fresh season stat line
+  }
+}
+
+// internal: nudge the focused attrs and follow overall (used for in-season training).
+function applyTrainingDrift(dr, amt) {
+  if (!dr.attrs || !dr.training) return;
+  let sum = 0; for (const k of trainingAttrs(dr.training)) { const nv = clamp01(dr.attrs[k] + amt); sum += nv - dr.attrs[k]; dr.attrs[k] = nv; }
+  dr.overall = clampOverall(dr.overall + sum / ATTR_KEYS.length);
+}
+
+// G1+G2+G3: one race for a player driver — season stats, short-term form, morale, in-season training.
+// info: { finishPos, expectedPos, retired, points, isPole, beatTeammate (bool|null) }.
+export function tickDriverRace(dr, info) {
+  const s = dr.stats || (dr.stats = zeroDriverStats());
+  s.starts += 1; s.points += info.points || 0;
+  if (info.retired) s.dnf += 1; else s.bestFin = Math.min(s.bestFin, info.finishPos);
+  if (!info.retired && info.finishPos === 1) s.wins += 1;
+  if (!info.retired && info.finishPos <= 3) s.podiums += 1;
+  if (info.isPole) s.poles += 1;
+  if (info.beatTeammate === true) s.rH2H += 1;
+  const met = !info.retired && info.finishPos <= info.expectedPos;
+  dr.form = clamp01((dr.form ?? 0.5) * 0.75 + (met ? 0.85 : 0.20) * 0.25);
+  let d = met ? 0.03 : -0.03;
+  if (info.beatTeammate === false) d -= 0.015; else if (info.beatTeammate === true) d += 0.010;
+  d += ((dr.form ?? 0.5) - 0.5) * 0.02;
+  dr.morale = clamp01((dr.morale ?? 0.6) * 0.90 + 0.6 * 0.10 + d);
+  applyTrainingDrift(dr, TRAIN_RACE);
+}
+
+// G4: a driver whose key attr crosses mastery may unlock the matching trait. Returns the trait key or null.
+export function maybeGainTrait(dr) {
+  if (!dr.attrs) return null;
+  dr.traits = dr.traits || [];
+  for (const k in ATTR_TRAIT) { const tr = ATTR_TRAIT[k]; if ((dr.attrs[k] || 0) >= TRAIT_GATE && !dr.traits.includes(tr)) { dr.traits.push(tr); return tr; } }
+  return null;
+}
+
+// G3: surface a driver "ask" if conditions warrant (dominating teammate → wants #1; contract ending +
+// in form → wants a renewal). Sticky until resolved. Returns the request or null.
+export function makeDriverRequest(dr, abbrev) {
+  if (dr.request) return dr.request;
+  const s = dr.stats || {}, name = DRIVER_NAME[abbrev] || abbrev;
+  if (dr.status !== "lead" && (s.rH2H || 0) >= 4 && (dr.form ?? 0.5) > 0.6)
+    return (dr.request = { type: "lead", text: `${name} уверенно обыгрывает напарника и хочет статус первого номера.` });
+  if ((dr.contractSeasons ?? 9) <= 1 && (dr.form ?? 0.5) > 0.55)
+    return (dr.request = { type: "contract", text: `${name} в хорошей форме и хочет продлить контракт.` });
+  return null;
+}
+
+// morale reason for the UI (which factor dominates right now).
+export function moraleReason(dr) {
+  const m = dr.morale ?? 0.6;
+  if (m >= 0.72) return "в приподнятом настроении";
+  if (m >= 0.55) return "доволен";
+  if (m >= 0.4) return "нейтрально";
+  if (m >= 0.28) return "недоволен";
+  return "на грани ухода";
+}
+
+// update morale from a race finish vs an expected position. Decays toward 0.6 so it never sticks
+// at an extreme (steady over-performer ~0.9, under-performer ~0.3).
+export function updateMorale(driver, finishPos, expectedPos) {
+  const delta = finishPos <= expectedPos ? 0.03 : -0.03;
+  driver.morale = clamp01(driver.morale * 0.90 + 0.6 * 0.10 + delta);
+}
+
+// morale -> pace modifier (s/lap, centered on the 0.6 start; positive = faster).
+export function moraleMod(morale) { return ((morale ?? 0.6) - 0.6) * MORALE_PACE; }
+
+// re-sign a player driver: pay a signing fee (~6 races of salary), reset contract, lift morale.
+export function reSign(career, abbrev) {
+  const dr = career.drivers && career.drivers[abbrev];
+  if (!dr) return false;
+  const fee = dr.salary * 6;
+  if (career.money < fee) return false;
+  career.money -= fee;
+  dr.contractSeasons = 3;
+  dr.morale = clamp01(dr.morale + 0.15);
+  return true;
+}

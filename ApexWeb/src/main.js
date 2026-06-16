@@ -456,3 +456,143 @@ function hostLoop(ts) {
   }
   if (ctx.role === "host" && ctx.weekend.phase === "quali" && ctx.qualiSession && !ctx.qualiSession.paused) {
     const dt = Math.min(0.1, ctx._qLastTs ? (ts - ctx._qLastTs) / 1000 : 0);
+    qualiStep(ctx.qualiSession, dt * SIM_RATE);
+    if (ctx.qualiSession.clock <= 0 && ctx.qualiSession.segment <= 3) advanceSegment(ctx.qualiSession);
+    if ((++ctx._qFrame % 4) === 0) pushQuali();
+  }
+  ctx._qLastTs = ts;
+  ctx._pracLastTs = ts;
+  ctx._lastTs = ts;
+  requestAnimationFrame(hostLoop);
+}
+
+// CLIENT: render from snapshots; commands go to host
+function onMessage(m) {
+  if (m.type === "snapshot") { ctx.snapshot = m; rerender(); }
+  if (m.type === "phase")    { ctx.weekend.phase = m.phase; rerender(); }
+  if (m.type === "career")   { ctx.careerView = m.career; ctx.careerReadyView = m.ready; ctx.atPaddock = m.atPaddock; ctx.atResults = m.atResults; rerender(); }
+  if (ctx.role === "host" && m.type === "command") onCommand(m);
+  if (ctx.role === "host" && m.type === "hello") {
+    if (ctx.weekend.phase === "lobby") {
+      if (ctx.careerPending != null) beginCoopCareer(); else ctx.weekend.start();  // partner joined -> begin
+    } else {                                                 // late joiner mid-weekend: resync
+      ctx.net.send({ type: "phase", phase: ctx.weekend.phase });
+      if (ctx.snapshot) ctx.net.send({ type: "snapshot", ...ctx.snapshot });
+    }
+  }
+}
+
+// connection entry points used by lobby UI
+export async function hostGame(useP2P) {
+  ctx.role = "host"; ctx.myPlayer = "p1";
+  ctx.net = useP2P ? new P2PNet("host") : new LocalNet("dev", "host");
+  ctx.net.onMessage(onMessage);
+  const code = useP2P ? await ctx.net.host() : "dev";
+  requestAnimationFrame(hostLoop);
+  return code;
+}
+export async function joinGame(code, useP2P) {
+  ctx.role = "client"; ctx.myPlayer = "p2";
+  ctx.net = useP2P ? new P2PNet("client") : new LocalNet("dev", "client");
+  ctx.net.onMessage(onMessage);
+  if (useP2P) await ctx.net.join(code);
+  ctx.net.send({ type: "hello" });   // ask the host to sync us to the current phase
+}
+
+// solo: single player engineers car p1; teammate + grid are AI. No network.
+export function startSolo() {
+  ctx.role = "host"; ctx.myPlayer = "p1"; ctx.solo = true; ctx.net = null;
+  ctx.track = ctx.track || defaultRaceTrack();   // default Barcelona (with mini) unless a quick-race set it
+  ctx.weekend.solo = true;
+  requestAnimationFrame(hostLoop);
+  ctx.weekend.start();
+}
+
+// ---- Career (M1) ----------------------------------------------------------
+// keep host + client rendering from the same career view
+function publishCareer() {
+  ctx.careerView = ctx.career;
+  ctx.careerReadyView = ctx.careerReady;
+  if (ctx.net) ctx.net.send({ type: "career", career: ctx.career, ready: ctx.careerReady, atPaddock: !!ctx.atPaddock, atResults: !!ctx.atResults });
+}
+// configure ctx for the career's current round (track visual + sim track) before a weekend.
+function loadRoundTrack() {
+  const round = currentRound(ctx.career);
+  ctx.track = careerTrack(round);
+  ctx.trackName = round.shape;
+}
+// reset the per-weekend scratch so the next round starts clean.
+function resetWeekendState() {
+  ctx.seed = null; ctx.pracSession = null; ctx.qualiSession = null;
+  ctx.race = null; ctx.setups = null; ctx._raceClosed = false;
+}
+// SOLO career: single player engineers p1; teammate + grid AI.
+export function startCareerSolo(teamIdx) {
+  ctx.role = "host"; ctx.myPlayer = "p1"; ctx.solo = true; ctx.net = null;
+  ctx.teamIdx = teamIdx;
+  ctx.career = newCareer({ teamIdx, seed: 1000 + Math.floor(Math.random() * 100000), coop: false });
+  ctx.careerReady = { p1: false, p2: false };
+  resetWeekendState(); loadRoundTrack(); ctx.atPaddock = true; publishCareer();
+  saveCareer(ctx.career);                 // persist from the start so a reload can resume even before race 1
+  ctx.weekend.solo = true;
+  requestAnimationFrame(hostLoop);
+  rerender();
+}
+// resume a saved SOLO career from localStorage. Returns false if there is no save.
+export function continueCareer() {
+  const saved = loadCareer();
+  if (!saved) return false;
+  ctx.role = "host"; ctx.myPlayer = "p1"; ctx.solo = true; ctx.net = null;
+  ctx.career = saved; ctx.teamIdx = saved.teamIdx;
+  ctx.careerReady = { p1: false, p2: false };
+  resetWeekendState();
+  if (!isSeasonOver(ctx.career)) loadRoundTrack();   // a finished season opens the paddock summary, no round track
+  ctx.weekend.solo = true; ctx.atPaddock = true; publishCareer();
+  requestAnimationFrame(hostLoop);
+  rerender();
+  return true;
+}
+// abandon the saved career (used by the lobby "delete save").
+export function deleteCareerSave() { clearCareer(); }
+// CO-OP career: host creates it; the first weekend begins when the partner joins (see onMessage hello).
+export function hostCareer(teamIdx) { ctx.careerPending = teamIdx; }
+function beginCoopCareer() {
+  ctx.teamIdx = ctx.careerPending;
+  ctx.career = newCareer({ teamIdx: ctx.careerPending, seed: 1000 + Math.floor(Math.random() * 100000), coop: true });
+  ctx.careerReady = { p1: false, p2: false };
+  ctx.careerPending = null;
+  resetWeekendState(); loadRoundTrack(); ctx.atPaddock = true; publishCareer();
+  saveCareer(ctx.career);
+  rerender();
+}
+// advance the season after both players are ready (or solo).
+// begin the upcoming round's weekend from the paddock.
+function startWeekendFromPaddock() {
+  ctx.careerReady = { p1: false, p2: false };
+  ctx.atPaddock = false; ctx.atResults = false;
+  resetWeekendState(); loadRoundTrack();
+  ctx.weekend._goto("practice1");                          // fires onPhase -> practice + broadcasts
+}
+function startNewSeason() {
+  ctx.career = newSeason(ctx.career);
+  ctx.careerReady = { p1: false, p2: false };
+  resetWeekendState(); loadRoundTrack(); ctx.atPaddock = true; publishCareer(); saveCareer(ctx.career); rerender();
+}
+
+// quick race straight onto an edited track (from the editor's 🏁 button) — skip lobby/practice/quali.
+export function startQuickRace(edited) {
+  ctx.role = "host"; ctx.myPlayer = "p1"; ctx.solo = true; ctx.net = null;
+  ctx.track = trackFromEdited(edited);
+  ctx.trackName = edited.name || null;            // 3D/minimap reads the edited circuit by name
+  ctx.weekend.solo = true;
+  requestAnimationFrame(hostLoop);
+  ctx.weekend._goto("race");                      // jump to the race phase (fires onPhase -> startRaceHost)
+}
+
+const _quick = (typeof localStorage !== "undefined") ? localStorage.getItem("apexweb_race_track") : null;
+if (_quick) {
+  localStorage.removeItem("apexweb_race_track");
+  const saved = loadAll()[_quick];
+  if (saved && Array.isArray(saved.points) && saved.points.length >= 8) startQuickRace({ name: _quick, ...saved });
+  else rerender();                                // stale flag -> normal boot
+} else { rerender(); }

@@ -58,4 +58,8 @@ export function render(root, ctx) {
           <div style="max-height:248px;overflow:auto">${table}</div>
         </div>
       </div>
-      <button class="primary" id="toPaddock" style="width:100%;margin-top:18px">В паддок 
+      <button class="primary" id="toPaddock" style="width:100%;margin-top:18px">В паддок →</button>
+    </div>`;
+  const btn = root.querySelector("#toPaddock");
+  if (btn) btn.onclick = () => ctx.send({ cmd: "career_to_paddock", player: ctx.myPlayer });
+}

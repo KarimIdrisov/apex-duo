@@ -66,4 +66,17 @@ requestAnimationFrame(tick);
 function setCam(n) { camIdx = (n + CAM.length) % CAM.length; const s = CAM[camIdx]; ctx._cam3d = { mode: s.mode, target: s.target }; document.getElementById("sr-cam").textContent = "Камера: " + s.label; }
 document.getElementById("sr-cam").onclick = () => setCam(camIdx + 1);
 document.getElementById("sr-pause").onclick = (e) => { paused = !paused; e.target.textContent = paused ? "▶ Пуск" : "⏸ Пауза"; };
-document.getElementById("sr-rain").onclick = (e) => { wetTarget = wetTarget > 0 ? 0 : 0.85; e.target.textContent = w
+document.getElementById("sr-rain").onclick = (e) => { wetTarget = wetTarget > 0 ? 0 : 0.85; e.target.textContent = wetTarget > 0 ? "☀ Сухо" : "☂ Дождь"; };
+
+// track picker: rebuild the whole scene on a new track (geometry is built once at init)
+const sel = document.getElementById("sr-track");
+sel.innerHTML = '<option value="">Барселона (по умолч.)</option>' + Object.keys(TRACK_SHAPES).map((k) => `<option value="${k}">${k}</option>`).join("");
+sel.onchange = () => {
+  const name = sel.value || null;
+  r3d.dispose();
+  for (const c of ctx.snapshot.cars) { c.lap = 0; c.lapFrac = c.idx / 22; }
+  ctx.snapshot.trackName = name;
+  r3d = race3dInit(canvas, ctx);
+  setCam(camIdx);
+};
+setCam(0);

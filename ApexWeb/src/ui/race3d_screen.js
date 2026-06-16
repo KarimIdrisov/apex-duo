@@ -63,4 +63,5 @@ function update(root, ctx, snap) {
     const bg = mine ? "background:rgba(0,111,238,.30)" : team ? "background:rgba(0,111,238,.14)" : "";
     return `<div style="display:flex;justify-content:space-between;padding:3px 6px;border-radius:5px;${bg}"><span><b>${c.pos}</b> ${c.abbrev}</span><span style="color:#a1a1aa">${c.retired ? "DNF" : (c.tyre || "")[0].toUpperCase()}</span></div>`;
   }).join("");
-  $("#s3d-me").innerHTML = `<b>P${me.pos} ${me.abbrev}</b> · ${tyreIcon(me.tyre)} <span style="text-transform
+  $("#s3d-me").innerHTML = `<b>P${me.pos} ${me.abbrev}</b> · ${tyreIcon(me.tyre)} <span style="text-transform:capitalize">${me.tyre}</span> · ${me.tyreAge} кр`;
+}

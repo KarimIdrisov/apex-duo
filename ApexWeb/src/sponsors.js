@@ -60,4 +60,9 @@ export function evaluateSponsor(sp, ctx) {
   let met = false;
   switch (sp.objective.type) {
     case OBJ.PODIUM: met = ctx.bestPos <= 3; break;
-    case OBJ.FINISH_ABOVE: met = ctx.bestPos <= sp.objective.param; brea
+    case OBJ.FINISH_ABOVE: met = ctx.bestPos <= sp.objective.param; break;
+    case OBJ.POINTS: met = ctx.points >= sp.objective.param; break;
+    case OBJ.BEAT: met = ctx.beat.has(sp.objective.param); break;
+  }
+  return { met, payout: sp.retainer + (met ? sp.bonus : 0), dHappiness: met ? 0.06 : -0.05 };
+}

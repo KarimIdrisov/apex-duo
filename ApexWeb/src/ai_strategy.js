@@ -73,4 +73,20 @@ export function engineMode(c, ctx) {
 
 // pace-mode for an AI car (tyre management vs attack). Conservative defaults.
 export function paceMode(c, ctx) {
-  if (ctx.dirtyAi
+  if (ctx.dirtyAir && !ctx.canPass) return "conserve";    // stuck behind: pushing only kills tyres
+  const iq = (c.attrs && c.attrs.race_iq != null) ? c.attrs.race_iq : 0.5;
+  const diff = ctx.difficulty != null ? ctx.difficulty : 0.85;
+  if (ctx.gapAhead != null && ctx.gapAhead < 1.0 && c.wear < COMPOUNDS[c.tyre].cliff * 0.7 && iq * diff > 0.5) return "push";
+  return "balanced";
+}
+
+// pick a combat order for an AI car: attack when a clear pace edge over a close car ahead and tyres are
+// healthy; defend when a faster car is close behind; else none. Pure; ctx is built in sim._aiDrive.
+export function combatOrder(c, ctx) {
+  const iq = (c.attrs && c.attrs.race_iq != null) ? c.attrs.race_iq : 0.5;
+  const diff = ctx.difficulty != null ? ctx.difficulty : 0.85;
+  const cliff = COMPOUNDS[c.tyre].cliff;
+  if (ctx.gapAhead != null && ctx.gapAhead < 0.8 && ctx.edgeAhead > 0.2 && c.wear < cliff * 0.8 && iq * diff > 0.45) return "attack";
+  if (ctx.gapBehind != null && ctx.gapBehind < 0.8 && ctx.behindFaster) return "defend";
+  return "none";
+}

@@ -291,4 +291,7 @@ input[type=range].pw-range:disabled{opacity:.4;cursor:not-allowed}
 
 /* paddock tabs */
 .pad-tabs{display:flex;gap:4px;flex-wrap:wrap;background:var(--content2);padding:4px;border-radius:var(--r-md);margin-bottom:12px}
-.pad-tab{padding:7px 12px;border-radius:var(
+.pad-tab{padding:7px 12px;border-radius:var(--r-sm);background:transparent;color:var(--muted);font-weight:600;font-size:13px;border:none;cursor:pointer}
+.pad-tab:hover{color:var(--ink);background:rgba(255,255,255,.05)}
+.pad-tab.on{background:var(--accent);color:#fff}
+.pad-foot{margin-top:12px}

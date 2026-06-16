@@ -79,4 +79,27 @@ export function negotiateSign(career, inAbbrev, outAbbrev, opts = {}) {
   const inDr = career.drivers[inAbbrev], outDr = career.drivers[outAbbrev];
   if (!inDr || !outDr) return { ok: false, reason: "ошибка" };
   if (inDr.teamIdx === career.teamIdx || outDr.teamIdx !== career.teamIdx) return { ok: false, reason: "ошибка" };
-  const leng
+  const length = Math.max(1, Math.min(3, opts.length || 2));
+  const cost = signCostAt(inDr, length);
+  if (career.money < cost) return { ok: false, reason: "деньги" };
+  const seed = (opts.seed ?? 1) >>> 0;
+  if (!willJoin(inDr, opts.teamStrength ?? 0.5, seed, length)) return { ok: false, reason: "отказ" };
+  if ((mix32((seed * 40503 + 777) >>> 0) / 4294967296) < 0.15) return { ok: false, reason: "перебили" };  // a rival outbid
+  career.money -= cost;
+  career.capSpent = (career.capSpent || 0) + cost;   // cost-cap accounting
+  const rivalTeam = inDr.teamIdx;
+  inDr.teamIdx = career.teamIdx; outDr.teamIdx = rivalTeam;
+  inDr.contractSeasons = length; inDr.morale = Math.min(1, (inDr.morale ?? 0.6) + 0.1);
+  return { ok: true, cost };
+}
+
+// rumors: which of the player's drivers a rival covets (high overall + their deal running down). Used for
+// the "интерес соперников" warnings and the off-season poach risk. Returns [{abbrev, by}].
+export function rivalInterest(career) {
+  const out = [];
+  for (const ab in (career.drivers || {})) { const d = career.drivers[ab];
+    if (d.teamIdx !== career.teamIdx) continue;
+    if ((d.overall || 0) >= 0.85 && (d.contractSeasons ?? 9) <= 1) out.push({ abbrev: ab, overall: d.overall });
+  }
+  return out;
+}
