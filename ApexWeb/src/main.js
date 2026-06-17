@@ -20,6 +20,8 @@ import { defaultRaceTrack, trackFromEdited } from "./track_build.js";
 import { loadAll } from "./track_store.js";
 import * as seasonUI from "./ui/season.js";
 import * as resultUI from "./ui/result_career.js";
+import * as directorCreate from "./ui/director_create.js";
+import * as preseasonUI from "./ui/preseason.js";
 import { newCareer, newSeason, currentRound, isSeasonOver, applyResult, advanceRound, chooseTitleSponsor, constructorStandings, takeLoan, acceptAcquisition, declineAcquisition, setDriverTraining, resolveDriverRequest } from "./career.js";
 const applyBoost = (car, b) => b ? { ...car, power: Math.min(1.2, car.power + b), aero: Math.min(1.2, car.aero + b) } : car;   // living-grid rival bump
 import { pushNews } from "./news.js";
@@ -106,10 +108,14 @@ function rerender() {
   // the loop's reschedule and freeze the whole session ("что-то сломалось" / black screen). Log + show a
   // notice instead, keeping the loop alive and the cause diagnosable in the console.
   try {
-    const mod = (ctx.careerView && ctx.atResults) ? resultUI
-              : (ctx.careerView && ctx.atPaddock) ? seasonUI
-              : SCREENS[phase];
-    mod.render(root, ctx);
+    if (ctx.atDirectorCreate) { directorCreate.render(root, ctx, onDirectorsDone); }
+    else if (ctx.atPreseason) { preseasonUI.render(root, ctx, onPreseasonDone); }
+    else {
+      const mod = (ctx.careerView && ctx.atResults) ? resultUI
+                : (ctx.careerView && ctx.atPaddock) ? seasonUI
+                : SCREENS[phase];
+      mod.render(root, ctx);
+    }
   } catch (e) {
     console.error(`[render] phase "${phase}" threw:`, e);
     root.innerHTML = `<div class="panel"><p class="label">Ошибка отрисовки (${phase}). Детали в консоли — пришли их, чтобы починить.</p></div>`;
@@ -604,18 +610,34 @@ function resetWeekendState() {
   ctx.seed = null; ctx.pracSession = null; ctx.qualiSession = null;
   ctx.race = null; ctx.setups = null; ctx._raceClosed = false;
 }
-// SOLO career: single player engineers p1; teammate + grid AI.
-export function startCareerSolo(teamIdx) {
-  ctx.role = "host"; ctx.myPlayer = "p1"; ctx.solo = true; ctx.net = null;
+// begin the career-start flow (team chosen → create co-directors → pre-season → paddock). The career
+// is created AFTER director-create so the financier specialty's budget bonus applies. coop=false → solo.
+function beginDirectorCreate(teamIdx, coop) {
+  ctx.role = "host"; ctx.myPlayer = "p1"; ctx.coop = coop; ctx.solo = !coop;
   ctx.teamIdx = teamIdx;
-  ctx.career = newCareer({ teamIdx, seed: 1000 + Math.floor(Math.random() * 100000), coop: false });
+  ctx._careerSeed = 1000 + Math.floor(Math.random() * 100000);
   ctx.careerReady = { p1: false, p2: false };
-  resetWeekendState(); loadRoundTrack(); ctx.atPaddock = true; publishCareer();
-  saveCareer(ctx.career);                 // persist from the start so a reload can resume even before race 1
-  ctx.weekend.solo = true;
-  requestAnimationFrame(hostLoop);
+  ctx.weekend.solo = !coop;
+  ctx.career = null; ctx.careerView = null;
+  ctx.atDirectorCreate = true; ctx.atPreseason = false; ctx.atPaddock = false; ctx.atResults = false;
+  ctx._directors = null; ctx.pendingDirectors = null; ctx._preBudget0 = null;
+  requestAnimationFrame(hostLoop);          // idles until a weekend starts; keeps the host loop alive
   rerender();
 }
+// director-create confirmed → create the career (with the chosen specialties) → pre-season.
+function onDirectorsDone() {
+  ctx.career = newCareer({ teamIdx: ctx.teamIdx, seed: ctx._careerSeed, coop: !!ctx.coop, directors: ctx.pendingDirectors || [] });
+  ctx.atDirectorCreate = false; ctx.atPreseason = true; ctx._preBudget0 = null;
+  rerender();
+}
+// pre-season confirmed → enter the paddock; the career officially begins (leftover budget = season cash).
+function onPreseasonDone() {
+  ctx.atPreseason = false;
+  resetWeekendState(); loadRoundTrack(); ctx.atPaddock = true;
+  saveCareer(ctx.career); publishCareer(); rerender();
+}
+// SOLO career: single player engineers p1; teammate + grid AI.
+export function startCareerSolo(teamIdx) { ctx.net = null; beginDirectorCreate(teamIdx, false); }
 // resume a saved SOLO career from localStorage. Returns false if there is no save.
 export function continueCareer() {
   const saved = loadCareer();
@@ -635,13 +657,8 @@ export function deleteCareerSave() { clearCareer(); }
 // CO-OP career: host creates it; the first weekend begins when the partner joins (see onMessage hello).
 export function hostCareer(teamIdx) { ctx.careerPending = teamIdx; }
 function beginCoopCareer() {
-  ctx.teamIdx = ctx.careerPending;
-  ctx.career = newCareer({ teamIdx: ctx.careerPending, seed: 1000 + Math.floor(Math.random() * 100000), coop: true });
-  ctx.careerReady = { p1: false, p2: false };
-  ctx.careerPending = null;
-  resetWeekendState(); loadRoundTrack(); ctx.atPaddock = true; publishCareer();
-  saveCareer(ctx.career);
-  rerender();
+  const t = ctx.careerPending; ctx.careerPending = null;
+  beginDirectorCreate(t, true);             // host runs director-create + pre-season; client waits for the career broadcast at paddock
 }
 // advance the season after both players are ready (or solo).
 // begin the upcoming round's weekend from the paddock.

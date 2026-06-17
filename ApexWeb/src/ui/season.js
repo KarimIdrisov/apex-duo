@@ -214,6 +214,7 @@ export function render(root, ctx) {
     ? `<div style="font-size:12px;color:var(--bc);margin-bottom:10px"><b>⚙ Совет инженеров:</b> отстаём в «${weakest.label}» от поля — развивай это направление.</div>`
     : `<div style="font-size:12px;color:var(--good);margin-bottom:10px"><b>⚙ Совет инженеров:</b> по всем направлениям держимся поля — развивай по вкусу.</div>`;
   const areaForecast = (() => { if (!weakest) return ""; const part = bestPartForArea(c, weakest.indicator); if (!part) return ""; const I = INTENSITY[devIntensity]; const fc = forecastRange(c, part, I.size, I.approach); return fc ? `<p class="label" style="margin-top:8px;opacity:.85">📈 Прогноз для «${weakest.label}»: +${(fc.low * 100).toFixed(1)}…+${(fc.high * 100).toFixed(1)} к показателю</p>` : ""; })();
+  const dvCol = myTeamName ? teamColor(myTeamName) : "#888";   // moved up: areasView (--spine) uses it before its old decl (TDZ fix)
   const modeToggle = `<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="devmode" data-m="${devMode === "areas" ? "parts" : "areas"}" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted)">${devMode === "areas" ? "⚙ по деталям →" : "← по направлениям"}</button></div>`;
   const areasView = baseCar ? `<div class="bcard" style="--spine:${dvCol}"><div style="display:flex;justify-content:space-between;align-items:baseline"><p class="bcard-title">Разработка машины</p><span style="font-size:11px;color:var(--muted)">слоты ${slotsUsed}/${slotsMax}${c.costCap ? " · cost cap" : ""}</span></div>${recLine}<div>${DEV_AREAS.map(areaRow).join("")}</div><div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:6px">Интенсивность</div>${intSeg}${areaForecast}</div></div>` : "";
   const chassisOut = modeToggle + (devMode === "parts" ? chassisView : areasView);
@@ -271,7 +272,6 @@ export function render(root, ctx) {
   const myTeamIdx = TEAMS.findIndex(t => t.name === myTeamName);
   const mine = c.drivers ? Object.entries(c.drivers).filter(([, d]) => d.teamIdx === myTeamIdx) : [];
   // --- rich driver card (G1–G4): identity, form/morale, contract, season stats, teammate H2H, training, attrs ---
-  const dvCol = myTeamName ? teamColor(myTeamName) : "#888";
   const trChips = d => (d.traits || []).map(t => TRAITS[t] && TRAITS[t].label).filter(Boolean).map(l => `<span style="font-size:10px;background:var(--good);color:#06121f;border-radius:4px;padding:1px 6px;margin-right:4px">${l}</span>`).join("");
   const focusSet = d => new Set(((TRAINING[d.training] || {}).attrs) || []);
   const arrow = (d, k) => { const dr = attrDrift(k, d.age) + (focusSet(d).has(k) ? 0.004 : 0); return dr > 0.002 ? `<span style="color:var(--good)">▲</span>` : dr < -0.002 ? `<span style="color:var(--bad)">▼</span>` : ""; };
