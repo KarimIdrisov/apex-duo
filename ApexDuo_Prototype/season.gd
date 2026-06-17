@@ -220,7 +220,7 @@ const PIT_POACH_BONUS_MULT: int = 5       # key-role signing bonus = ask × 5 ($
 const TRAIN_SEED_MIX: int = 0x77A14
 const DHL_POINTS := [5, 3, 1]
 const DHL_PRIZE_MONEY: int = 300_000
-const DHL_PRIZE_RP: int = 5
+const RP_TO_MONEY: int = 25_000   # RP удалён: R&D финансируется деньгами (фактор конверсии)
 const STATUS_MORALE_FIRST: int = 5        # «Первый» — morale offset (feeds pace)
 const STATUS_MORALE_SECOND: int = -3      # «Второй»
 const SECOND_SALARY_DISCOUNT: int = 50_000   # the second driver is cheaper
@@ -250,7 +250,7 @@ const SCORE_WIN: float = 0.72
 const SCORE_PODIUM: float = 0.58
 const SCORE_POINTS: float = 0.45
 const TESTDRIVE_SKILL_PEN: float = 0.030   # stand-in is slower than the driver
-const TESTDRIVE_RP_BONUS: int = 3          # development feedback from the race
+const TESTDRIVE_MONEY_BONUS: int = 75_000  # development feedback from the race (деньги вместо RP)
 const TEST_RD_MULT_K: float = 0.15         # rd mult = 1 + 0.15 × dev_feedback01
 const JUNIOR_LOAN_INCOME: int = 100_000
 const PROMOTE_ATTR_DIV: float = 250.0      # dev delta = (attr − 10) / 250
@@ -381,7 +381,7 @@ const WEAR_JITTER: float = 0.02      # deterministic ± jitter per part per roun
 const PART_REPLACE_COST := {"aero": 60_000, "power": 80_000, "energy": 70_000,
 	"reliability": 50_000}
 const FREE_REPLACEMENTS: int = 3
-const POOL_PENALTY_RP: int = 2
+const POOL_PENALTY_MONEY: int = 50_000
 
 const NAMES := ["Норрис", "Пиастри", "Ферстаппен", "Леклер", "Антонелли",
 	"Расселл", "Хэмилтон", "Сайнс", "Албон", "Алонсо"]   # default grid (Mercedes player)
@@ -392,15 +392,15 @@ const SAVE_PATH := "user://apex_duo_season.json"
 
 # Starting teams — LEGACY preset list (kept for backward compat; load_from_disk
 # still reads team_tier as a raw F1_2026 team index 0-10 saved in the JSON).
-# New code must NOT iterate this to pick a team: use _rank_money()/_rank_rp()
+# New code must NOT iterate this to pick a team: use _rank_money()
 # with the team index directly. Refs still alive: season_hub.gd upgrade_salary
 # reads SALARY_DEFAULT[_salary_tier_idx()]; resign_cost and _new_contract do too.
 const TEAM_TIERS := [
-	{"name": "Контендер", "team": 0, "money": 8_000_000, "rp": 8,
+	{"name": "Контендер", "team": 0, "money": 8_000_000,
 		"goal": "Бороться за титул", "desc": "McLaren — топ-команда: быстрая машина, мало бюджета на рост."},
-	{"name": "Середняк", "team": 4, "money": 5_000_000, "rp": 14,
+	{"name": "Середняк", "team": 4, "money": 5_000_000,
 		"goal": "Очки и подиумы", "desc": "Williams — середина пелотона: сбалансированный старт."},
-	{"name": "Андердог", "team": 10, "money": 3_000_000, "rp": 22,
+	{"name": "Андердог", "team": 10, "money": 3_000_000,
 		"goal": "Прогресс сезона", "desc": "Cadillac — аутсайдер: слабая машина, зато большой R&D-задел."},
 ]
 # Difficulty shifts every rival's pace (negative = rivals slower = easier).
@@ -447,6 +447,11 @@ const RD_PWT_POWER_STEP: float = 0.010   # engine power per step
 const RD_PWT_ENERGY_STEP: float = 0.010  # engine energy per step (-> harvest_mult)
 const RD_PWT_MAX_STEPS: int = 5          # max 5 steps -> +0.050 total power/energy (matches existing UI cap)
 const RD_PWT_REL_STEP: float = 0.030    # engine rel per step (reliability folded in)
+# P2: параметры запуска проектов нового слоя разработки (CarDevSeason).
+const DEV_PROJECT_HOURS: float = 40.0      # часов ATR на один проект
+const DEV_PROJECT_ALLOC: float = 0.7       # слайдер темп↔надёжность (0.7 = упор в темп)
+const DEV_BUILD_COST: int = 70_000         # деньги на производство детали за проект
+const DEV_ATR_PER_ROUND_DIV: int = 4       # окно = 4 этапа: грант atr_hours/4 за этап
 
 # META-3: Cost cap + driver contracts. Verified in meta3_costcap_check.py.
 # Cap rule: SOFT PENALTY. Cumulative driver salary spend over the season is
@@ -476,7 +481,7 @@ var coop := false
 var race_pending := false
 var race_quick := false            # instant-sim the next round (no live race view)
 var money := 5_000_000
-var rp := 14                       # start with a little R&D to spend
+# rp удалён: R&D финансируется из общего денежного кошелька (money)
 # Legacy display fields (read by season_hub.gd for upgrade labels). The new
 # car-delta system uses car_aero_steps / car_pwt_steps as the canonical counters.
 var skill_bonus := 0.0             # mirrors car_aero_steps * RD_AERO_STEP (display only)
@@ -491,6 +496,9 @@ var car_pwt_steps: int = 0         # 0..RD_PWT_MAX_STEPS   (derived from part_le
 # CAR-1: per-part level dictionary (part_key -> level). Canonical R&D state.
 # Keys must match F1_2026.PARTS. Default = all 0 (initialised below).
 var part_levels: Dictionary = {}
+# P2: новый слой разработки (CarDevSeason). Параллельно с part_levels; пока
+# хранится и сериализуется, переключение машины на него — следующий шаг.
+var car_dev_state: Dictionary = {}
 var cal_seed := 0                  # seed for the procedurally generated calendar
 var team_tier := 1                 # F1_2026.TEAMS index (0-10); == player_team after configure()
 var difficulty := 1                # index into DIFFICULTY
@@ -513,7 +521,7 @@ var stats := {}                    # driver id -> FM-style season stats
 # Indexed 0 = P5 (TEAM_IDS[0]=4), 1 = P6 (TEAM_IDS[1]=5).
 var contracts: Array = []
 var cumulative_salary_spend: int = 0   # tracks total salary paid this season (vs SALARY_CAP)
-var cap_penalty_pending: int = 0       # RP to deduct at start of next race weekend
+var cap_penalty_pending: int = 0       # units to deduct (× RP_TO_MONEY money) next weekend
 
 # M1: Sponsor system state
 # active_sponsors: Array of sponsor Dicts (max 3: 1 title + 2 partner).
@@ -744,6 +752,9 @@ func _init_part_levels() -> void:
 	for k: String in F1_2026.PARTS:
 		part_levels[k] = 0
 	_init_part_condition()
+	# P2: инициализировать новый слой разработки, если ещё пуст (load восстановит поверх).
+	if car_dev_state.is_empty():
+		car_dev_state = CarDevSeason.make_state()
 
 # CAR-2: every part starts the season factory-fresh.
 func _init_part_condition() -> void:
@@ -783,10 +794,10 @@ func buy_part(part_key: String) -> bool:
 	var cur_lv: int = int(part_levels.get(part_key, 0))
 	if cur_lv >= max_lv:
 		return false
-	var c: int = cost_part(part_key)
-	if rp < c:
+	var c: int = cost_part(part_key) * RP_TO_MONEY
+	if money < c:
 		return false
-	rp -= c
+	money -= c
 	part_levels[part_key] = cur_lv + 1
 	_sync_legacy_steps()
 	apply_car_rd()
@@ -890,7 +901,7 @@ func _pay_salaries() -> void:
 # Apply any pending cap RP penalty (call at start of apply_results or buy phase).
 func _apply_cap_penalty() -> void:
 	if cap_penalty_pending > 0:
-		rp = maxi(0, rp - cap_penalty_pending)
+		money = maxi(0, money - cap_penalty_pending * RP_TO_MONEY)
 		cap_penalty_pending = 0
 
 # Returns true if a driver's contract has expired (rounds_remaining == 0).
@@ -1948,11 +1959,10 @@ func _award_dhl() -> void:
 			best_key = String(k)
 	if best_key == str(player_team):
 		money += DHL_PRIZE_MONEY
-		rp += DHL_PRIZE_RP
 		payout_log.append({"round": round_index + 1, "amount": DHL_PRIZE_MONEY,
 			"from": "DHL Fastest Pit Stop (сезонный зачёт)"})
-		_staff_log_add("Пит-экипаж выиграл DHL Fastest Pit Stop: +$%s и +%d RP" % [
-			_format_money(DHL_PRIZE_MONEY), DHL_PRIZE_RP])
+		_staff_log_add("Пит-экипаж выиграл DHL Fastest Pit Stop: +$%s" % [
+			_format_money(DHL_PRIZE_MONEY)])
 
 func dhl_player_points() -> int:
 	return int(dhl_points.get(str(player_team), 0))
@@ -2270,7 +2280,7 @@ func part_replace_cost(part_key: String) -> int:
 	return int(PART_REPLACE_COST.get(grp, 50_000))
 
 # Replace a worn developed part: money cost, condition back to 1.0. Beyond
-# the free pool of FREE_REPLACEMENTS each replacement costs POOL_PENALTY_RP
+# the free pool of FREE_REPLACEMENTS each replacement costs POOL_PENALTY_MONEY
 # (the component-pool penalty). Returns true on success.
 func replace_part(part_key: String) -> bool:
 	if not F1_2026.PARTS.has(part_key):
@@ -2288,9 +2298,9 @@ func replace_part(part_key: String) -> bool:
 	part_condition[part_key] = 1.0
 	replacements_used += 1
 	if replacements_used > FREE_REPLACEMENTS:
-		rp = maxi(0, rp - POOL_PENALTY_RP)
-		_staff_log_add("Замена «%s»: превышен пул компонентов — штраф %d RP" % [
-			String(F1_2026.PARTS[part_key]["label"]), POOL_PENALTY_RP])
+		money = maxi(0, money - POOL_PENALTY_MONEY)
+		_staff_log_add("Замена «%s»: превышен пул компонентов — штраф $%s" % [
+			String(F1_2026.PARTS[part_key]["label"]), _format_money(POOL_PENALTY_MONEY)])
 	apply_car_rd()
 	return true
 
@@ -2371,10 +2381,7 @@ func _format_money(v: int) -> String:
 static func _rank_money(rank: int) -> int:
 	return 8_000_000 - clampi(rank, 0, 10) * 500_000
 
-# Starting R&D points for a given team rank. Linear interpolation 8 (top) -> 22 (back),
-# rounded to nearest integer: rp = 8 + round(14 * rank / 10).
-static func _rank_rp(rank: int) -> int:
-	return 8 + int(round(14.0 * float(clampi(rank, 0, 10)) / 10.0))
+# (RP удалён — стартовый R&D-ресурс больше не нужен; команда стартует деньгами _rank_money.)
 
 # Maps team rank (0-10) to the nearest 3-tier salary-table index (0/1/2) used by
 # SALARY_DEFAULT and SALARY_PREMIUM. rank 0-3 -> 0 (contender), 4-6 -> 1 (mid),
@@ -2407,7 +2414,6 @@ func configure(tier: int, diff: int, is_coop: bool) -> void:
 	team_base_skill = 0.0          # competitiveness comes from the real drivers
 	grid_names = F1_2026.grid_names(player_team)
 	money = _rank_money(player_team)
-	rp = _rank_rp(player_team)
 	goal = _rank_goal(player_team)
 	rival_skill_offset = DIFFICULTY[difficulty]["rival"]
 	# CAR-1: initialise part_levels if not yet set (fresh season or called before _init)
@@ -2481,9 +2487,9 @@ func cost_tyre() -> int:
 # buy_aero(): increments car_aero_steps (car R&D) and keeps legacy skill_bonus
 # in sync for season_hub.gd display. Capped at RD_AERO_MAX_STEPS.
 func buy_aero() -> bool:
-	var c := cost_aero()
-	if rp >= c and car_aero_steps < RD_AERO_MAX_STEPS:
-		rp -= c
+	var c := cost_aero() * RP_TO_MONEY
+	if money >= c and car_aero_steps < RD_AERO_MAX_STEPS:
+		money -= c
 		car_aero_steps += 1
 		skill_bonus = float(car_aero_steps) * RD_AERO_STEP   # keep display in sync
 		apply_car_rd()   # immediately update F1_2026 static state
@@ -2491,9 +2497,9 @@ func buy_aero() -> bool:
 	return false
 
 func buy_tyre() -> bool:
-	var c := cost_tyre()
-	if rp >= c and wear_bonus < 0.36:
-		rp -= c
+	var c := cost_tyre() * RP_TO_MONEY
+	if money >= c and wear_bonus < 0.36:
+		money -= c
 		wear_bonus += 0.06
 		return true
 	return false
@@ -2504,9 +2510,9 @@ func cost_energy() -> int:
 # buy_energy(): increments car_pwt_steps (car R&D) and keeps legacy energy_bonus
 # in sync for season_hub.gd display. Capped at RD_PWT_MAX_STEPS (=5).
 func buy_energy() -> bool:
-	var c := cost_energy()
-	if rp >= c and car_pwt_steps < RD_PWT_MAX_STEPS:
-		rp -= c
+	var c := cost_energy() * RP_TO_MONEY
+	if money >= c and car_pwt_steps < RD_PWT_MAX_STEPS:
+		money -= c
 		car_pwt_steps += 1
 		# Keep display in sync (energy_bonus display was 0..0.30 at 5 steps of 0.06)
 		energy_bonus = minf(0.30, float(car_pwt_steps) * 0.06)
@@ -2521,24 +2527,18 @@ func buy_energy() -> bool:
 # M3: developed parts + supplier-bought parts + brake/fuel supplier deltas
 # all sum into the same 5 scalars (one channel into team_car()).
 func car_rd_deltas() -> Dictionary:
-	if not part_levels.is_empty():
-		# CAR-2: condition scales developed-part contributions (worn = weaker)
-		var out: Dictionary = F1_2026.compose_part_deltas(part_levels, part_condition)
-		var bought: Dictionary = F1_2026.compose_supplier_deltas(bought_parts)
-		var sup: Dictionary = supplier_deltas()
-		for k: String in out:
-			out[k] = float(out[k]) + float(bought.get(k, 0.0)) + float(sup.get(k, 0.0))
-		return out
-	# Legacy fallback (e.g. called before _init_part_levels in edge cases)
-	var aero_s: int = clampi(car_aero_steps, 0, RD_AERO_MAX_STEPS)
-	var pwt_s: int = clampi(car_pwt_steps, 0, RD_PWT_MAX_STEPS)
-	return {
-		"d_aero":    float(aero_s) * RD_AERO_STEP,
-		"d_power":   float(pwt_s)  * RD_PWT_POWER_STEP,
-		"d_energy":  float(pwt_s)  * RD_PWT_ENERGY_STEP,
-		"d_ch_rel":  float(aero_s) * RD_AERO_REL_STEP,
-		"d_eng_rel": float(pwt_s)  * RD_PWT_REL_STEP,
-	}
+	# P2: машину ведёт новый слой разработки (CarDevSeason из car_dev_state);
+	# покупные/поставщик-детали (M3) суммируются в те же 5 скаляров.
+	var out: Dictionary
+	if not car_dev_state.is_empty():
+		out = CarDevSeason.compose(car_dev_state)
+	else:
+		out = F1_2026.compose_part_deltas(part_levels, part_condition)
+	var bought: Dictionary = F1_2026.compose_supplier_deltas(bought_parts)
+	var sup: Dictionary = supplier_deltas()
+	for k: String in out:
+		out[k] = float(out[k]) + float(bought.get(k, 0.0)) + float(sup.get(k, 0.0))
+	return out
 
 # Primes F1_2026's static R&D state so that team_car() returns the upgraded
 # player car for this race. Call this before _make_sim (e.g. from the race launch).
@@ -2553,6 +2553,42 @@ func apply_car_rd() -> void:
 		float(d["d_ch_rel"]) + float(ev["d_rel"]),
 		float(d["d_eng_rel"])
 	)
+
+# --- P2: запуск проектов нового слоя разработки (CarDevSeason) ---
+func dev_atr_available() -> float:
+	return float(car_dev_state.get("atr_available", 0.0))
+
+func dev_can_run(part_key: String) -> bool:
+	if car_dev_state.is_empty():
+		return false
+	if not CarDevData.PARTS.has(part_key):
+		return false
+	return dev_atr_available() >= DEV_PROJECT_HOURS and money >= DEV_BUILD_COST
+
+# Запустить проект развития детали: тратит часы ATR + деньги на производство,
+# двигает perf/надёжность/экспертизу, перепримеривает машину. true при успехе.
+func dev_run_project(part_key: String, risk: String = "normal") -> bool:
+	if not dev_can_run(part_key):
+		return false
+	var pos: int = constructor_position()
+	var seed_val: int = cal_seed ^ (round_index * 131) ^ part_key.hash()
+	CarDevSeason.run_project(car_dev_state, part_key, DEV_PROJECT_HOURS,
+		DEV_PROJECT_ALLOC, risk, pos, seed_val)
+	car_dev_state["atr_available"] = dev_atr_available() - DEV_PROJECT_HOURS
+	money -= DEV_BUILD_COST
+	apply_car_rd()
+	return true
+
+# perf / потолок / надёжность детали для UI хаба.
+func dev_part_info(part_key: String) -> Dictionary:
+	var parts: Dictionary = car_dev_state.get("parts", {})
+	var p: Dictionary = parts.get(part_key, {})
+	return {
+		"perf": float(p.get("perf", 0.0)),
+		"ceiling": CarDevData.ceiling_of(part_key),
+		"reliability": float(p.get("reliability", 0.0)),
+		"expertise": float(p.get("expertise", 0.0)),
+	}
 
 # ================================================================ HQ BUILDINGS
 
@@ -2704,6 +2740,10 @@ func apply_results(order_ids: Array, dnf_ids: Array = [], fl_id: int = -1,
 		best_stops: Dictionary = {}) -> void:
 	# META-3: apply any RP cap penalty accumulated from last round's salary evaluation
 	_apply_cap_penalty()
+	# P2: начислить ATR-долю этого этапа (окно = DEV_ATR_PER_ROUND_DIV этапов).
+	if not car_dev_state.is_empty():
+		car_dev_state["atr_available"] = dev_atr_available() \
+			+ CarDev.atr_hours(constructor_position()) / float(DEV_ATR_PER_ROUND_DIV)
 	var gained_pts := 0
 	var clause_paid: int = 0
 	for i in order_ids.size():
@@ -2729,7 +2769,6 @@ func apply_results(order_ids: Array, dnf_ids: Array = [], fl_id: int = -1,
 	var tech_income: int = supplier_income_per_round()
 	var gained_money: int = prize_income + sponsor_income + tech_income
 
-	rp += 12 + gained_pts
 	money += gained_money
 	# M3: pay the supplier contracts (brakes + fuel supply price)
 	var supply_cost: int = mini(money, supplier_cost_per_round())
@@ -2744,7 +2783,6 @@ func apply_results(order_ids: Array, dnf_ids: Array = [], fl_id: int = -1,
 		"supply": supply_cost,
 		"clause": clause_paid,
 		"constructor_pos": constructor_pos,
-		"rp": rp,
 	}
 	_update_drivers(order_ids)
 	# CAR-2: the just-raced round wears the developed parts (track-biased).
@@ -2752,8 +2790,8 @@ func apply_results(order_ids: Array, dnf_ids: Array = [], fl_id: int = -1,
 	# M5: the academy races its own round; a test-drive pays its feedback.
 	_simulate_academy_round()
 	if test_driver_slot >= 0:
-		rp += TESTDRIVE_RP_BONUS
-		_staff_log_add("Тест-пилот: фидбэк с трассы — +%d RP" % TESTDRIVE_RP_BONUS)
+		money += TESTDRIVE_MONEY_BONUS
+		_staff_log_add("Тест-пилот: фидбэк с трассы — +$%s" % _format_money(TESTDRIVE_MONEY_BONUS))
 		test_driver_slot = -1
 	# M4: DHL fastest-stop zachet; the season prize is decided at the finale.
 	if not best_stops.is_empty():
@@ -2880,7 +2918,6 @@ func to_dict() -> Dictionary:
 		"round_index": round_index,
 		"coop": coop,
 		"money": money,
-		"rp": rp,
 		# Legacy display fields (kept so old saves don't corrupt season_hub.gd UI)
 		"skill_bonus": skill_bonus,
 		"wear_bonus": wear_bonus,
@@ -2890,6 +2927,7 @@ func to_dict() -> Dictionary:
 		"car_pwt_steps": car_pwt_steps,
 		# CAR-1: per-part levels (canonical R&D state)
 		"part_levels": pl_out,
+		"car_dev_state": car_dev_state,   # P2: новый слой разработки (CarDevSeason)
 		"cal_seed": cal_seed,
 		"player_team": player_team,
 		"team_tier": team_tier,
@@ -2997,7 +3035,6 @@ static func _apply_dict(s: Season, data: Dictionary) -> void:
 	s.round_index = int(data.get("round_index", 0))
 	s.coop = bool(data.get("coop", false))
 	s.money = int(data.get("money", 5_000_000))
-	s.rp = int(data.get("rp", 0))
 	# Legacy display fields (kept inert — the car-delta system uses step counters)
 	s.skill_bonus  = float(data.get("skill_bonus",  0.0))
 	s.wear_bonus   = float(data.get("wear_bonus",   0.0))
@@ -3034,6 +3071,12 @@ static func _apply_dict(s: Season, data: Dictionary) -> void:
 		# Path B: old save — migrate step counters to part_levels
 		_migrate_steps_to_parts(s, s.car_aero_steps, s.car_pwt_steps)
 	s._sync_legacy_steps()   # keep legacy counters in sync with loaded part_levels
+	# P2: restore the new development layer (CarDevSeason); fresh state if absent/old save.
+	var cds_raw: Variant = data.get("car_dev_state", null)
+	if typeof(cds_raw) == TYPE_DICTIONARY and (cds_raw as Dictionary).has("parts"):
+		s.car_dev_state = cds_raw as Dictionary
+	else:
+		s.car_dev_state = CarDevSeason.make_state()
 	# restore team tier + difficulty (also rebuilds derived offsets/name/goal)
 	s.configure(int(data.get("team_tier", 1)), int(data.get("difficulty", 1)),
 		bool(data.get("coop", false)))
@@ -3043,9 +3086,8 @@ static func _apply_dict(s: Season, data: Dictionary) -> void:
 	s.player_team = int(data.get("player_team", s.player_team))
 	s.team_tier = s.player_team   # keep in sync: team_tier == player_team == F1_2026 index
 	s.grid_names = F1_2026.grid_names(s.player_team)
-	# configure() resets money/rp to tier defaults — restore saved values after
+	# configure() resets money to tier default — restore saved value after
 	s.money = int(data.get("money", 5_000_000))
-	s.rp = int(data.get("rp", 0))
 	var st: Variant = data.get("standings", [])
 	if typeof(st) == TYPE_ARRAY:
 		for i in mini(st.size(), s.grid_names.size()):
@@ -3114,7 +3156,6 @@ static func _apply_dict(s: Season, data: Dictionary) -> void:
 			"round":           int(float(lsd.get("round",           0))),
 			"pts":             int(float(lsd.get("pts",             0))),
 			"money":           int(float(lsd.get("money",           0))),
-			"rp":              int(float(lsd.get("rp",              0))),
 			# M1 additions (default 0 for old saves)
 			"prize":           int(float(lsd.get("prize",           0))),
 			"sponsor":         int(float(lsd.get("sponsor",         0))),

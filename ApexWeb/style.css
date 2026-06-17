@@ -13,6 +13,12 @@
   --good:#17C964;           /* success */
   --warn:#F5A524;           /* warning */
   --bad:#F31260;            /* danger */
+  --info:#5aa9ff;           /* informational */
+  --bc:#00b3ff;             /* broadcast primary (cyan) */
+  --accent2:#00e0b0;        /* broadcast secondary (teal) */
+  /* domain-semantic palette — use these, never hardcode hex in feature panels */
+  --tyre-soft:#e2504a; --tyre-medium:#e0b341; --tyre-hard:#c9cdd3; --tyre-inter:#3ddc84; --tyre-wet:#4a86e8;
+  --series-f4:#8a8f98; --series-f3:#5aa9ff; --series-f2:#e0b341; --series-f1:#17C964;
   --r-sm:8px; --r-md:12px; --r-lg:16px;
   --shadow:0 8px 24px rgba(0,0,0,.45);
   --shadow-sm:0 2px 8px rgba(0,0,0,.30);
@@ -31,6 +37,8 @@ body{margin:0;color:var(--ink);
 .prow{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start}
 .prow>.panel{flex:1 1 380px;min-width:300px;margin-bottom:0}
 #pad-content>.panel+.panel,#pad-content>.prow{margin-top:12px}
+.prow>.bcard{flex:1 1 380px;min-width:300px;margin-bottom:0}
+#pad-content>.bcard+.bcard,#pad-content>.panel+.bcard,#pad-content>.bcard+.panel{margin-top:12px}
 
 /* race dashboard: leaderboard left, minimap + controls right, header on top */
 #dash{display:grid;grid-template-columns:minmax(0,1fr) 372px;
@@ -295,3 +303,23 @@ input[type=range].pw-range:disabled{opacity:.4;cursor:not-allowed}
 .pad-tab:hover{color:var(--ink);background:rgba(255,255,255,.05)}
 .pad-tab.on{background:var(--accent);color:#fff}
 .pad-foot{margin-top:12px}
+
+/* ---- broadcast UI kit (design system; see ui/kit.js) ---- */
+.bcard{background:#141417;border:1px solid var(--border);border-left:4px solid var(--spine,var(--bc));
+  border-radius:0 var(--r-md) var(--r-md) 0;padding:12px 14px;margin-bottom:12px;box-shadow:var(--shadow-sm)}
+.bcard-hd{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:10px}
+.bcard-title{font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.02em;color:#fff;margin:0}
+.bchip{font-size:11px;font-weight:800;color:#0c0c0f;background:var(--accent2);padding:2px 9px;display:inline-block;transform:skewX(-10deg)}
+.bchip>span{display:inline-block;transform:skewX(10deg)}
+.bkpi{font-size:11px;color:var(--muted)} .bkpi b{color:var(--ink)}
+.brow{display:flex;align-items:center;gap:8px;margin:6px 0}
+.bmeter{flex:1;height:7px;background:rgba(255,255,255,.06);overflow:hidden}
+.bmeter>i{display:block;height:100%;background:var(--bc);transition:width .25s var(--ease)}
+.bnum{font-weight:800}
+/* group bar (top) + sub-tabs (second row) */
+.pad-group{display:flex;gap:2px;flex-wrap:wrap;margin-bottom:8px;border-bottom:1px solid var(--border)}
+.pad-gtab{padding:9px 15px;background:transparent;color:var(--muted);font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:.02em;border:none;border-bottom:2px solid transparent;cursor:pointer}
+.pad-gtab:hover{color:var(--ink)} .pad-gtab.on{color:#fff;border-bottom-color:var(--bc)}
+.pad-subtabs{display:flex;gap:4px;flex-wrap:wrap;background:var(--content2);padding:4px;border-radius:var(--r-md);margin-bottom:12px}
+.pad-subtab{padding:6px 12px;border-radius:var(--r-sm);background:transparent;color:var(--muted);font-weight:600;font-size:12px;border:none;cursor:pointer}
+.pad-subtab:hover{color:var(--ink);background:rgba(255,255,255,.05)} .pad-subtab.on{background:var(--bc);color:#0c0c0f}

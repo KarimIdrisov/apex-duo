@@ -179,10 +179,10 @@ func net_season_buy_part(part_key: String) -> void:
 	if pdef != null:
 		var lbl: String = String((pdef as Dictionary).get("label", part_key))
 		part_name = lbl
-	if Season.active.buy_part(part_key):
+	if Season.active.dev_run_project(part_key):
 		Season.active.save_to_disk()
 		net_season_full.rpc(Season.active.to_dict())
-		net_season_feed.rpc("Партнёр: куплено «%s»" % part_name)
+		net_season_feed.rpc("Партнёр: проект «%s»" % part_name)
 		# Notify local hub to refresh.
 		get_tree().call_group("season_hub", "_on_season_updated")
 

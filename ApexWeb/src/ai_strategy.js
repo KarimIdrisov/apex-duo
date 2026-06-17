@@ -44,9 +44,20 @@ export function planRace(c, track, seed, difficulty = 0.85) {
 // reasons: "weather" (does NOT consume a dry plan stop), "sc", "plan", "emergency" (do consume).
 export function pitDecision(c, ctx) {
   const onSlick = COMPOUNDS[c.tyre].wet_opt < 0.1;
-  if (ctx.wetness > 0.55 && onSlick) return { compound: ctx.wetness > 0.8 ? "wet" : "inter", reason: "weather" };
-  if (ctx.wetness < 0.35 && !onSlick) return { compound: "medium", reason: "weather" };
-  if (ctx.wetness >= 0.35) return null;            // settled wet running: hold the wet tyre
+  // weather crossover — SKILL decides WHEN to switch. A sharp strategist (team strategy + driver
+  // race_iq + difficulty) anticipates: switches to inters near the real crossover (~0.40) and back to
+  // slicks near the optimum (~0.24). A weaker/easier team reacts later to rain (~0.50+) and bails to
+  // slicks too early while drying (~0.34), with a consistent per-team wobble so it misjudges the moment.
+  // (difficulty floors the sharpness, so on Hard even a poor strategist is only a little late.)
+  const strat = (c.personnel && c.personnel.strategy != null) ? c.personnel.strategy : 0.6;
+  const iq = (c.attrs && c.attrs.race_iq != null) ? c.attrs.race_iq : 0.5;
+  const sharp = clamp(0.5 * strat + 0.3 * iq + 0.2 * (ctx.difficulty != null ? ctx.difficulty : 0.85), 0, 1);
+  const wob = (((mix32(((c.idx >>> 0) * 2654435761 + 17) >>> 0) % 1000) / 1000) - 0.5) * (1 - sharp) * 0.14;
+  const toWetAt = clamp(0.60 - 0.20 * sharp + wob, 0.30, 0.72);     // rain building: slick → inter/wet
+  const toSlickAt = clamp(0.24 + 0.10 * (1 - sharp) + wob, 0.16, 0.40);  // drying: wet → slick
+  if (onSlick && ctx.wetness > toWetAt) return { compound: ctx.wetness > 0.78 ? "wet" : "inter", reason: "weather" };
+  if (!onSlick && ctx.wetness < toSlickAt) return { compound: "medium", reason: "weather" };
+  if (ctx.wetness >= toSlickAt) return null;       // settled wet running: hold the wet tyre
   const plan = c.aiPlan; if (!plan) return null;
   const done = c.aiStopsDone || 0;
   const next = plan.stops[done];

@@ -3,7 +3,7 @@
 // (driverSkillTip/staffSkillTip + attachPersonTips). Pure UI; reads data.js/team.js/staff.js
 // (read-only). No sim/network state.
 import { TEAMS, TEAM_LOGO } from "../data.js";
-import { driverAttrs, ATTR_KEYS } from "../team.js";
+import { driverAttrs, ATTR_KEYS, TRAITS } from "../team.js";
 import { ROLE_LABEL } from "../staff.js";
 
 const COLOR_BY_TEAM = {};
@@ -72,6 +72,19 @@ export function driverCard(d, opts = {}) {
     + `</div>` + car + `</div>`;
 }
 
+// A compact 13-axis spider/radar of a driver's attributes (pure SVG). Pure visual; reads attrs only.
+export function attrRadar(attrs, color, size = 116) {
+  const n = ATTR_KEYS.length, cx = size / 2, cy = size / 2, R = size / 2 - 10;
+  const cl = v => Math.max(0, Math.min(1, v || 0));
+  const pt = (i, r) => { const a = -Math.PI / 2 + i * 2 * Math.PI / n; return [cx + Math.cos(a) * r, cy + Math.sin(a) * r]; };
+  const ring = f => ATTR_KEYS.map((_, i) => pt(i, R * f).map(v => v.toFixed(1)).join(",")).join(" ");
+  const rings = [0.25, 0.5, 0.75, 1].map(f => `<polygon points="${ring(f)}" fill="none" stroke="rgba(255,255,255,.07)" stroke-width="0.5"/>`).join("");
+  const axes = ATTR_KEYS.map((_, i) => { const [x, y] = pt(i, R); return `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,.06)" stroke-width="0.5"/>`; }).join("");
+  const poly = ATTR_KEYS.map((k, i) => pt(i, R * cl(attrs[k])).map(v => v.toFixed(1)).join(",")).join(" ");
+  const dots = ATTR_KEYS.map((k, i) => { const [x, y] = pt(i, R * cl(attrs[k])); return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="1.3" fill="${color}"/>`; }).join("");
+  return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" style="display:block" aria-hidden="true">${rings}${axes}<polygon points="${poly}" fill="${color}" fill-opacity="0.22" stroke="${color}" stroke-width="1.2" stroke-linejoin="round"/>${dots}</svg>`;
+}
+
 // RU labels for the 13 driver attributes (keys = ATTR_KEYS from team.js)
 export const ATTR_RU = { pace: "Темп", quali: "Квала", tyre: "Резина", overtaking: "Обгон",
   defending: "Защита", consistency: "Стабильн.", composure: "Хладнокр.", aggression: "Агрессия",
@@ -89,6 +102,13 @@ export function personTipAttrs({ abbrev, overall, team, name, age }) {
 }
 export function staffTipAttrs({ role, val, team }) {
   return `data-staff="${role}" data-val="${val}" data-team="${team}"`;
+}
+// junior academy tooltip data (series-coloured, archetype-biased — no team yet)
+export const SERIES_COLOR = { F4: "var(--series-f4)", F3: "var(--series-f3)", F2: "var(--series-f2)", F1: "var(--series-f1)" };
+const SERIES_RU = { F4: "Ф4", F3: "Ф3", F2: "Ф2", F1: "Ф1" };
+const PERSONA_RU = { loyal: "Преданный", mercenary: "Наёмник", hothead: "Вспыльчивый", ambitious: "Амбициозный" };
+export function juniorTipAttrs({ abbrev, overall, name, age, series, tag, persona, morale }) {
+  return `data-junior="${abbrev}" data-ovr="${overall}" data-name="${name}" data-age="${age}" data-series="${series || ""}" data-tag="${tag || ""}" data-persona="${persona || ""}" data-morale="${morale == null ? "" : morale}"`;
 }
 
 // pilot tooltip: header (avatar + name + age + OVR) + 13 team-coloured mini-bars, top-3 starred.
@@ -112,6 +132,35 @@ export function driverSkillTip(abbrev, overall, team, name, age) {
     + `<div style="text-align:right"><div style="font-size:10px;color:#A1A1AA">OVR</div>`
     +   `<div style="font-weight:800;font-size:20px;color:${col}">${Math.round(Number(overall) * 100)}</div></div></div>`
     + `<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px">${bars}</div>`;
+}
+
+// junior tooltip: same 13-bar layout as a pilot, but series-coloured and biased by archetype
+// (the tag's attrs are lifted so the starred top-3 match the displayed archetype chip).
+export function juniorSkillTip(abbrev, overall, name, age, series, tag, persona, morale) {
+  const col = SERIES_COLOR[series] || "#888";
+  const a = driverAttrs(abbrev, Number(overall));
+  if (tag && TRAITS[tag]) for (const k in TRAITS[tag].attrs) a[k] = Math.min(0.99, (a[k] || 0) + TRAITS[tag].attrs[k] * 0.12);
+  const vals = ATTR_KEYS.map(k => Math.round((a[k] || 0) * 100));
+  const order = vals.map((v, i) => [v, i]).sort((x, y) => y[0] - x[0] || x[1] - y[1]);
+  const topIdx = new Set(order.slice(0, 3).map(x => x[1]));
+  const bars = ATTR_KEYS.map((k, i) => {
+    const v = vals[i], t = topIdx.has(i);
+    return `<div style="display:flex;align-items:center;gap:6px">`
+      + `<span style="font-size:11px;color:${t ? "#ECEDEE" : "#A1A1AA"};width:74px;flex:0 0 auto">${ATTR_RU[k]}${t ? ` <span style="color:${col}">★</span>` : ""}</span>`
+      + `<span style="flex:1;height:5px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden"><span style="display:block;height:5px;width:${v}%;background:${col};opacity:${t ? 1 : 0.78}"></span></span>`
+      + `<span style="font-size:11px;font-weight:600;width:18px;text-align:right;color:#ECEDEE">${v}</span></div>`;
+  }).join("");
+  const arche = (tag && TRAITS[tag]) ? TRAITS[tag].label : "—";
+  const pers = persona && PERSONA_RU[persona] ? ` · ${PERSONA_RU[persona]}` : "";
+  const mor = (morale !== undefined && morale !== "" && morale != null) ? Math.round(Number(morale) * 100) : null;
+  const morLine = mor != null ? `<div style="display:flex;align-items:center;gap:6px;margin-top:7px"><span style="font-size:11px;color:#A1A1AA;width:74px">Мораль</span><span style="flex:1;height:5px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden"><span style="display:block;height:5px;width:${mor}%;background:${mor >= 60 ? "var(--good)" : mor >= 40 ? "var(--warn)" : "var(--bad)"}"></span></span><span style="font-size:11px;font-weight:600;width:18px;text-align:right;color:#ECEDEE">${mor}</span></div>` : "";
+  const av = `<span style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:9px;background:linear-gradient(135deg,${col}33,${col}11);border:1px solid ${col}66;font-weight:800;font-size:14px;color:${col};flex:0 0 auto">${abbrev}</span>`;
+  return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px">${av}`
+    + `<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">${name}</div>`
+    +   `<div style="font-size:11px;color:#A1A1AA">${SERIES_RU[series] || series} · ${age} лет · ${arche}${pers}</div></div>`
+    + `<div style="text-align:right"><div style="font-size:10px;color:#A1A1AA">OVR</div>`
+    +   `<div style="font-weight:800;font-size:20px;color:${col}">${Math.round(Number(overall) * 100)}</div></div></div>`
+    + `<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px">${bars}</div>${morLine}`;
 }
 
 // staff tooltip: role + rating + bar + effect line. Letter-block avatar (no icon font in the game).
@@ -152,14 +201,15 @@ export function attachPersonTips(root) {
   const show = (el) => {
     const ds = el.dataset;
     const html = ds.driver ? driverSkillTip(ds.driver, ds.ovr, ds.team, ds.name, ds.age)
+      : ds.junior ? juniorSkillTip(ds.junior, ds.ovr, ds.name, ds.age, ds.series, ds.tag, ds.persona, ds.morale)
       : ds.staff ? staffSkillTip(ds.staff, ds.val, ds.team) : "";
     if (!html) return;
     tip.innerHTML = html; tip.style.display = "block"; place(el);
   };
   const hide = () => { tip.style.display = "none"; };
   if (root._apexTipOver) { root.removeEventListener("mouseover", root._apexTipOver); root.removeEventListener("mouseout", root._apexTipOut); }
-  root._apexTipOver = (e) => { const t = e.target.closest && e.target.closest("[data-driver],[data-staff]"); if (t) show(t); };
-  root._apexTipOut = (e) => { const t = e.target.closest && e.target.closest("[data-driver],[data-staff]"); if (t && (!e.relatedTarget || !t.contains(e.relatedTarget))) hide(); };
+  root._apexTipOver = (e) => { const t = e.target.closest && e.target.closest("[data-driver],[data-staff],[data-junior]"); if (t) show(t); };
+  root._apexTipOut = (e) => { const t = e.target.closest && e.target.closest("[data-driver],[data-staff],[data-junior]"); if (t && (!e.relatedTarget || !t.contains(e.relatedTarget))) hide(); };
   root.addEventListener("mouseover", root._apexTipOver);
   root.addEventListener("mouseout", root._apexTipOut);
 }

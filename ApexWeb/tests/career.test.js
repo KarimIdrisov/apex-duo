@@ -82,8 +82,8 @@ test("applyResult books prize + sponsor income minus running cost into a net led
   const sum = applyResult(c, order);
   assert.ok(sum.prize > 0 && sum.sponsorIncome > 0 && sum.runningCost === RUNNING_COST);
   assert.ok(sum.salaries >= 0);
-  assert.equal(sum.net, sum.prize + sum.sponsorIncome - sum.runningCost - sum.salaries - sum.upkeep);
-  assert.equal(c.money, before + sum.net);
+  assert.equal(sum.net, sum.prize + sum.grant + sum.supply + sum.sponsorIncome - sum.runningCost - sum.salaries - sum.bonuses - sum.upkeep - sum.loanPay);
+  assert.equal(c.money, before + sum.net + (sum.eventDelta || 0));   // a rare one-off money event is booked outside the race ledger
   assert.equal(sum.bestPos, 1);
 });
 
@@ -112,15 +112,15 @@ test("newCareer at v3 carries carDev + a null project + a season dev-spend count
   const c = newCareer({ teamIdx: 0, seed: 1 });
   assert.equal(c.v, CAREER_V);
   assert.ok(c.v >= 3);
-  assert.deepEqual(c.project, null);
+  assert.deepEqual(c.projects, []);
   assert.equal(c.devSpentThisSeason, 0);
   assert.ok(c.parts && typeof c.parts === "object");
 });
 
 test("advanceRound develops the car: a finished project lands + AI teams gain", () => {
   const c = newCareer({ teamIdx: 0, seed: 1 });
-  startProject(c, "pu", "small");                     // completes after 1 round (part project)
-  advanceRound(c);
+  startProject(c, "pu", "small");                     // small = 8 dev-days
+  advanceRound(c); advanceRound(c);                   // opener (Бахрейн→Джидда) is a 7-day back-to-back → lands after the 2nd gap
   assert.ok(c.parts["McLaren"].pu > 0, "player part gain applied on advance");
   assert.ok(c.parts[TEAMS[8].name].pu > 0, "AI developed parts");
 });
@@ -129,7 +129,7 @@ test("migrate upgrades a v2 save to v3 (adds carDev/project)", () => {
   const v2 = { v: 2, teamIdx: 1, seed: 3, season: 1, round: 0, money: 0, driverPts: {}, teamPts: {}, board: { targetPos: 2 }, sponsors: [], costCap: false, pendingOffers: [], lastResult: null, history: [], done: false };
   const up = migrate(v2);
   assert.equal(up.v, CAREER_V);
-  assert.deepEqual(up.project, null);
+  assert.deepEqual(up.projects, []);
   assert.ok(up.parts && typeof up.parts === "object");   // D3: carDev -> parts at v8
 });
 
@@ -169,8 +169,8 @@ test("migrate v10 -> v11 backfills academy feeder state (slPoints) + reserve (D7
     academy: [{ abbrev: "DOO", name: "Дуэн", age: 19, overall: 0.8, potential: 0.9 }] };
   const up = migrate(v10);
   assert.equal(up.v, CAREER_V);
-  assert.equal(up.academy[0].slPoints, 0);
-  assert.equal(up.reserve, null);
+  assert.deepEqual(up.academy[0].slHist, [0]);   // v26 folds the old single slPoints counter into a rolling slHist window
+  assert.equal(up.academy[0].role, null);        // v26 replaces the single `reserve` slot with per-junior roles
 });
 
 // --- M4 drivers ---
@@ -186,7 +186,7 @@ test("applyResult books driver salaries as an expense + updates driver morale", 
     ...TEAMS.flatMap((t, i) => i === 0 ? [] : t.drivers.map(d => ({ abbrev: d.abbrev, team: t.name })))];
   const sum = applyResult(c, order);
   assert.ok(sum.salaries > 0, "player driver salaries charged");
-  assert.equal(sum.net, sum.prize + sum.sponsorIncome - sum.runningCost - sum.salaries - sum.upkeep);
+  assert.equal(sum.net, sum.prize + sum.grant + sum.supply + sum.sponsorIncome - sum.runningCost - sum.salaries - sum.bonuses - sum.upkeep - sum.loanPay);
   assert.ok(c.drivers["NOR"].morale > 0.6, "a P1 finish (beats expected) lifts morale");
 });
 
@@ -221,7 +221,7 @@ test("applyResult books facility upkeep as an expense", () => {
     ...TEAMS.flatMap((t, i) => i === 0 ? [] : t.drivers.map(d => ({ abbrev: d.abbrev, team: t.name })))];
   const sum = applyResult(c, order);
   assert.ok(sum.upkeep > 0, "upkeep charged");
-  assert.equal(sum.net, sum.prize + sum.sponsorIncome - sum.runningCost - sum.salaries - sum.upkeep);
+  assert.equal(sum.net, sum.prize + sum.grant + sum.supply + sum.sponsorIncome - sum.runningCost - sum.salaries - sum.bonuses - sum.upkeep - sum.loanPay);
 });
 
 test("migrate upgrades a v4 save to v5 (adds staff)", () => {
@@ -239,7 +239,7 @@ test("newSeason runs AI churn but keeps every team at 2 drivers and the player t
   for (const a in c2.drivers) counts[c2.drivers[a].teamIdx] = (counts[c2.drivers[a].teamIdx] || 0) + 1;
   for (const k in counts) assert.equal(counts[k], 2);
   assert.equal(c2.drivers["NOR"].teamIdx, 0);            // player team not churned
-  let moved = 0; for (const a in c.drivers) if (c.drivers[a].teamIdx !== c2.drivers[a].teamIdx) moved++;
+  let moved = 0; for (const a in c.drivers) if (c2.drivers[a] && c.drivers[a].teamIdx !== c2.drivers[a].teamIdx) moved++;   // retired drivers leave the registry (rookies take new abbrevs)
   assert.ok(moved >= 2, "AI churn moved at least one pair");
 });
 
@@ -254,7 +254,7 @@ test("newCareer at v6 carries an empty academy", () => {
 
 test("newSeason develops academy juniors (and keeps them across seasons)", () => {
   const c = newCareer({ teamIdx: 0, seed: 1 });
-  signJunior(c, "VIL");
+  signJunior(c, "AKI");                                 // a tier-0 prospect (VIL is gated behind programme tier 2)
   const before = c.academy[0].overall;
   const c2 = newSeason(c);
   assert.ok(c2.academy.length === 1 && c2.academy[0].overall > before);
@@ -282,7 +282,7 @@ test("applyResult moves confidence and posts a board news line", () => {
     ...TEAMS.flatMap((t, i) => i === 0 ? [] : t.drivers.map(d => ({ abbrev: d.abbrev, team: t.name })))];
   applyResult(c, order);
   assert.ok(c.board.confidence > 0.5, "a P1 lifts confidence");
-  assert.ok(c.news.length >= 1 && /Совет/.test(c.news[0]));
+  assert.ok(c.news.length >= 1 && c.news.some(n => /Совет/.test(n)));   // the board always reacts (a later money-event may sit on top of the inbox)
 });
 
 test("newSeason applies a regulation reset that reduces car development", () => {

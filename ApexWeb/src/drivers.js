@@ -3,6 +3,7 @@
 // All meta→sim influence flows through the driver's overall (-> driverAttrs) and moraleMod (-> setupBonus).
 import { TEAMS } from "./data.js";
 import { driverAttrs, attrDrift, assignTraits, traitBias, ATTR_KEYS } from "./team.js";
+import { mix32 } from "./rng.js";
 
 // approximate 2026 driver ages (abbrev -> age).
 export const DRIVER_AGE = {
@@ -135,14 +136,71 @@ export function maybeGainTrait(dr) {
   return null;
 }
 
+// ---- aging → retirement (creates seat demand the academy/market fills) ------------------------
+// A driver's per-season chance of hanging up the helmet: nil before ~34, rising with age; elite
+// overall stretches a career (real F1: Alonso 44, Hamilton 41). Deterministic when rolled.
+export function retireChance(age, overall) {
+  if (age < 34) return 0;
+  let p = (age - 34) * 0.11;                          // 34→0, 40→0.66, 44→1.10
+  p -= Math.max(0, (overall || 0) - 0.86) * 1.2;      // a still-elite veteran races on
+  return Math.max(0, Math.min(0.95, p));
+}
+
+// fictional rookies that backfill retired seats (Latin abbrev avoids the grid/academy; Cyrillic name).
+export const ROOKIE_POOL = [
+  { abbrev: "ERI", name: "Эрикссон" }, { abbrev: "MRK", name: "Маркелов" }, { abbrev: "PUL", name: "Пулен" },
+  { abbrev: "VRG", name: "Варга" },    { abbrev: "NIE", name: "Нието" },    { abbrev: "SOL", name: "Соломон" },
+  { abbrev: "TKD", name: "Такеда" },   { abbrev: "DEL", name: "Делькур" },  { abbrev: "GRN", name: "Грюн" },
+  { abbrev: "BLG", name: "Балог" },    { abbrev: "RSS", name: "Россо" },    { abbrev: "KAI", name: "Кай" },
+  { abbrev: "FNG", name: "Фэн" },      { abbrev: "OZD", name: "Оздемир" },  { abbrev: "PRT", name: "Прието" },
+  { abbrev: "NVK", name: "Новак" },    { abbrev: "LMB", name: "Ламбер" },   { abbrev: "SVN", name: "Северин" },
+];
+
+// Retire eligible drivers and backfill each empty seat with a young rookie (grid stays at 22 cars).
+// Mutates `drivers` (and registers rookie names into DRIVER_NAME). Returns { retired, rookies } for news.
+export function retirePass(drivers, season, seed, playerTeamIdx) {
+  const retired = [], rookies = [];
+  const taken = new Set(Object.keys(drivers));
+  const freeRookies = ROOKIE_POOL.filter(r => !taken.has(r.abbrev));
+  let ri = 0;
+  for (const ab of Object.keys(drivers)) {            // snapshot of keys — safe to add/remove inside
+    const dr = drivers[ab];
+    const p = retireChance(dr.age || 30, dr.overall || 0.7);
+    if (p <= 0) continue;
+    const roll = mix32(((seed >>> 0) + ab.charCodeAt(0) * 7919 + (ab.charCodeAt(1) || 3) * 131 + season * 97) >>> 0) / 4294967296;
+    if (roll >= p) continue;
+    const teamIdx = dr.teamIdx, wasPlayer = teamIdx === playerTeamIdx;
+    retired.push({ abbrev: ab, name: DRIVER_NAME[ab] || ab, age: dr.age, teamIdx, wasPlayer });
+    delete drivers[ab];
+    const rk = freeRookies[ri] || { abbrev: "RK" + season + ri, name: "Дебютант" };
+    ri += 1;
+    const ov = 0.66 + (mix32(((seed >>> 0) + ri * 333 + season * 17) >>> 0) / 4294967296) * 0.08;   // 0.66–0.74
+    const age = 18 + (mix32(((seed >>> 0) + ri * 51) >>> 0) % 4);
+    DRIVER_NAME[rk.abbrev] = rk.name;
+    drivers[rk.abbrev] = {
+      teamIdx, age, overall: ov, morale: 0.66, contractSeasons: 2, salary: salaryFor(ov), name: rk.name,
+      attrs: driverAttrs(rk.abbrev, ov), traits: [], training: null, status: "equal", form: 0.5, stats: zeroDriverStats(),
+    };
+    rookies.push({ abbrev: rk.abbrev, name: rk.name, teamIdx, wasPlayer });
+  }
+  return { retired, rookies };
+}
+
+// is a driver past peak / declining (UI trend arrow). Returns -1 declining, 0 prime, +1 rising.
+export function ageTrend(age) { return age <= 24 ? 1 : age >= 33 ? -1 : 0; }
+
 // G3: surface a driver "ask" if conditions warrant (dominating teammate → wants #1; contract ending +
 // in form → wants a renewal). Sticky until resolved. Returns the request or null.
 export function makeDriverRequest(dr, abbrev) {
   if (dr.request) return dr.request;
-  const s = dr.stats || {}, name = DRIVER_NAME[abbrev] || abbrev;
-  if (dr.status !== "lead" && (s.rH2H || 0) >= 4 && (dr.form ?? 0.5) > 0.6)
+  const s = dr.stats || {}, name = DRIVER_NAME[abbrev] || abbrev, form = dr.form ?? 0.5, cl = dr.clauses || {};
+  if (dr.status !== "lead" && (s.rH2H || 0) >= 4 && form > 0.6)
     return (dr.request = { type: "lead", text: `${name} уверенно обыгрывает напарника и хочет статус первого номера.` });
-  if ((dr.contractSeasons ?? 9) <= 1 && (dr.form ?? 0.5) > 0.55)
+  if ((s.wins || 0) >= 1 && !cl.winBonus && form > 0.55)
+    return (dr.request = { type: "bonus", text: `${name} выигрывает гонки и просит вписать бонусы за результат в контракт.` });
+  if ((s.podiums || 0) >= 3 && form > 0.62)
+    return (dr.request = { type: "raise", text: `${name} в блестящей форме и просит прибавку к зарплате.` });
+  if ((dr.contractSeasons ?? 9) <= 1 && form > 0.55)
     return (dr.request = { type: "contract", text: `${name} в хорошей форме и хочет продлить контракт.` });
   return null;
 }

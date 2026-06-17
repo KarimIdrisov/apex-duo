@@ -24,11 +24,12 @@ import { newCareer, newSeason, currentRound, isSeasonOver, applyResult, advanceR
 const applyBoost = (car, b) => b ? { ...car, power: Math.min(1.2, car.power + b), aero: Math.min(1.2, car.aero + b) } : car;   // living-grid rival bump
 import { pushNews } from "./news.js";
 import { careerTrack } from "./track_build.js";
-import { effectiveCar, effectiveCarPU, applyRaceMods, applyConceptBias, aiConcept, startProject, startPUProject, startPUProgram } from "./development.js";
+import { effectiveCar, effectiveCarPU, applyRaceMods, applyConceptBias, aiConcept, startProject, startPUProject, startPUProgram, revertPart } from "./development.js";
 import { moraleMod, reSign, DRIVER_NAME } from "./drivers.js";
 import { composePersonnel, upgradeStaff, startFacilityProject, hireFromMarket, staffMarketAll, reSignStaff } from "./staff.js";
-import { signDriver, negotiateSign } from "./market.js";
-import { signJunior, promoteJunior } from "./academy.js";
+import { composePitCrew, practicePitStops, recruitMember, toggleTraining, pitCrewMarket, PRACTICE_FEE, RECRUIT_FEE } from "./pitcrew.js";
+import { signDriver, negotiateSign, applyCounter } from "./market.js";
+import { signJunior, promoteJunior, scoutProspect, setRole, loanJunior, extendJunior, upgradeProgram } from "./academy.js";
 import { saveCareer, loadCareer, hasCareer, clearCareer } from "./career_store.js";
 
 const SCREENS = { lobby, practice1: practice, practice2: practice, practice3: practice, quali, race, result: race };
@@ -132,17 +133,35 @@ function onCommand(cmd) {
       if (ctx.career) { chooseTitleSponsor(ctx.career, cmd.offerIdx); saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
     case "career_project":
-      if (ctx.career) { startProject(ctx.career, cmd.part, cmd.size, cmd.approach); saveCareer(ctx.career); publishCareer(); rerender(); }
+      if (ctx.career) { startProject(ctx.career, cmd.part, cmd.size, cmd.approach, cmd.player); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_revert":                       // P2: roll a regressed part back to its previous spec (free)
+      if (ctx.career) { revertPart(ctx.career, cmd.part); saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
     case "career_concept":
       if (ctx.career && ctx.career.concept !== cmd.concept) {
-        const c = ctx.career, preseason = (c.round === 0 || c.done);
-        if (preseason) { c.concept = cmd.concept; saveCareer(c); publishCareer(); rerender(); }   // free before round 1 / over winter
-        else if (c.money >= 3500) { c.money -= 3500; c.capSpent = (c.capSpent || 0) + 3500; c.concept = cmd.concept; saveCareer(c); publishCareer(); rerender(); }   // mid-season re-design fee
+        const applyConcept = (c, k) => { const pre = (c.round === 0 || c.done); if (pre) { c.concept = k; return true; } if (c.money >= 3500) { c.money -= 3500; c.capSpent = (c.capSpent || 0) + 3500; c.concept = k; return true; } return false; };
+        if (ctx.career.coop) { ctx.career.proposal = { type: "concept", value: cmd.concept, by: cmd.player }; saveCareer(ctx.career); publishCareer(); rerender(); }   // P6: needs co-director sign-off
+        else { applyConcept(ctx.career, cmd.concept); saveCareer(ctx.career); publishCareer(); rerender(); }
       }
       break;
     case "career_devfocus":
-      if (ctx.career) { ctx.career.devFocus = Math.max(0, Math.min(0.6, +cmd.focus || 0)); saveCareer(ctx.career); publishCareer(); rerender(); }
+      if (ctx.career) {
+        const f = Math.max(0, Math.min(0.6, +cmd.focus || 0));
+        if (ctx.career.coop) { ctx.career.proposal = { type: "devfocus", value: f, by: cmd.player }; saveCareer(ctx.career); publishCareer(); rerender(); }   // P6: needs co-director sign-off
+        else { ctx.career.devFocus = f; saveCareer(ctx.career); publishCareer(); rerender(); }
+      }
+      break;
+    case "career_proposal_resolve":               // P6: the OTHER co-director approves/rejects a pending shared decision
+      if (ctx.career && ctx.career.proposal && cmd.player !== ctx.career.proposal.by) {
+        const p = ctx.career.proposal;
+        if (cmd.approve) {
+          if (p.type === "concept") { const c = ctx.career, pre = (c.round === 0 || c.done); if (pre) c.concept = p.value; else if (c.money >= 3500) { c.money -= 3500; c.capSpent = (c.capSpent || 0) + 3500; c.concept = p.value; } }
+          else if (p.type === "devfocus") ctx.career.devFocus = p.value;
+          else if (p.type === "pu_project") startPUProject(ctx.career, p.value.part, p.value.size);
+        }
+        ctx.career.proposal = null; saveCareer(ctx.career); publishCareer(); rerender();
+      }
       break;
     case "career_train":
       if (ctx.career) { setDriverTraining(ctx.career, cmd.abbrev, cmd.focus); saveCareer(ctx.career); publishCareer(); rerender(); }
@@ -151,10 +170,16 @@ function onCommand(cmd) {
       if (ctx.career) { resolveDriverRequest(ctx.career, cmd.abbrev, !!cmd.accept); saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
     case "career_pu_project":
-      if (ctx.career) { startPUProject(ctx.career, cmd.part, cmd.size); saveCareer(ctx.career); publishCareer(); rerender(); }
+      if (ctx.career) {
+        if (ctx.career.coop && cmd.size === "large") { ctx.career.proposal = { type: "pu_project", value: { part: cmd.part, size: cmd.size }, by: cmd.player }; saveCareer(ctx.career); publishCareer(); rerender(); }   // P6: a big token spend needs co-sign
+        else { startPUProject(ctx.career, cmd.part, cmd.size); saveCareer(ctx.career); publishCareer(); rerender(); }
+      }
       break;
     case "career_pu_program":
       if (ctx.career) { startPUProgram(ctx.career, cmd.kind); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_pu_contract":                  // P4: customer chooses current vs last-year engine spec
+      if (ctx.career && !(ctx.career.backer && ctx.career.backer.puMaker)) { ctx.career.puContract = cmd.spec === "prev" ? "prev" : "current"; saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
     case "career_resign":
       if (ctx.career) { reSign(ctx.career, cmd.abbrev); saveCareer(ctx.career); publishCareer(); rerender(); }
@@ -184,19 +209,59 @@ function onCommand(cmd) {
       if (ctx.career) {
         const meS = constructorStandings(ctx.career).find(s => s.isPlayer);
         const strength = meS ? 1 - (meS.pos - 1) / (TEAMS.length - 1) : 0.5;
-        const r = negotiateSign(ctx.career, cmd.inAbbrev, cmd.outAbbrev, { teamStrength: strength, length: cmd.length || 2, seed: (ctx.career.round + 1) * 131 + cmd.inAbbrev.charCodeAt(0) });
-        pushNews(ctx.career, r.ok ? `Трансфер: ${cmd.inAbbrev} подписан (${cmd.length || 2} сез).` : `Трансфер ${cmd.inAbbrev} сорвался: ${r.reason}.`);
+        const opts = { teamStrength: strength, length: cmd.length || 2, clauses: cmd.clauses || null, seed: (ctx.career.round + 1) * 131 + cmd.inAbbrev.charCodeAt(0) };
+        const r = negotiateSign(ctx.career, cmd.inAbbrev, cmd.outAbbrev, opts);
+        if (r.reason === "counter") {           // agent counter-offer → stash it for the UI banner (no swap yet)
+          ctx.career.negotiation = { inAbbrev: cmd.inAbbrev, outAbbrev: cmd.outAbbrev, opts, counter: r.counter };
+          pushNews(ctx.career, `💬 Агент ${cmd.inAbbrev}: ${r.counter.label}.`);
+        } else {
+          ctx.career.negotiation = null;
+          pushNews(ctx.career, r.ok ? `Трансфер: ${cmd.inAbbrev} подписан (${cmd.length || 2} сез).` : `Трансфер ${cmd.inAbbrev} сорвался: ${r.reason}.`);
+        }
         saveCareer(ctx.career); publishCareer(); rerender();
       }
       break;
-    case "career_scout":
+    case "career_sign_accept":                 // accept the agent's counter-offer → forced sign on its terms
+      if (ctx.career && ctx.career.negotiation) {
+        const n = ctx.career.negotiation;
+        const r = negotiateSign(ctx.career, n.inAbbrev, n.outAbbrev, applyCounter(n.opts, n.counter));
+        pushNews(ctx.career, r.ok ? `Трансфер: ${n.inAbbrev} подписан на условиях агента.` : `Сделка по ${n.inAbbrev} сорвалась: ${r.reason}.`);
+        ctx.career.negotiation = null;
+        saveCareer(ctx.career); publishCareer(); rerender();
+      }
+      break;
+    case "career_sign_cancel":                 // walk away from the negotiation
+      if (ctx.career) { ctx.career.negotiation = null; saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_scout":                       // sign a scouted prospect into the academy
       if (ctx.career) { signJunior(ctx.career, cmd.abbrev); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_scout_more":                  // commission another scouting report on a prospect
+      if (ctx.career) { scoutProspect(ctx.career, cmd.abbrev); saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
     case "career_promote":
       if (ctx.career) { promoteJunior(ctx.career, cmd.abbrev, cmd.outAbbrev); saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
-    case "career_reserve":
-      if (ctx.career) { ctx.career.reserve = (ctx.career.reserve === cmd.abbrev ? null : cmd.abbrev); saveCareer(ctx.career); publishCareer(); rerender(); }
+    case "career_junior_role":                 // toggle reserve / FP1 development role
+      if (ctx.career) { setRole(ctx.career, cmd.abbrev, cmd.role); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_junior_loan":                 // loan a junior to a rival seat for a season
+      if (ctx.career) { loanJunior(ctx.career, cmd.abbrev, cmd.team); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_junior_extend":               // extend a junior's academy contract
+      if (ctx.career) { extendJunior(ctx.career, cmd.abbrev); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_academy_upgrade":             // invest in the academy programme tier
+      if (ctx.career) { upgradeProgram(ctx.career); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_pit_practice":                // PIT: run a between-races pit-practice session
+      if (ctx.career && ctx.career.pitCrew && ctx.career.money >= PRACTICE_FEE) { ctx.career.money -= PRACTICE_FEE; practicePitStops(ctx.career.pitCrew); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_pit_train":                   // PIT: toggle the crew's season training programme
+      if (ctx.career && ctx.career.pitCrew) { toggleTraining(ctx.career.pitCrew); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_pit_recruit":                 // PIT: recruit a market member into a role
+      if (ctx.career && ctx.career.pitCrew && cmd.cand && ctx.career.money >= RECRUIT_FEE) { ctx.career.money -= RECRUIT_FEE; recruitMember(ctx.career.pitCrew, cmd.cand.role, cmd.cand); saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
     case "career_to_paddock":                 // dismiss the post-race results screen -> paddock
       if (ctx.career) { ctx.atResults = false; ctx.atPaddock = true; publishCareer(); rerender(); }
@@ -323,6 +388,8 @@ function teamRoster(ti) {
 }
 // build the full 22-car field: player team's two drivers flagged, rest AI.
 // Reused by quali grid and the race start (Task 15).
+// the managed pit crew OWNS pit-stop speed: override the staff-derived pitMult with the crew's.
+function pcPersonnel(base, crew) { if (!crew) return base; return { ...base, pitMult: composePitCrew(crew).pitMult }; }
 function buildField() {
   let idx = 0;
   const ideal = trackIdeal((ctx.track || TRACK).laps * 1000 + Math.round((ctx.track || TRACK).lt));
@@ -337,7 +404,10 @@ function buildField() {
     return {
       idx: idx++, name: d.name, abbrev: d.abbrev, skill: overall,
       car: composeCar(ctx.career ? (isPlayerTeam ? applyRaceMods(effectiveCarPU(t.car, ctx.career.parts[t.name], ctx.career.puParts), ctx.career, ctx.track) : applyBoost(applyConceptBias(effectiveCar(t.car, ctx.career.parts[t.name]), aiConcept(t.name)), (ctx.career.gridBoost || {})[t.name])) : t.car), color: t.color, team: t.name, isPlayer: isPlayerTeam, player,
-      attrs: (dr && dr.attrs) ? dr.attrs : driverAttrs(d.abbrev, overall), personnel: (ctx.career && isPlayerTeam) ? composePersonnel(ctx.career.staff) : genPersonnel(t.facility, ti),
+      attrs: (dr && dr.attrs) ? dr.attrs : driverAttrs(d.abbrev, overall),
+      personnel: (ctx.career && isPlayerTeam) ? pcPersonnel(composePersonnel(ctx.career.staff), ctx.career.pitCrew) : genPersonnel(t.facility, ti),
+      pitCrew: (ctx.career && isPlayerTeam && ctx.career.pitCrew) ? (() => { const pc = composePitCrew(ctx.career.pitCrew); return { botchChance: pc.botchChance, disasterChance: pc.disasterChance }; })() : null,
+      rival: (ctx.career && isPlayerTeam && dr) ? (dr.rival || null) : null,   // rivalries: this driver's personal rival
       setup, setupBonus: (player
         ? pracSetupBonus(player) + PRAC2.TRACK_PACE * pracTrackKnow(player)
         : paceBonus(closeness(setup, ideal)) + PRAC2.TRACK_PACE * PRAC2.AI_TRACK_KNOW) + mMod, startTyre: "medium",
@@ -401,7 +471,7 @@ function raceSnapshot() {
   ctx._evtIdx = ctx.race.events.length;
   return {
     type: "snapshot", phase: "race", trackName: ctx.trackName, paused: ctx.paused, finished: ctx.race.finished,
-    speed: ctx.speed || 1, scActive: ctx.race.scActive, vscActive: ctx.race.vscActive, wetness: ctx.race.wetness, events: newEvents,
+    speed: ctx.speed || 1, scActive: ctx.race.scActive, vscActive: ctx.race.vscActive, wetness: ctx.race.wetness, weatherInfo: ctx.race.weatherInfo || null, events: newEvents,
     practiceFindings: ctx.practiceFindings || null,
     cars: ctx.race.order().map(c => ({
       idx: c.idx, pos: c.pos, abbrev: c.abbrev, color: c.color, player: c.player,
@@ -435,10 +505,18 @@ function hostLoop(ts) {
       ctx._raceClosed = true;
       if (ctx.career) {
         const cls = ctx.race.order().map(c => ({ abbrev: c.abbrev, team: c.team, retired: c.retired }));
-        const pcars = ctx.race.cars.filter(c => c.isPlayer);   // E4/E6: share of racing time the team spent in push → PU wear
+        const pcars = ctx.race.cars.filter(c => c.isPlayer);   // E4/E6/P3: engine-mode usage over the race → PU wear
         const pushFrac = pcars.length ? pcars.reduce((s, c) => s + ((c.pushTicks || 0) / Math.max(1, c.runTicks || 0)), 0) / pcars.length : 0;
+        // P3: full engine-mode mix (save/standard/push) across the team's cars → single source of mode-based PU wear.
+        let modeMix = null;
+        if (pcars.length) {
+          let run = 0, push = 0, save = 0;
+          for (const c of pcars) { run += (c.runTicks || 0); push += (c.pushTicks || 0); save += (c.saveTicks || 0); }
+          run = Math.max(1, run);
+          modeMix = { push: push / run, save: save / run, standard: Math.max(0, (run - push - save) / run) };
+        }
         const starts = {}; for (const cc of ctx.race.cars) starts[cc.abbrev] = cc.startPos;   // G1: grid → poles + quali H2H
-        applyResult(ctx.career, cls, { pushFrac, starts });
+        applyResult(ctx.career, cls, { pushFrac, modeMix, starts });
         advanceRound(ctx.career);            // -> next round (or done)
         saveCareer(ctx.career);
         ctx.atResults = true; ctx.atPaddock = false; publishCareer();

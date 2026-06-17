@@ -21,6 +21,34 @@ const SPEEDS = [1, 2, 4];
 const logo = (a, s = 18) => { const info = DRIVER_INFO[a]; return info ? `<img src="${teamLogoSrc(info.team)}" alt="" style="height:${s}px;width:${s}px;object-fit:contain;vertical-align:middle;margin-right:6px">` : ""; };
 const tyreIcon = (t, s = 18) => `<img src="assets/tyres/${t}.png" alt="${t}" style="height:${s}px;width:${s}px;object-fit:contain;vertical-align:middle">`;
 
+// ---- pit-stop animation (purely cosmetic; plays when the PLAYER's car pits) -------------------
+const COMP_FILL = { soft: "#e2504a", medium: "#e0b341", hard: "#c9cdd3", inter: "#3ddc84", wet: "#4a86e8" };
+function ensurePitAnimCss() {
+  if (typeof document === "undefined" || document.getElementById("pit-anim-css")) return;
+  const st = document.createElement("style"); st.id = "pit-anim-css";
+  st.textContent = "@keyframes pitJack{0%,100%{transform:translateY(0)}25%,75%{transform:translateY(-2px)}}"
+    + "@keyframes pitWheel{0%{opacity:.3}40%{opacity:.3;transform:scale(.7)}55%{transform:scale(1.35)}70%,100%{opacity:1;transform:scale(1)}}"
+    + "@keyframes pitLolli{0%,68%{transform:rotate(0);opacity:1}88%,100%{transform:rotate(-78deg);opacity:.4}}"
+    + "@keyframes pitFill{from{width:0}to{width:100%}}@keyframes pitFlash{0%{opacity:0}25%{opacity:1}100%{opacity:1}}";
+  document.head.appendChild(st);
+}
+function pitAnimMarkup(compound, mishap, dur) {
+  const fill = COMP_FILL[compound] || "#888";
+  const wheel = (cx, cy, d) => `<circle cx="${cx}" cy="${cy}" r="4.2" fill="${fill}" style="transform-box:fill-box;transform-origin:center;animation:pitWheel .55s ${d}s both"/>`;
+  const resColor = mishap === "disaster" ? "#f85149" : mishap === "slow" ? "#e0b341" : "#3ddc84";
+  const resText = mishap === "disaster" ? "💥 КАТАСТРОФА!" : mishap === "slow" ? "⚠ Заминка" : "✓ Чисто";
+  return `<div style="background:var(--content2);border:1px solid var(--border);border-radius:8px;padding:8px;text-align:center">
+    <svg viewBox="0 0 60 44" width="94" height="68" style="display:inline-block">
+      <g style="transform-box:fill-box;transform-origin:center;animation:pitJack ${dur}s ease-in-out both">
+        <rect x="22" y="6" width="16" height="32" rx="6" fill="var(--content3)" stroke="${fill}" stroke-width="1.2"/>
+        ${wheel(19, 13, 0.1)}${wheel(41, 13, 0.25)}${wheel(19, 31, 0.4)}${wheel(41, 31, 0.55)}
+        <rect x="29" y="-1" width="2" height="11" rx="1" fill="#e0a92a" style="transform-box:fill-box;transform-origin:bottom;animation:pitLolli ${dur}s ease-in both"/>
+      </g></svg>
+    <div style="height:4px;background:rgba(255,255,255,.12);border-radius:2px;overflow:hidden;margin-top:2px"><div style="height:100%;background:${fill};animation:pitFill ${dur}s linear both"></div></div>
+    <div style="font-size:12px;font-weight:700;color:${resColor};margin-top:5px;animation:pitFlash .4s ${(dur * 0.72).toFixed(2)}s both">${resText}</div>
+  </div>`;
+}
+
 // ---- real circuit geometry (fit into a 100x100 viewBox) + arc-length sampler. Rebindable via
 // setTrack so the minimap matches whichever circuit this race uses; defaults to Barcelona. ----
 const SECTOR_COL = ["#5aa0ff", "#ffce47", "#46d08a"];                 // S1 / S2 / S3 tints
@@ -240,9 +268,11 @@ function buildHud(root, ctx) {
         <div class="seg" id="d-engine">${ENGINE.map(e => `<button data-v="${e}">${ENGINE_L[e]}</button>`).join("")}</div>
         <p class="label" style="margin-top:8px">Приказ <span id="d-order-hint" class="label" style="margin:0;opacity:.7"></span></p>
         <div class="seg" id="d-order">${ORDER.map(o => `<button data-v="${o}">${ORDER_L[o]}</button>`).join("")}</div>
+        <div id="d-forecast" style="margin-top:8px;display:none;border-radius:8px;padding:6px 8px;font-size:12px"></div>
         <p class="label" style="margin-top:8px">Пит — компаунд <span id="d-weather"></span></p>
         <div class="seg" id="d-compound">${["soft","medium","hard","inter","wet"].map(t => `<button data-v="${t}">${tyreIcon(t, 18)}</button>`).join("")}</div>
         <button class="primary" id="d-pit" style="margin-top:8px;background:var(--bad)">⛽ В боксы</button>
+        <div id="d-pitanim" style="display:none;margin-top:8px"></div>
       </div>
       </div>
       <div class="panel dash-board" style="padding:8px">
@@ -309,6 +339,21 @@ function updateHud(root, ctx, snap) {
   const feedEl = $("#d-feed");
   if (feedEl) feedEl.innerHTML = ctx._feed.slice(-7).reverse()
     .map((m, i) => `<div style="opacity:${(1 - i * 0.12).toFixed(2)}"><span style="color:var(--muted)">L${m.lap}</span> ${m.line}</div>`).join("");
+  // pit-stop animation — play once when the player's own car pits (cosmetic; reads the pit event)
+  if (snap.events && snap.events.length) {
+    const myPit = snap.events.find(ev => ev.type === "pit" && ev.a === me.idx);
+    if (myPit && ctx._lastPitAnimLap !== myPit.lap) {
+      ctx._lastPitAnimLap = myPit.lap;
+      ensurePitAnimCss();
+      const dur = myPit.mishap === "disaster" ? 4.4 : myPit.mishap === "slow" ? 3.4 : 2.4;
+      const pe = $("#d-pitanim");
+      if (pe) {
+        pe.style.display = "block"; pe.innerHTML = pitAnimMarkup(myPit.compound, myPit.mishap, dur);
+        clearTimeout(ctx._pitAnimTo);
+        ctx._pitAnimTo = setTimeout(() => { const e2 = $("#d-pitanim"); if (e2) { e2.style.display = "none"; e2.innerHTML = ""; } }, dur * 1000 + 700);
+      }
+    }
+  }
   // control strip
   const pos = cars.indexOf(me), ahead = cars[pos - 1], behind = cars[pos + 1];
   $("#d-me").textContent = `P${me.pos} ${me.abbrev}`;
@@ -333,6 +378,26 @@ function updateHud(root, ctx, snap) {
   const og = $("#d-order"); if (og) og.style.opacity = me.inFight ? "1" : "0.6";   // dim when not racing anyone
   const wet = snap.wetness || 0;
   $("#d-weather").innerHTML = wet < 0.1 ? "☀️ сухо" : wet < 0.45 ? "🌦️ сыро " + Math.round(wet * 100) + "%" : "🌧️ дождь " + Math.round(wet * 100) + "%";
+  // weather radar / forecast strip — anticipation for the slick↔inter↔wet gamble
+  const fc = snap.weatherInfo, fe = $("#d-forecast");
+  if (fe) {
+    let html = "", bg = "", show = true;
+    if (!fc || fc.state === "dry") show = false;
+    else if (fc.state === "variable") { bg = "rgba(160,160,170,.14)"; html = `🌥️ <b>переменная облачность</b> · возможен дождь (~${fc.chance}%)`; }
+    else if (fc.state === "incoming") { bg = "rgba(88,166,255,.16)"; html = `🌧️ <b>дождь надвигается</b> · через ~${fc.etaLow}–${fc.etaHigh} кр · ${fc.chance}% — готовь ${fc.peak >= 0.55 ? "дождевые" : "интеры"}`; }
+    else if (fc.state === "damp") { bg = "rgba(88,166,255,.16)"; html = `🌦️ <b>сыро</b> · трасса влажная${fc.dryIn != null ? ` · подсохнет ~${fc.dryIn} кр` : ""}`; }
+    else if (fc.state === "rain") { bg = "rgba(56,139,253,.22)"; html = `🌧️ <b>дождь</b>${fc.dryIn != null ? ` · подсохнет ~${fc.dryIn} кр` : ""}`; }
+    else if (fc.state === "drying") { bg = "rgba(224,169,42,.18)"; html = `🌤️ <b>подсыхает</b> · сухая линия через ~${fc.dryIn} кр — думай о сликах`; }
+    // field tyre mix — react to what rivals have committed to (running cars only)
+    if (show && wet > 0.05 && snap.cars) {
+      const live = snap.cars.filter(c => !c.retired);
+      const onWet = live.filter(c => c.tyre === "inter" || c.tyre === "wet").length;
+      const onSlick = live.length - onWet;
+      html += `<div style="margin-top:4px;font-size:11px;opacity:.95">🛞 поле: <b>${onWet}</b> на дожд./интерах · <b>${onSlick}</b> на сликах</div>`;
+    }
+    fe.style.display = show ? "block" : "none";
+    if (show) { fe.style.background = bg; fe.innerHTML = html; }
+  }
   const nc = ctx.nextCompound || "medium";
   for (const b of $("#d-compound").children) b.classList.toggle("on", b.dataset.v === nc);
   // leaderboard (throttled — positions change slowly)

@@ -49,6 +49,9 @@ export function render(root, ctx) {
         ? `<div class="q-flag red">🚩 Красный флаг</div>`
         : `<div class="q-flag yellow">⚠ Жёлтый флаг</div>`)
     : "";
+  const wetBanner = (snap.weather && snap.weather !== "dry")
+    ? `<div class="q-flag" style="background:${snap.weather === "wet" ? "rgba(56,139,253,.22)" : "rgba(88,166,255,.16)"};color:var(--ink)">${snap.weather === "wet" ? "🌧️ Дождь" : "🌦️ Сырая трасса"} · ${Math.round((snap.wetness || 0) * 100)}% — ${snap.weather === "wet" ? "дождевые шины, решает мастерство в дождь" : "интермедиаты, скользко"}</div>`
+    : "";
   const header = `
     <div class="panel q-head">
       <div class="q-head-top">
@@ -61,7 +64,7 @@ export function render(root, ctx) {
         </div>
         <div class="q-clock">${fmtClock(snap.clock)}</div>
       </div>
-      ${flagBanner}
+      ${wetBanner}${flagBanner}
       <div class="q-controls">
         <div class="q-speeds">${speedPills}</div>
         <button class="btn q-pause" id="q-pause">${snap.paused ? "▶" : "⏸"}</button>

@@ -368,7 +368,6 @@ func _build_header(s: Season) -> Control:
 	var chips := HBoxContainer.new()
 	chips.add_theme_constant_override("separation", 14)
 	chips.add_child(_label("Бюджет: $%s" % _money(s.money), 15, Palette.GOOD_HEX))
-	chips.add_child(_label("R&D: %d оч." % s.rp, 15, Palette.INFO_HEX))
 	chips.add_child(_label("Конструкторы: %d оч." % s.constructor_points(), 15, Palette.CREAM_HEX))
 	# Cost-cap chip
 	var cap_col: String
@@ -817,15 +816,16 @@ func _build_rnd(s: Season) -> Control:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 8)
 	v.add_child(_hlabel("R&D — РАЗВИТИЕ МАШИНЫ", 18, Palette.CREAM_HEX))
-	v.add_child(_label("Доступно R&D очков: %d" % s.rp, 15, Palette.GOOD_HEX))
+	v.add_child(_label("Бюджет на R&D: $%s · Часы ATR: %d" % [
+		_money(s.money), int(s.dev_atr_available())], 15, Palette.GOOD_HEX))
 	# M3: aero (LTC) price modifiers — staff quality (M2) × ATR catch-up
 	v.add_child(_label("Цена аэро-R&D: персонал ×%.2f · ATR ×%.2f (P%d конструкторов)" % [
 		s.rd_speed_mult(), s.atr_speed(), s.constructor_position()], 12, MUTED))
 	# CAR-2: season component pool status
 	var pool_ok: bool = s.replacements_used <= Season.FREE_REPLACEMENTS
 	var pool_col: String = Palette.MUTED_HEX if pool_ok else Palette.WARN_HEX
-	v.add_child(_label("Замены деталей: %d (бесплатно %d, далее −%d RP за замену)" % [
-		s.replacements_used, Season.FREE_REPLACEMENTS, Season.POOL_PENALTY_RP], 12, pool_col))
+	v.add_child(_label("Замены деталей: %d (бесплатно %d, далее −$%s за замену)" % [
+		s.replacements_used, Season.FREE_REPLACEMENTS, _money(Season.POOL_PENALTY_MONEY)], 12, pool_col))
 	v.add_child(_spacer(4))
 
 	# Group metadata: [group_key, group_title, accent_colour, description]
@@ -895,9 +895,14 @@ func _build_rnd(s: Season) -> Control:
 				# M3: supplier part — instant 1.5-level effect, development locked.
 				row.add_child(_label("  ПОКУПНОЕ · потолок заблокирован", 12, "#66c2ff"))
 			elif cur_lv < max_lv:
-				var cost_val: int = s.cost_part(pk)
-				var btn := _button("Развить · %d RP" % cost_val, 12)
-				btn.disabled = s.rp < cost_val
+				# P2: проект развития (CarDevSeason) — темп/надёжность вместо уровней.
+				var dpi: Dictionary = s.dev_part_info(pk)
+				var pct: int = int(round(100.0 * float(dpi["perf"]) / maxf(0.0001, float(dpi["ceiling"]))))
+				var rel_pct: int = int(round(100.0 * float(dpi["reliability"])))
+				row.add_child(_label("темп %d%% · надёж %d%%" % [pct, rel_pct], 12, Palette.MUTED_HEX))
+				var btn := _button("Проект · $%s (%dч ATR)" % [
+					_money(Season.DEV_BUILD_COST), int(Season.DEV_PROJECT_HOURS)], 12)
+				btn.disabled = not s.dev_can_run(pk)
 				var pk_cap := pk   # capture for closure
 				if Net.role() == "client":
 					# Client: send command to host; host applies and rebroadcasts.
@@ -905,11 +910,11 @@ func _build_rnd(s: Season) -> Control:
 						Net.net_season_buy_part.rpc_id(1, pk_cap))
 				else:
 					btn.pressed.connect(func():
-						if s.buy_part(pk_cap):
+						if s.dev_run_project(pk_cap):
 							if Net.role() == "host":
 								Season.active.save_to_disk()
 								Net.net_season_full.rpc(Season.active.to_dict())
-								Net.net_season_feed.rpc("Партнёр: куплено «%s»" % String(F1_2026.PARTS[pk_cap]["label"]))
+								Net.net_season_feed.rpc("Партнёр: проект «%s»" % String(F1_2026.PARTS[pk_cap]["label"]))
 							_rebuild())
 				row.add_child(btn)
 				# M3: buy-from-supplier path (transferable parts, only while undeveloped)
@@ -978,8 +983,8 @@ func _build_rnd(s: Season) -> Control:
 	v.add_child(_label("Текущий бонус: −%d%% износа" % int(s.wear_bonus * 100.0), 12, Palette.INFO_HEX))
 	var tyre_row := HBoxContainer.new()
 	tyre_row.add_theme_constant_override("separation", 8)
-	var tyre := _button("Купить шинную программу · %d RP" % s.cost_tyre(), 14)
-	tyre.disabled = s.rp < s.cost_tyre() or s.wear_bonus >= 0.36
+	var tyre := _button("Купить шинную программу · $%s" % _money(s.cost_tyre() * Season.RP_TO_MONEY), 14)
+	tyre.disabled = s.money < s.cost_tyre() * Season.RP_TO_MONEY or s.wear_bonus >= 0.36
 	if Net.role() == "client":
 		tyre.pressed.connect(func():
 			Net.net_season_buy_tyre.rpc_id(1))
@@ -1116,7 +1121,7 @@ func _build_contracts(s: Season) -> Control:
 		"Израсходовано: $%s  из  $%s  кап-бюджета" % [
 			_money(s.cumulative_salary_spend), _money(s.SALARY_CAP)], 13, Palette.MUTED_HEX))
 	if s.cap_penalty_pending > 0:
-		v.add_child(_label("Следующий штраф за превышение: -%d RP" % s.cap_penalty_pending,
+		v.add_child(_label("Следующий штраф за превышение: -$%s" % _money(s.cap_penalty_pending * Season.RP_TO_MONEY),
 			13, Palette.DANG_HEX))
 
 	# Transfer market: full 2026 pelotone free agents
@@ -1509,8 +1514,8 @@ func _build_pitcrew(s: Season) -> Control:
 			float(s.dhl_best.get("time", 0.0)), String(s.dhl_best.get("track", "?")),
 			int(s.dhl_best.get("round", 0))]
 	v.add_child(_label(dhl_line, 13, "#ffd166"))
-	v.add_child(_label("Победа в сезонном зачёте: +$%s и +%d RP." % [
-		_money(Season.DHL_PRIZE_MONEY), Season.DHL_PRIZE_RP], 12, "#7c8694"))
+	v.add_child(_label("Победа в сезонном зачёте: +$%s." % [
+		_money(Season.DHL_PRIZE_MONEY)], 12, "#7c8694"))
 
 	pc.add_child(v)
 	return pc
@@ -1533,8 +1538,8 @@ func _build_academy(s: Season) -> Control:
 	v.add_child(_label("Тест-пилот: %s · фидбэк %d/20 · ускоряет аэро-R&D ×%.2f" % [
 		s.testdriver_name(), fb, s.test_rd_mult()], 14, "#5dd17a"))
 	if s.test_driver_slot >= 0:
-		v.add_child(_label("Следующий этап: заменит %s (−0.030 темпа, +%d RP фидбэка)" % [
-			s.driver_name(s.test_driver_slot), Season.TESTDRIVE_RP_BONUS], 13, "#f2c14e"))
+		v.add_child(_label("Следующий этап: заменит %s (−0.030 темпа, +$%s фидбэка)" % [
+			s.driver_name(s.test_driver_slot), _money(Season.TESTDRIVE_MONEY_BONUS)], 13, "#f2c14e"))
 	var td_row := HBoxContainer.new()
 	td_row.add_theme_constant_override("separation", 8)
 	for opt in [[4, "Выставить вместо P5"], [5, "Выставить вместо P6"], [-1, "Отменить"]]:

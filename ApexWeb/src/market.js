@@ -71,25 +71,81 @@ export function willJoin(driver, teamStrength, seed, length = 2) {
 }
 // total cost of a signing at an offered contract length (longer = more guaranteed salary → costlier).
 const LEN_MULT = { 1: 0.85, 2: 1.0, 3: 1.2 };
-export function signCostAt(driver, length = 2) { return Math.round(signCost(driver) * (LEN_MULT[length] || 1)); }
+// contract clauses the player can attach when signing (deep contracts):
+//  bonuses  — performance pay (podium/win/title) for a lower upfront fee (driver trades fixed for variable)
+//  lead     — guaranteed #1 status: the driver is more willing to join
+//  release  — a release clause: cheaper now, but a rival can trigger it to poach them mid-deal
+export const CLAUSE = {
+  podiumBonus: 300, winBonus: 800, titleBonus: 3000,   // $k payouts
+  bonusesDiscount: 0.88, releaseDiscount: 0.82, leadInterest: 0.08, releaseMult: 1.3,
+};
+function clauseMult(clauses) {
+  let m = 1;
+  if (clauses && clauses.bonuses) m *= CLAUSE.bonusesDiscount;
+  if (clauses && clauses.release) m *= CLAUSE.releaseDiscount;
+  return m;
+}
+export function signCostAt(driver, length = 2, clauses = null) {
+  return Math.round(signCost(driver) * (LEN_MULT[length] || 1) * clauseMult(clauses));
+}
+// the clause object stamped onto a driver at signing (and its release value for rivals).
+export function buildClauses(driver, clauses) {
+  const cl = clauses || {};
+  return {
+    winBonus: cl.bonuses ? CLAUSE.winBonus : 0, podiumBonus: cl.bonuses ? CLAUSE.podiumBonus : 0,
+    titleBonus: cl.bonuses ? CLAUSE.titleBonus : 0, guaranteedLead: !!cl.lead,
+    releaseClause: cl.release ? Math.round(signCost(driver) * CLAUSE.releaseMult) : 0,
+  };
+}
 
-// negotiate a signing: swap inAbbrev in for outAbbrev (the player's). opts = { teamStrength, seed, length }.
-// Returns { ok, reason }. reason: "деньги" | "отказ" | "перебили" | "ошибка".
+// the agent's counter-offer when a driver is BORDERLINE (would refuse, but a sweetener closes it).
+// Deterministic from the offer seed. kinds: "money" (+20% fee), "lead" (#1 guarantee), "length" (3yr).
+export const COUNTER_MARGIN = 0.20;   // how far below acceptance still triggers a counter (vs a flat no)
+export function buildCounter(inDr, opts, seed) {
+  const cl = opts.clauses || {};
+  const pick = mix32(((seed >>> 0) * 2654435761 + 91) >>> 0) % 3;
+  if (pick === 1 && !cl.lead) return { kind: "lead", label: "требует гарантию статуса №1" };
+  if (pick === 2 && (opts.length || 2) < 3) return { kind: "length", label: "хочет контракт на 3 сезона" };
+  return { kind: "money", feeMult: 1.20, label: "требует выше гонорар (+20%)" };
+}
+// apply a counter's terms onto an offer opts → the sweetened opts used for the forced re-sign.
+export function applyCounter(opts, counter) {
+  const o = { ...opts, clauses: { ...(opts.clauses || {}) }, force: true };
+  if (!counter) return o;
+  if (counter.kind === "lead") o.clauses.lead = true;
+  if (counter.kind === "length") o.length = 3;
+  if (counter.kind === "money") o.feeMult = (o.feeMult || 1) * (counter.feeMult || 1.2);
+  return o;
+}
+
+// negotiate a signing: swap inAbbrev in for outAbbrev (the player's).
+// opts = { teamStrength, seed, length, clauses, force?, feeMult? }.
+// Returns { ok, reason, counter? }. reason: "деньги" | "отказ" | "counter" | "перебили" | "ошибка".
 export function negotiateSign(career, inAbbrev, outAbbrev, opts = {}) {
   const inDr = career.drivers[inAbbrev], outDr = career.drivers[outAbbrev];
   if (!inDr || !outDr) return { ok: false, reason: "ошибка" };
   if (inDr.teamIdx === career.teamIdx || outDr.teamIdx !== career.teamIdx) return { ok: false, reason: "ошибка" };
   const length = Math.max(1, Math.min(3, opts.length || 2));
-  const cost = signCostAt(inDr, length);
+  const clauses = opts.clauses || null;
+  const cost = Math.round(signCostAt(inDr, length, clauses) * (opts.feeMult || 1));
   if (career.money < cost) return { ok: false, reason: "деньги" };
   const seed = (opts.seed ?? 1) >>> 0;
-  if (!willJoin(inDr, opts.teamStrength ?? 0.5, seed, length)) return { ok: false, reason: "отказ" };
-  if ((mix32((seed * 40503 + 777) >>> 0) / 4294967296) < 0.15) return { ok: false, reason: "перебили" };  // a rival outbid
+  const roll = mix32((seed * 2246822519 + 12345) >>> 0) / 4294967296;     // accept roll (+lead clause sweetens)
+  const accept = interest(inDr, opts.teamStrength ?? 0.5, length) + (clauses && clauses.lead ? CLAUSE.leadInterest : 0);
+  if (!opts.force && roll >= accept) {
+    // borderline? the agent counters with a demand the player can accept; otherwise a flat refusal.
+    if (roll < accept + COUNTER_MARGIN) return { ok: false, reason: "counter", counter: buildCounter(inDr, opts, seed) };
+    return { ok: false, reason: "отказ" };
+  }
+  if (!opts.force && (mix32((seed * 40503 + 777) >>> 0) / 4294967296) < 0.15) return { ok: false, reason: "перебили" };  // a rival outbid
   career.money -= cost;
   career.capSpent = (career.capSpent || 0) + cost;   // cost-cap accounting
+  const built = buildClauses(inDr, clauses);
   const rivalTeam = inDr.teamIdx;
   inDr.teamIdx = career.teamIdx; outDr.teamIdx = rivalTeam;
   inDr.contractSeasons = length; inDr.morale = Math.min(1, (inDr.morale ?? 0.6) + 0.1);
+  inDr.clauses = built;
+  if (built.guaranteedLead) { inDr.status = "lead"; if (outDr) outDr.status = "equal"; }   // #1 guarantee
   return { ok: true, cost };
 }
 
@@ -99,7 +155,9 @@ export function rivalInterest(career) {
   const out = [];
   for (const ab in (career.drivers || {})) { const d = career.drivers[ab];
     if (d.teamIdx !== career.teamIdx) continue;
-    if ((d.overall || 0) >= 0.85 && (d.contractSeasons ?? 9) <= 1) out.push({ abbrev: ab, overall: d.overall });
+    const expiring = (d.contractSeasons ?? 9) <= 1;
+    const release = !!(d.clauses && d.clauses.releaseClause);   // a release clause exposes a star even mid-deal
+    if ((d.overall || 0) >= 0.85 && (expiring || release)) out.push({ abbrev: ab, overall: d.overall, release });
   }
   return out;
 }

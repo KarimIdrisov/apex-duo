@@ -11,7 +11,7 @@ import { PASS_CREDIT_CAP, PASS_CREDIT_DECAY, DIRTY_PACE_K, LAP1_CAUTION,
   ATTACK_WEAR_MULT, ATTACK_SCRUB, DEFEND_WEAR_MULT, DEFEND_SCRUB,
   ORDER_MISTAKE_BASE, ORDER_MISTAKE_RAMP, ORDER_MISTAKE_RAMP_CAP, ORDER_MISTAKE_SCRUB_MIN, ORDER_MISTAKE_SCRUB_MAX } from "./data.js";
 import { incidentChance, cautionFromIncident } from "./events.js";
-import { scheduleWeather, wetnessAt, weatherTerm } from "./weather.js";
+import { scheduleWeather, wetnessAt, weatherTerm, liveForecast } from "./weather.js";
 import { planRace, pitDecision, engineMode, paceMode, combatOrder } from "./ai_strategy.js";
 import { ATTR_KEYS } from "./team.js";
 
@@ -36,7 +36,7 @@ export class Race {
     this.wetness = 0;
     this.cars = field.map((f, i) => ({
       idx: i, name: f.name, abbrev: f.abbrev, skill: f.skill, car: f.car,
-      attrs: f.attrs ?? null, personnel: f.personnel ?? null,
+      attrs: f.attrs ?? null, personnel: f.personnel ?? null, pitCrew: f.pitCrew ?? null, rival: f.rival ?? null,
       color: f.color, team: f.team, isPlayer: !!f.isPlayer, player: f.player ?? null,
       setup: f.setup ?? [0.5, 0.5, 0.5], setupBonus: f.setupBonus ?? 0,
       lap: 0, lapFrac: 0, lapTimeAccum: 0, lastLap: 0, totalTime: 0,
@@ -45,7 +45,7 @@ export class Race {
       fuel: startFuel(track), engine: "standard",
       pace: "balanced",
       retired: false, pitPending: null, pos: i + 1, startPos: i + 1,
-      pitStops: 0, pitTimer: 0,
+      pitStops: 0, pitTimer: 0, penaltyTimer: 0,
       lastMini: [], bestMini: new Array(N_MINI).fill(Infinity), miniColors: [], sectorTimes: [0, 0, 0],
       _dirtyWear: 0, _dirtyPace: 0, _blueDelay: 0, _blueBudget: 0, _blueLast: -1, _creditVs: -1, _launch: 0,
       order: "none", _orderBit: false, _orderLaps: 0, _inFight: false,
@@ -131,6 +131,7 @@ export class Race {
     this.time += dt;
     const leadProg = this.cars.reduce((m, c) => Math.max(m, c.lap + c.lapFrac), 0);
     this.wetness = wetnessAt(this.weather, leadProg);
+    this.weatherInfo = liveForecast(this.weather, leadProg, this.track.laps);   // player-facing radar (anticipation)
     for (const c of this.cars) {
       if (c.retired) continue;
       if (c.pitTimer > 0) {                 // stationary in the pit box: race time passes, no track progress
@@ -140,11 +141,17 @@ export class Race {
         c.totalTime += d;
         continue;
       }
+      if (c.penaltyTimer > 0) {             // serving a time penalty on track: lose time, no progress
+        const d = Math.min(dt, c.penaltyTimer);
+        c.penaltyTimer -= d; c.lapTimeAccum += d; c.totalTime += d;
+        continue;
+      }
       const lt = this._lapTime(c);
       c.lapFrac += dt / lt;
       c.lapTimeAccum += dt;
-      c.runTicks = (c.runTicks || 0) + 1;                                  // E4: track running time + push usage
+      c.runTicks = (c.runTicks || 0) + 1;                                  // E4/P3: track running time + engine-mode usage
       if (c.engine === "push") c.pushTicks = (c.pushTicks || 0) + 1;       //     → feeds PU wear (push spends the engine)
+      else if (c.engine === "save") c.saveTicks = (c.saveTicks || 0) + 1;  //     → save spares it (lift & coast)
       if (c.lapFrac >= 1) {            // lap completed (phase 3 owns bookkeeping)
         const carry = (c.lapFrac - 1) * lt;   // time already spent past the line this tick (sub-step precision)
         c.lapFrac -= 1;
@@ -218,6 +225,8 @@ export class Race {
         if (this.erng.unit() < EVENT.startDnf) { c.retired = true; this._emit({ type: "incident", lap: 0, a: c.idx, abbr: c.abbrev, dnf: true }); this._tryCaution(this._keyRng(c.idx, 0, 3), true); }
       }
       c._launch = launch;   // graded launch delta, applied to the opening-lap time (good launch < 0 = faster lap 1 = gains)
+      if (launch <= -EVENT.startCap * 0.6) this._emit({ type: "launch_good", lap: 0, a: c.idx, abbr: c.abbrev });
+      else if (launch >= EVENT.startCap * 0.6) this._emit({ type: "launch_bad", lap: 0, a: c.idx, abbr: c.abbrev });
     }
   }
 
@@ -278,8 +287,13 @@ export class Race {
               me.lapFrac = slot; me._passCredit = 0;
               me.tyreTemp = Math.max(0.1, me.tyreTemp - AGGR_PASS_SCRUB);   // scrubbed/flat-spotted tyres — the lunge isn't free (§18.2 round-2)
               if (me._passedIdx !== ahead.idx && (me._passCd ?? -1) <= this.time) {
-                this._emit({ type: "pass", lap: me.lap, a: me.idx, abbr: me.abbrev, b: ahead.idx, abbrB: ahead.abbrev, zone: "bold" });
+                this._emit({ type: "pass", lap: me.lap, a: me.idx, abbr: me.abbrev, b: ahead.idx, abbrB: ahead.abbrev, zone: "bold", rivalry: (me.rival === ahead.abbrev || ahead.rival === me.abbrev) });
                 me._passedIdx = ahead.idx; me._passCd = this.time + 4;
+                // stewards: a messy bold lunge can draw a 5s time penalty for contact (served on track)
+                if (this._keyRng(me.idx, me.lap, 11).unit() < 0.14) {
+                  me.penaltyTimer = (me.penaltyTimer || 0) + 5;
+                  this._emit({ type: "penalty", lap: me.lap, a: me.idx, abbr: me.abbrev, sec: 5 });
+                }
               }
               continue;   // move done this tick — skip the pin
             }
@@ -308,7 +322,7 @@ export class Race {
           // announce once per pass episode: a fresh opponent (not the one we just cleared)
           // and not within the per-car cooldown — bounds the log to genuine on-track passes.
           if (me.lap >= 1 && me._passedIdx !== ahead.idx && (me._passCd ?? -1) <= this.time) {  // skip the lap-0 grid settle
-            this._emit({ type: "pass", lap: me.lap, a: me.idx, abbr: me.abbrev, b: ahead.idx, abbrB: ahead.abbrev, zone: zone ? zone.type : null });
+            this._emit({ type: "pass", lap: me.lap, a: me.idx, abbr: me.abbrev, b: ahead.idx, abbrB: ahead.abbrev, zone: zone ? zone.type : null, rivalry: (me.rival === ahead.abbrev || ahead.rival === me.abbrev) });
             me._passedIdx = ahead.idx;
             me._passCd = this.time + 4;
           }
@@ -416,10 +430,16 @@ export class Race {
     if (c.pitPending) {
       c.tyre = c.pitPending; c.pitPending = null; c.wear = 0; c.tyreAge = 0; c.tyreTemp = TYRE.pitTemp;
       const cautionPit = this.scActive ? EVENT.scPitMult : (this.vscActive ? EVENT.vscPitMult : 1);   // full SC cheapest, VSC mid, green full
-      const pitLoss = this.track.pit * cautionPit * (c.personnel ? c.personnel.pitMult : 1);
+      let pitLoss = this.track.pit * cautionPit * (c.personnel ? c.personnel.pitMult : 1);
+      let pitMishap = null;
+      if (c.pitCrew) {   // PIT: the managed crew can botch the stop — a slow stop or a rare disaster
+        const pr = this._keyRng(c.idx, c.lap, 7).unit();
+        if (pr < c.pitCrew.disasterChance) { pitLoss += 8 + 6 * this._keyRng(c.idx, c.lap, 8).unit(); pitMishap = "disaster"; }
+        else if (pr < c.pitCrew.botchChance) { pitLoss += 1.5 + 2.5 * this._keyRng(c.idx, c.lap, 9).unit(); pitMishap = "slow"; }
+      }
       c.pitStops += 1;
       c.pitTimer = pitLoss;   // sit stationary in the box for pitLoss s — drained in step() (race time passes, rivals gain, the out-lap shows it). Replaces the old lapFrac subtraction that got clamped to ~0.
-      this._emit({ type: "pit", lap: c.lap, a: c.idx, abbr: c.abbrev, compound: c.tyre });
+      this._emit({ type: "pit", lap: c.lap, a: c.idx, abbr: c.abbrev, compound: c.tyre, mishap: pitMishap });
     }
     if (c.fuel <= 0) { c.retired = true; return; }   // ran the tank dry
     const pm = PACE_MODES[c.pace];

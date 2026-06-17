@@ -34,3 +34,25 @@ export function weatherTerm(compound, wetness) {
   if (c.wet_opt < 0.1 && wetness > 0.4) pen += WET.slick * (wetness - 0.4);
   return pen;
 }
+
+// A player-facing forecast derived from the (hidden) rain arc at the current lap. Deterministic:
+// confidence sharpens as the onset approaches, so a distant front is a vague "переменно" and a near
+// one is a sharp ETA window — the basis for the slick↔inter↔wet gamble. Returns:
+//   { state: "dry"|"variable"|"incoming"|"damp"|"rain"|"drying", chance, etaLow, etaHigh, peak, dryIn }
+export const FORECAST_HORIZON = 12;   // laps ahead the radar can "see"
+export function liveForecast(w, lap, laps) {
+  if (!w || !w.rains) return { state: "dry", chance: 0, etaLow: null, etaHigh: null, peak: 0, dryIn: null };
+  const cur = wetnessAt(w, lap);
+  if (cur > 0.05) {                                   // it's wet now → forecast the dry-out
+    const dryStart = w.onset + w.rise + w.hold;
+    const dryIn = Math.max(0, Math.round(dryStart + w.dry - lap));
+    const easing = lap >= dryStart;
+    return { state: easing ? "drying" : (cur >= 0.45 ? "rain" : "damp"), chance: 100, etaLow: null, etaHigh: null, peak: w.peak, dryIn };
+  }
+  const away = w.onset - lap;                         // laps until the rain arrives
+  if (away <= 0) return { state: "dry", chance: 0, etaLow: null, etaHigh: null, peak: 0, dryIn: null };
+  if (away > FORECAST_HORIZON) return { state: "variable", chance: 15, etaLow: null, etaHigh: null, peak: w.peak, dryIn: null };
+  const conf = 1 - away / FORECAST_HORIZON;           // 0 (far) .. 1 (imminent)
+  const spread = Math.max(1, Math.round((1 - conf) * 5));
+  return { state: "incoming", chance: Math.round(40 + 55 * conf), etaLow: Math.max(1, away - spread), etaHigh: away + spread, peak: w.peak, dryIn: null };
+}

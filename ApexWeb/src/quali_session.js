@@ -1,9 +1,11 @@
 // ApexWeb/src/quali_session.js — pure deterministic real-time qualifying (Q1/Q2/Q3).
 // State keyed by car index over all cars; reuses qualiLap for the timed flying lap.
 // Randomness is keyed to lap events with stateless seeds (never per-tick) → deterministic across speeds.
-import { QUALI2, TRACK } from "./data.js";
+import { QUALI2, TRACK, ATTRW } from "./data.js";
 import { qualiLap, qualiLapClean, qualiSector } from "./quali.js";
 import { RNG, mix32 } from "./rng.js";
+
+const QWET = { loss: 8.0 };   // s/lap added at full wetness (before wet-skill differentiation)
 
 const LAP_SEC = () => TRACK.lt;
 const SECTOR_SEC = () => TRACK.lt / 3;   // 3 equal sectors per flying lap
@@ -23,8 +25,15 @@ export function newQuali(seed, field) {
     lastLap: Infinity, _lastDeleted: false,
   };
   const carMean = field.reduce((a, f) => a + (f.car.power + f.car.aero) / 2, 0) / field.length;
+  // qualifying weather: a seeded roll vs the track's climatic wet probability sets a session-wide
+  // wetness (constant through Q1–Q3). Wet quali slows everyone but rewards wet-skilled drivers.
+  let wetness = 0;
+  if (mix32(((seed >>> 0) * 2654435761 + 7) >>> 0) / 4294967296 < (TRACK.wet || 0)) {
+    wetness = 0.35 + 0.55 * (mix32(((seed >>> 0) * 40503 + 11) >>> 0) / 4294967296);   // 0.35..0.90
+  }
+  const weather = wetness < 0.05 ? "dry" : wetness < 0.5 ? "damp" : "wet";
   return { seed: seed >>> 0, carMean, segment: 1, clock: QUALI2.SEG_SEC[0], speed: 1, paused: true,
-    grip: QUALI2.GRIP0, flag: null, cars, classified: [], _bottom: 22 };
+    grip: QUALI2.GRIP0, flag: null, cars, classified: [], _bottom: 22, wetness, weather };
 }
 
 export function release(s, player, tyre = "fresh", push = "steady") {
@@ -89,6 +98,11 @@ function startFlyingLap(s, car) {
   car._traffic = trafficFor(s, car, car.lapIdx);
   car.base = qualiLapClean(car.drv, car.car, TRACK, car.setupBonus, s.carMean,
     { grip: s.grip, tyre: car.tyre, traffic: car._traffic || 0, yellow: !!(s.flag && s.flag.type === "yellow") });
+  if (s.wetness > 0.05) {                                            // wet quali: slower, but wet-skill reorders the field
+    const wetSkill = car.drv.attrs ? car.drv.attrs.wet : 0.5;
+    const wetMod = Math.max(0.4, 1.3 - ATTRW.wet * (wetSkill - 0.5) * 2);   // <1.3 for a strong wet driver
+    car.base += QWET.loss * s.wetness * wetMod;
+  }
   car.phase = "flying"; car.sector = 0; car.secAcc = 0; car.lapSectors = []; car.lapDeleted = false;
 }
 
@@ -101,7 +115,7 @@ function completeSector(s, car) {
     if (inc === "yellow" && !s.flag) s.flag = { type: "yellow", ySecLeft: QUALI2.YELLOW_SEC };
   }
   const rng = lapRng(s, car.idx, car.lapIdx * 10 + car.sector);
-  const r = qualiSector(car.base, 1 / 3, car.push, car.trackKnow, rng, car.drv.attrs?.composure ?? 0.5);
+  const r = qualiSector(car.base, 1 / 3, car.push, car.trackKnow, rng, car.drv.attrs?.composure ?? 0.5, s.wetness || 0);
   if (r.event === "off") {                                           // big mistake → lap deleted, no time, run over
     car.lapDeleted = true; car._lastDeleted = true; car.lapsThisRun += 1;
     car.phase = "inlap"; car.lapAcc = 0; return;
@@ -234,5 +248,6 @@ export function qualiSnapshot(s) {
     sectorDelta: c.lapSectors.map((t, i) => (isFinite(c.bestSectors[i]) ? t - c.bestSectors[i] : null)),
     lapDeleted: c.lapDeleted, lastLap: isFinite(c.lastLap) ? c.lastLap : null } : null; };
   return { type: "snapshot", phase: "quali", segment: s.segment, clock: s.clock, speed: s.speed,
-    paused: s.paused, grip: s.grip, flag: s.flag, cut, tower, cars: { p1: block("p1"), p2: block("p2") } };
+    paused: s.paused, grip: s.grip, flag: s.flag, wetness: s.wetness || 0, weather: s.weather || "dry",
+    cut, tower, cars: { p1: block("p1"), p2: block("p2") } };
 }
