@@ -525,7 +525,7 @@ export function advanceRound(career) {
     career.done = true;
     const fin = constructorStandings(career).find(s => s.isPlayer);   // season-end Constructors' Cup prize fund
     const pos = fin ? fin.pos : TEAMS.length;
-    const fund = Math.round(constructorPrizeFund(pos) * (career.rewardMult || 1));
+    const fund = Math.round(constructorPrizeFund(pos) * (career.rewardMult ?? 1));
     career.money += fund;
     const over = Math.max(0, (career.capSpent || 0) - CAP_LIMIT);     // soft cost-cap: a fine on any season overspend
     const fine = Math.round(over * 0.6);

@@ -10,6 +10,7 @@ export const BUILD_STEP_BASE = 1200;     // $k base cost of a step (pre discount
 
 function teamName(career) { return (career && career._myTeamName) || TEAMS[(career && career.teamIdx) || 0].name; }
 function partForArea(career, areaKey) {
+  if (areaKey === "power") return "pu";                        // engine: bestPartForArea skips pu (ДВС tab in-season), build it directly here
   const a = DEV_AREAS.find(x => x.key === areaKey);            // DEV_AREAS: key === indicator
   return a ? bestPartForArea(career, a.indicator) : null;
 }

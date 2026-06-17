@@ -5,7 +5,7 @@ import { mix32 } from "./rng.js";
 import { TEAMS } from "./data.js";
 import { devMult, staffRelBonus } from "./staff.js";
 import { academyDevBonus } from "./academy.js";
-import { devGainMult } from "./directors.js";
+import { devGainMult, devCostMult } from "./directors.js";
 
 export const INDICATORS = ["power", "aero", "tyre", "fuel", "rel"];
 
@@ -375,11 +375,13 @@ export function startProject(career, part, size, approach = "balanced", owner = 
     if (mine >= playerSlotCap(career)) return null;
   }
   const spec = PROJECT_SIZE[size], ap = APPROACH[approach] || APPROACH.balanced;
-  if (career.money < spec.cost) return null;
-  if (career.costCap && (career.devSpentThisSeason || 0) + spec.cost > COST_CAP) return null;
-  career.money -= spec.cost;
-  career.devSpentThisSeason = (career.devSpentThisSeason || 0) + spec.cost;
-  career.capSpent = (career.capSpent || 0) + spec.cost;   // cost-cap accounting (dev + staff + transfers)
+  const areaKey = Object.keys(PART_CONTRIB[part] || {}).sort((a, b) => PART_CONTRIB[part][b] - PART_CONTRIB[part][a])[0];
+  const cost = Math.round(spec.cost * devCostMult(career, areaKey));   // aero/engine specialist: their area is cheaper to develop
+  if (career.money < cost) return null;
+  if (career.costCap && (career.devSpentThisSeason || 0) + cost > COST_CAP) return null;
+  career.money -= cost;
+  career.devSpentThisSeason = (career.devSpentThisSeason || 0) + cost;
+  career.capSpent = (career.capSpent || 0) + cost;   // cost-cap accounting (dev + staff + transfers)
   const proj = { part, size, approach, daysLeft: spec.days, days: spec.days, gain: spec.gain, owner };   // P6: which co-director started it
   career.projects.push(proj);
   return proj;

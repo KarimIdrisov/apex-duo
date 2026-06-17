@@ -44,3 +44,9 @@ test("autoBuild spends most of the budget without overspending", () => {
   assert.ok(c.money >= 0, "never overspends");
   assert.ok(c.money < 9000, "actually built something");
 });
+
+test("the power area builds the engine part (pu)", () => {
+  const c = career();
+  assert.equal(buildStep(c, "power"), true);
+  assert.ok((c.parts[c._myTeamName].pu || 0) >= BUILD_STEP_GAIN, "pu (engine) level rose");
+});
