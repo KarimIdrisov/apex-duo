@@ -328,3 +328,27 @@ test("D3: migrate upgrades a v7 save to v8 (carDev -> parts)", () => {
   assert.ok(up.parts && typeof up.parts === "object");
   assert.equal(up.carDev, undefined, "old carDev removed");
 });
+
+test("newCareer carries directors[] + rewardMult and bumps to v27", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  assert.equal(c.v, CAREER_V);
+  assert.ok(c.v >= 27);
+  assert.deepEqual(c.directors, []);
+  assert.equal(c.rewardMult, 1);
+});
+
+test("migrate v26 → v27 backfills directors + rewardMult", () => {
+  const v26 = { v: 26, teamIdx: 0, seed: 1, board: { targetPos: 1 }, driverPts: {}, teamPts: {} };
+  const up = migrate(v26);
+  assert.equal(up.v, CAREER_V);
+  assert.deepEqual(up.directors, []);
+  assert.equal(up.rewardMult, 1);
+});
+
+test("an ambitious season multiplies the end-of-season constructor prize", () => {
+  const base = newCareer({ teamIdx: 0, seed: 1 });
+  const amb = newCareer({ teamIdx: 0, seed: 1 }); amb.rewardMult = 1.3;
+  let g = 0; while (!isSeasonOver(base) && g++ < 100) { advanceRound(base); }
+  g = 0; while (!isSeasonOver(amb) && g++ < 100) { advanceRound(amb); }
+  assert.ok(amb.seasonPayout.fund > base.seasonPayout.fund, "rewardMult scales the prize fund");
+});

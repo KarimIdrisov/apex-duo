@@ -22,7 +22,7 @@ export const POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
 // prize money ($k) by race-finish position — a simple per-race payout (M2 deepens income).
 export const PRIZE = [1200, 1000, 850, 720, 620, 540, 470, 410, 360, 320, 280, 250, 220, 200, 180, 160, 150, 140, 130, 120, 110, 100];
 
-export const CAREER_V = 26;           // career save schema version
+export const CAREER_V = 27;           // career save schema version
 export const REG_RESET = 0.5;         // each season's regulation change trims everyone's car development
 export const RUNNING_COST = 800;      // $k per-race operating cost (M5 facilities refine it)
 export const CAP_LIMIT = 22000;       // $k — soft season cap on discretionary spend (dev + staff + transfers)
@@ -93,6 +93,7 @@ export function newCareer({ teamIdx = 0, seed = 1, coop = false } = {}) {
     board: { targetPos, confidence: 0.5, podiums: 0, pointFinishes: 0, objectives: seasonObjectives(targetPos) },  // meet your tier (P{teamIdx+1}) + season objectives (D8)
     sponsors: defaultSponsors(teamIdx, s), costCap: false, pendingOffers: titleOffers(teamIdx, s),
     parts: {}, projects: [], unproven: [], devSpentThisSeason: 0,   // E1: parallel projects + run-in debts
+    directors: [], rewardMult: 1,                                  // career-start: co-directors + season-ambition reward scaler
     partsPrev: {},                                                  // P2: previous-spec snapshots for free revert
     devFocus: 0, nextCar: {},                                       // F1: this/next-year development split
 
@@ -448,6 +449,11 @@ export function migrate(career) {
     delete career.reserve;
     career.v = 26;
   }
+  if (career.v < 27) {                 // career-start: co-directors + ambition reward
+    career.directors = career.directors || [];
+    career.rewardMult = career.rewardMult ?? 1;
+    career.v = 27;
+  }
   // names of dynamically-added drivers (academy promotions, retirement rookies) live on the driver
   // object, but DRIVER_NAME is rebuilt from the static roster each load — repopulate it so the UI
   // (which often resolves DRIVER_NAME[abbrev]) shows their real names across reloads.
@@ -517,7 +523,7 @@ export function advanceRound(career) {
     career.done = true;
     const fin = constructorStandings(career).find(s => s.isPlayer);   // season-end Constructors' Cup prize fund
     const pos = fin ? fin.pos : TEAMS.length;
-    const fund = constructorPrizeFund(pos);
+    const fund = Math.round(constructorPrizeFund(pos) * (career.rewardMult || 1));
     career.money += fund;
     const over = Math.max(0, (career.capSpent || 0) - CAP_LIMIT);     // soft cost-cap: a fine on any season overspend
     const fine = Math.round(over * 0.6);
