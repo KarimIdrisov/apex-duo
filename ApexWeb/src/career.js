@@ -14,6 +14,7 @@ import { aiChurn } from "./market.js";
 import { developAcademy } from "./academy.js";
 import { initPitCrew, tickRacePitCrew, restPitCrew, tickInjuriesPerRace, tickOffseasonPitCrew } from "./pitcrew.js";
 import { ensureRivals, rivalMoraleDelta } from "./rivalry.js";
+import { sponsorIncomeMult, startBudgetMult } from "./directors.js";
 import { pushNews, boardReaction, confidenceDelta } from "./news.js";
 import { seasonObjectives, evaluateObjectives, regResetFor, regArcNote } from "./board.js";
 
@@ -80,7 +81,7 @@ export const CALENDAR = [
 function allDrivers() { return TEAMS.flatMap(t => t.drivers.map(d => ({ abbrev: d.abbrev, team: t.name }))); }
 
 // a fresh career. teamIdx = which TEAMS entry the players manage; seed reserved for AI RNG.
-export function newCareer({ teamIdx = 0, seed = 1, coop = false } = {}) {
+export function newCareer({ teamIdx = 0, seed = 1, coop = false, directors = [] } = {}) {
   const driverPts = {}, teamPts = {};
   for (const d of allDrivers()) driverPts[d.abbrev] = 0;
   for (const t of TEAMS) teamPts[t.name] = 0;
@@ -88,12 +89,12 @@ export function newCareer({ teamIdx = 0, seed = 1, coop = false } = {}) {
   const targetPos = Math.min(TEAMS.length, teamIdx + 1);
   return {
     v: CAREER_V, seed: s, teamIdx, coop,
-    season: 1, round: 0, money: 3000 + (TEAMS.length - teamIdx) * 800,   // tier-scaled starting budget ($k)
+    season: 1, round: 0, money: Math.round((3000 + (TEAMS.length - teamIdx) * 800) * startBudgetMult({ directors })),   // tier-scaled starting budget ($k)
     driverPts, teamPts,
     board: { targetPos, confidence: 0.5, podiums: 0, pointFinishes: 0, objectives: seasonObjectives(targetPos) },  // meet your tier (P{teamIdx+1}) + season objectives (D8)
     sponsors: defaultSponsors(teamIdx, s), costCap: false, pendingOffers: titleOffers(teamIdx, s),
     parts: {}, projects: [], unproven: [], devSpentThisSeason: 0,   // E1: parallel projects + run-in debts
-    directors: [], rewardMult: 1,                                  // career-start: co-directors + season-ambition reward scaler
+    directors, rewardMult: 1,                                      // career-start: co-directors + season-ambition reward scaler
     partsPrev: {},                                                  // P2: previous-spec snapshots for free revert
     devFocus: 0, nextCar: {},                                       // F1: this/next-year development split
 
@@ -148,6 +149,7 @@ export function applyResult(career, classification, raceInfo = {}) {
     sponsorIncome += r.payout;
     sp.happiness = Math.max(0, Math.min(1, sp.happiness + r.dHappiness));
   }
+  sponsorIncome = Math.round(sponsorIncome * sponsorIncomeMult(career));   // financier specialty lifts sponsor income
   // living sponsors: a deal whose happiness collapses walks away; a fresh offer surfaces to refill a slot.
   const leavers = (career.sponsors || []).filter(s => s.happiness < 0.16);
   if (leavers.length) {

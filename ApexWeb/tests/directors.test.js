@@ -40,3 +40,20 @@ test("validDirectors: co-op needs two different specialties; solo needs one vali
   assert.equal(validDirectors([{ specialty: "nope" }], false), false);
   assert.equal(validDirectors([{ specialty: "aero" }], false), true);
 });
+
+import { newCareer } from "../src/career.js";
+import { tickDevelopment, startProject } from "../src/development.js";
+import { TEAMS } from "../src/data.js";
+
+test("financier raises the starting budget", () => {
+  const plain = newCareer({ teamIdx: 0, seed: 1 });
+  const fin = newCareer({ teamIdx: 0, seed: 1, directors: [{ specialty: "financier" }, { specialty: "aero" }] });
+  assert.ok(fin.money > plain.money, "financier director starts richer");
+});
+
+test("an aero specialist develops aero parts faster in-season", () => {
+  const mk = dirs => { const c = newCareer({ teamIdx: 0, seed: 1, directors: dirs }); startProject(c, "floor", "small"); tickDevelopment(c, 14); return c.parts[TEAMS[0].name].floor; };
+  const plain = mk([]);
+  const aero = mk([{ specialty: "aero" }, { specialty: "engine" }]);
+  assert.ok(aero > plain, "aero specialist → bigger floor (aero) gain");
+});

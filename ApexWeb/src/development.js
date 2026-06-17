@@ -5,6 +5,7 @@ import { mix32 } from "./rng.js";
 import { TEAMS } from "./data.js";
 import { devMult, staffRelBonus } from "./staff.js";
 import { academyDevBonus } from "./academy.js";
+import { devGainMult } from "./directors.js";
 
 export const INDICATORS = ["power", "aero", "tyre", "fuel", "rel"];
 
@@ -411,16 +412,18 @@ export function tickDevelopment(career, days = 14) {
     const level = myParts[p.part] || 0;
     // intended gain (P5 era emphasis tilts which parts develop fastest this era).
     const intended = p.gain * ap.gainK * out.mult * maturityFactor(level) * eraEmphasis(career.season || 1, p.part) * devMult(career.staff) * (1 + academyDevBonus(career));
+    const areaKey = Object.keys(PART_CONTRIB[p.part] || {}).sort((a, b) => PART_CONTRIB[p.part][b] - PART_CONTRIB[p.part][a])[0];
+    const dirGain = devGainMult(career, areaKey);   // aero/engine specialist lifts gain in their area
     // P1/P2: correlation roll — did the part match the simulation? A miss under-delivers vs forecast; a
     // miss on an aggressive program can regress the part below its previous spec (net negative gain).
     const corrRoll = mix32((seed ^ 0x9e3779b9) >>> 0) / 4294967296;
     const miscorr = miscorrChance(career, p.part, p.approach);
-    let gain = intended, correlated = true, extraDebt2 = 0;
+    let gain = intended * dirGain, correlated = true, extraDebt2 = 0;
     if (corrRoll < miscorr) {
       correlated = false;
       const sev = (miscorr - corrRoll) / miscorr;                       // 0..1, how badly it missed
       const penalty = p.gain * (0.5 + 1.0 * sev) * (ap.varK * 0.5);     // shortfall in base-gain units, scaled by risk
-      gain = intended - penalty;                                        // aggressive (high varK) can go negative → regression
+      gain = intended * dirGain - penalty;                              // aggressive (high varK) can go negative → regression
       extraDebt2 = 0.012 * (ap.varK * 0.5);                            // a botched fit hurts reliability a touch more
     }
     const debt = (ap.relDebt + out.extraDebt + extraDebt2) * (SIZE_DEBT[p.size] || 1);
