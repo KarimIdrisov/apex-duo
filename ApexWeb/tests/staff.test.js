@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { STAFF_ROLES, FACILITIES, FAC_MAX, initStaff, composePersonnel, devMult, upkeep, upgradeStaff, upgradeFacility, STAFF_UPGRADE_COST, simDriverBoost, designerFocus, DESIGNER_FOCUS, tickStaffTrain, staffGrowth, tickStaffDevelopment, STAFF_PEAK_AGE } from "../src/staff.js";
+import { STAFF_ROLES, FACILITIES, FAC_MAX, initStaff, composePersonnel, devMult, upkeep, upgradeStaff, upgradeFacility, STAFF_UPGRADE_COST, simDriverBoost, designerFocus, DESIGNER_FOCUS, tickStaffTrain, staffGrowth, tickStaffDevelopment, STAFF_PEAK_AGE, FACTORY_DEV } from "../src/staff.js";
+
+test("§Phase-5 factory feeds development speed (devMult rises with the factory, bounded)", () => {
+  const mk = factory => ({ designer: 0.8, facilities: { design: 3, factory }, fatigue: 0, people: {} });
+  assert.ok(devMult(mk(5)) > devMult(mk(0)), "a bigger factory speeds development");
+  assert.ok(devMult(mk(5)) - devMult(mk(0)) <= FACTORY_DEV + 1e-9, "bounded by FACTORY_DEV (below the design office's 0.3)");
+});
 
 test("§Phase-5 Simulator (HQ building) speeds driver development; null-safe for old saves", () => {
   assert.equal(simDriverBoost(null), 1);

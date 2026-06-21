@@ -67,12 +67,15 @@ export function composePersonnel(staff) {
   return { pitMult: Math.max(0.6, pitMult), strategy: clamp01(staff.strategist + (staff.facilities.design / FAC_MAX) * 0.05 + specialtyBonus(staff, "strategy")) };
 }
 
-// development multiplier from the chief designer + the design office (1.0 neutral at designer 0.6 / no facility).
-// fatigue drags it down a little; an aero specialist speeds R&D (T2).
+// development multiplier from the chief designer + the design office + the factory (1.0 neutral at
+// designer 0.6 / no facilities). The design office is the primary R&D lever; the §Phase-5 FACTORY term
+// adds manufacturing throughput (the AI already scales its dev by team facility, so this brings the
+// player to parity, not a buff). Fatigue drags it down a little; an aero specialist speeds R&D (T2).
+export const FACTORY_DEV = 0.12;   // factory's max contribution to dev speed (at FAC_MAX), below the design office's 0.3
 export function devMult(staff) {
   if (!staff) return 1.0;
   const fat = staff.fatigue || 0;
-  return (1 + (staff.designer - 0.6) * 0.5 + (staff.facilities.design / FAC_MAX) * 0.3 + specialtyBonus(staff, "dev")) * (1 - fat * 0.12);
+  return (1 + (staff.designer - 0.6) * 0.5 + (staff.facilities.design / FAC_MAX) * 0.3 + ((staff.facilities.factory || 0) / FAC_MAX) * FACTORY_DEV + specialtyBonus(staff, "dev")) * (1 - fat * 0.12);
 }
 
 // per-race upkeep ($k) — bigger facilities cost more to run (tuned so a top team can run a full
