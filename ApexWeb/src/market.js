@@ -69,6 +69,10 @@ export function willJoin(driver, teamStrength, seed, length = 2) {
   const roll = mix32(((seed >>> 0) * 2246822519 + 12345) >>> 0) / 4294967296;
   return roll < interest(driver, teamStrength, length);
 }
+// §Phase-3 — a one-off SIGNING BONUS raises acceptance WITHOUT raising the wage (a sweetener distinct from
+// salary/fee). Charged upfront on signing. Capped so cash can't buy a guaranteed yes.
+export const SIGN_BONUS = { full: 2500, maxInterest: 0.25 };   // ~$2.5M bonus → +0.25 acceptance (capped)
+export function signBonusInterest(bonus) { return Math.max(0, Math.min(SIGN_BONUS.maxInterest, ((bonus || 0) / SIGN_BONUS.full) * SIGN_BONUS.maxInterest)); }
 // total cost of a signing at an offered contract length (longer = more guaranteed salary → costlier).
 const LEN_MULT = { 1: 0.85, 2: 1.0, 3: 1.2 };
 // contract clauses the player can attach when signing (deep contracts):
@@ -127,11 +131,12 @@ export function negotiateSign(career, inAbbrev, outAbbrev, opts = {}) {
   if (inDr.teamIdx === career.teamIdx || outDr.teamIdx !== career.teamIdx) return { ok: false, reason: "ошибка" };
   const length = Math.max(1, Math.min(3, opts.length || 2));
   const clauses = opts.clauses || null;
-  const cost = Math.round(signCostAt(inDr, length, clauses) * (opts.feeMult || 1));
+  const signBonus = Math.max(0, Math.round(opts.signBonus || 0));         // §Phase-3: signing-bonus sweetener
+  const cost = Math.round(signCostAt(inDr, length, clauses) * (opts.feeMult || 1)) + signBonus;
   if (career.money < cost) return { ok: false, reason: "деньги" };
   const seed = (opts.seed ?? 1) >>> 0;
   const roll = mix32((seed * 2246822519 + 12345) >>> 0) / 4294967296;     // accept roll (+lead clause sweetens)
-  const accept = interest(inDr, opts.teamStrength ?? 0.5, length) + (clauses && clauses.lead ? CLAUSE.leadInterest : 0);
+  const accept = interest(inDr, opts.teamStrength ?? 0.5, length) + (clauses && clauses.lead ? CLAUSE.leadInterest : 0) + signBonusInterest(signBonus);
   if (!opts.force && roll >= accept) {
     // borderline? the agent counters with a demand the player can accept; otherwise a flat refusal.
     if (roll < accept + COUNTER_MARGIN) return { ok: false, reason: "counter", counter: buildCounter(inDr, opts, seed) };

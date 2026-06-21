@@ -8,7 +8,7 @@ import { tickDevelopment, SUPPLY_INCOME, SUPPLY_FEE, runInParts, PU_POOL, PU_GRI
 import { neutralChassis } from "./chassis.js";
 import { CHEM_START, chemAfterRace } from "./perks.js";
 import { gapDays, offseasonDays } from "./season_dates.js";
-import { initDrivers, developDrivers, retirePass, updateMorale, tickDriverRace, makeDriverRequest, maybeGainTrait, zeroDriverStats, salaryFor, DRIVER_NAME } from "./drivers.js";
+import { initDrivers, developDrivers, retirePass, updateMorale, tickDriverRace, makeDriverRequest, maybeGainTrait, zeroDriverStats, salaryFor, DRIVER_NAME, isPayDriver } from "./drivers.js";
 import { driverAttrs, assignTraits, TRAITS, overallToStars, peakArchetype } from "./team.js";
 import { initStaff, upkeep, salaryForStaff, applyCalendarLoad, initTeamStaff, tickStaffTrain, tickStaffDevelopment, tickFacility, FAC_LABEL, STAFF_ROLES, ROLE_LABEL, simDriverBoost, staffGrowth } from "./staff.js";
 import { mix32 } from "./rng.js";
@@ -36,9 +36,10 @@ export function pointsFor(career, i) {
 // prize money ($k) by race-finish position — a simple per-race payout (M2 deepens income).
 export const PRIZE = [1200, 1000, 850, 720, 620, 540, 470, 410, 360, 320, 280, 250, 220, 200, 180, 160, 150, 140, 130, 120, 110, 100];
 
-export const CAREER_V = 35;           // career save schema version
+export const CAREER_V = 36;           // career save schema version
 export const REG_RESET = 0.5;         // each season's regulation change trims everyone's car development
 export const RUNNING_COST = 800;      // $k per-race operating cost (M5 facilities refine it)
+export const PAY_DRIVER_INCOME = 320; // §Phase-3 $k/race a pay driver brings (sponsorship) — funds a weak-but-paid seat
 // §Phase-6 — solvency + the board ultimatum that make money & confidence BITE (career.board.ultimatum is null-safe/additive).
 export const INSOLVENCY = { limit: -1500, confHit: 0.18 };  // $k balance below which the board panics; per-race confidence hit while insolvent
 export const ULTIMATUM = { conf: 0.18, restore: 0.30, slack: 2 };  // confidence that triggers an ultimatum; confidence restored on meeting it; demand = targetPos + slack (a touch easier than the season target)
@@ -254,13 +255,15 @@ export function applyResult(career, classification, raceInfo = {}) {
   const grant = career.backer ? Math.round((career.backer.grant || 0) / CALENDAR.length) : 0;   // parent/owner funding floor (per race)
   const supply = career.backer ? (career.backer.puMaker ? SUPPLY_INCOME : -Math.round(SUPPLY_FEE * supplyFeeMult(career))) : 0;   // PU-maker sells (+) / customer buys (−, cheaper on last-year spec, P4)
   const runCost = runningCostFor(CALENDAR[career.round]);   // §Phase-6: per-track running cost (mean-neutral over the season)
-  const net = prize + grant + supply + sponsorIncome - runCost - salaries - bonuses - up - loanPay;
+  let payIncome = 0;                                        // §Phase-3: pay drivers bring sponsorship cash each race
+  for (const ab in career.drivers) { const d = career.drivers[ab]; if (d.teamIdx === career.teamIdx && d.payDriver) payIncome += PAY_DRIVER_INCOME; }
+  const net = prize + grant + supply + sponsorIncome + payIncome - runCost - salaries - bonuses - up - loanPay;
   career.money += net;
   if (bonuses > 0) pushNews(career, `Выплачены контрактные бонусы пилотам: $${(bonuses / 1000).toFixed(2)}M.`);
   if (career.loan) { career.loan.remaining -= loanPay; if (career.loan.remaining <= 0.5) { career.loan = null; pushNews(career, "Кредит полностью погашен."); } }
   const summary = {
     round: career.round, gp: CALENDAR[career.round].name, podium, bestPos,
-    prize, grant, supply, sponsorIncome, runningCost: runCost, salaries, bonuses, upkeep: up, loanPay, net, money: career.money,
+    prize, grant, supply, sponsorIncome, payIncome, runningCost: runCost, salaries, bonuses, upkeep: up, loanPay, net, money: career.money,
     classification: classification.map((c, i) => ({ pos: i + 1, abbrev: c.abbrev, team: c.team, retired: !!c.retired })),
   };
   career.board.confidence = Math.max(0, Math.min(1, (career.board.confidence ?? 0.5) + confidenceDelta(bestPos, career.board.targetPos)));
@@ -572,6 +575,10 @@ export function migrate(career) {
   if (career.v < 35) {                 // §Phase-3: per-driver peak-age archetype (early/normal/late)
     for (const ab in (career.drivers || {})) { const dr = career.drivers[ab]; if (dr && dr.peakAge == null) dr.peakAge = peakArchetype(ab); }
     career.v = 35;
+  }
+  if (career.v < 36) {                 // §Phase-3: pay-driver flag (brings sponsorship cash)
+    for (const ab in (career.drivers || {})) { const dr = career.drivers[ab]; if (dr && dr.payDriver == null) dr.payDriver = isPayDriver(ab, dr.overall); }
+    career.v = 36;
   }
   // names of dynamically-added drivers (academy promotions, retirement rookies) live on the driver
   // object, but DRIVER_NAME is rebuilt from the static roster each load — repopulate it so the UI

@@ -17,6 +17,14 @@ export function tyreWindowReadout(n, feedback) {
   return `~${Math.max(0, n - half)}–${n + half} кр до обрыва`;
 }
 
+// §Phase-3 — PAY DRIVER: a weaker driver who brings sponsorship money each race instead of commanding a
+// premium wage (MM's "weak-but-funded" prospect). Deterministic: only lower-overall drivers, ~1 in 3 of
+// them. The inbound cash flows in career.applyResult (PAY_DRIVER_INCOME).
+export function isPayDriver(abbrev, overall) {
+  if ((overall || 0) >= 0.75) return false;
+  return (mix32(((String(abbrev).charCodeAt(0) || 65) * 2654435761 + (String(abbrev).charCodeAt(1) || 90) * 131 + 555) >>> 0) / 4294967296) < 0.35;
+}
+
 // approximate 2026 driver ages (abbrev -> age).
 export const DRIVER_AGE = {
   NOR: 26, PIA: 25, ANT: 19, RUS: 28, VER: 28, HAD: 19, LEC: 28, HAM: 41, SAI: 31, ALB: 30,
@@ -86,6 +94,7 @@ export function initDrivers() {
       training: null, status: "equal", form: 0.5,       // G2 training focus · G3 #1/equal status + short-term form
       stats: zeroDriverStats(), request: null,          // G1 season stats · G3 pending driver ask
       peakAge: peakArchetype(dr.abbrev),                // §Phase-3: early/normal/late peak-age archetype
+      payDriver: isPayDriver(dr.abbrev, overall),       // §Phase-3: pay driver (brings cash, see applyResult)
     };
   }));
   return d;

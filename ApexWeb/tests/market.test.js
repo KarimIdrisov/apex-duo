@@ -1,7 +1,26 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { initDrivers, DRIVER_NAME } from "../src/drivers.js";
-import { driverValue, availableDrivers, signDriver, aiChurn } from "../src/market.js";
+import { initDrivers, DRIVER_NAME, isPayDriver } from "../src/drivers.js";
+import { driverValue, availableDrivers, signDriver, aiChurn, signBonusInterest, SIGN_BONUS } from "../src/market.js";
+import { newCareer } from "../src/career.js";
+
+test("§Phase-3 signing bonus: bounded acceptance boost, charged upfront (not the wage)", () => {
+  assert.ok(signBonusInterest(2500) > 0 && signBonusInterest(0) === 0, "a bonus lifts acceptance");
+  assert.ok(signBonusInterest(1e7) <= SIGN_BONUS.maxInterest + 1e-9, "capped — cash can't buy a guaranteed yes");
+  const c = newCareer({ teamIdx: 5, seed: 1 });
+  c.money = 1e7;   // plenty to afford the fee — we isolate the bonus charge
+  const out = Object.keys(c.drivers).find(a => c.drivers[a].teamIdx === 5);
+  const inAb = Object.keys(c.drivers).find(a => c.drivers[a].teamIdx !== 5);
+  const m0 = c.money;
+  const res = negotiateSign(c, inAb, out, { force: true, length: 2, signBonus: 1000, teamStrength: 0.6 });
+  assert.ok(res.ok, "force signs");
+  assert.ok((m0 - c.money) >= 1000, "the signing bonus is charged on top of the fee");
+});
+
+test("§Phase-3 isPayDriver only tags weaker drivers; deterministic", () => {
+  assert.equal(isPayDriver("ZZ", 0.95), false, "a strong driver is never a pay driver");
+  assert.equal(isPayDriver("ZZ", 0.7), isPayDriver("ZZ", 0.7), "deterministic");
+});
 
 function career(teamIdx = 0) { return { teamIdx, money: 200000, drivers: initDrivers(), seed: 1 }; }
 const grid2 = c => { const n = {}; for (const a in c.drivers) n[c.drivers[a].teamIdx] = (n[c.drivers[a].teamIdx] || 0) + 1; return n; };

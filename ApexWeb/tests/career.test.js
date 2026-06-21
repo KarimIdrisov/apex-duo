@@ -27,6 +27,14 @@ test("§Phase-6 seasonAwards: MotS = the constructor that most beat its tier", (
   assert.ok(aw.motsOver > 0);
 });
 
+test("§Phase-3 pay driver brings sponsorship cash each race (income line)", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  const a = Object.keys(c.drivers).find(ab => c.drivers[ab].teamIdx === 0);
+  c.drivers[a].payDriver = true;
+  const sum = applyResult(c, TEAMS.flatMap(t => t.drivers.map(d => ({ abbrev: d.abbrev, team: t.name, retired: false }))));
+  assert.ok(sum.payIncome >= 320, "a pay driver in the lineup adds an income line");
+});
+
 test("§Phase-3 under-valuing a driver (paid far less than teammate) costs morale vs equal pay", () => {
   const mk = gap => {
     const c = newCareer({ teamIdx: 0, seed: 1 });
@@ -231,7 +239,7 @@ test("applyResult books prize + sponsor income minus running cost into a net led
   const sum = applyResult(c, order);
   assert.ok(sum.prize > 0 && sum.sponsorIncome > 0 && sum.runningCost === runningCostFor(CALENDAR[0]));   // §Phase-6: per-track running cost (round 0)
   assert.ok(sum.salaries >= 0);
-  assert.equal(sum.net, sum.prize + sum.grant + sum.supply + sum.sponsorIncome - sum.runningCost - sum.salaries - sum.bonuses - sum.upkeep - sum.loanPay);
+  assert.equal(sum.net, sum.prize + sum.grant + sum.supply + sum.sponsorIncome + sum.payIncome - sum.runningCost - sum.salaries - sum.bonuses - sum.upkeep - sum.loanPay);
   assert.equal(c.money, before + sum.net + (sum.eventDelta || 0));   // a rare one-off money event is booked outside the race ledger
   assert.equal(sum.bestPos, 1);
 });
@@ -335,7 +343,7 @@ test("applyResult books driver salaries as an expense + updates driver morale", 
     ...TEAMS.flatMap((t, i) => i === 0 ? [] : t.drivers.map(d => ({ abbrev: d.abbrev, team: t.name })))];
   const sum = applyResult(c, order);
   assert.ok(sum.salaries > 0, "player driver salaries charged");
-  assert.equal(sum.net, sum.prize + sum.grant + sum.supply + sum.sponsorIncome - sum.runningCost - sum.salaries - sum.bonuses - sum.upkeep - sum.loanPay);
+  assert.equal(sum.net, sum.prize + sum.grant + sum.supply + sum.sponsorIncome + sum.payIncome - sum.runningCost - sum.salaries - sum.bonuses - sum.upkeep - sum.loanPay);
   assert.ok(c.drivers["NOR"].morale > 0.6, "a P1 finish (beats expected) lifts morale");
 });
 
@@ -370,7 +378,7 @@ test("applyResult books facility upkeep as an expense", () => {
     ...TEAMS.flatMap((t, i) => i === 0 ? [] : t.drivers.map(d => ({ abbrev: d.abbrev, team: t.name })))];
   const sum = applyResult(c, order);
   assert.ok(sum.upkeep > 0, "upkeep charged");
-  assert.equal(sum.net, sum.prize + sum.grant + sum.supply + sum.sponsorIncome - sum.runningCost - sum.salaries - sum.bonuses - sum.upkeep - sum.loanPay);
+  assert.equal(sum.net, sum.prize + sum.grant + sum.supply + sum.sponsorIncome + sum.payIncome - sum.runningCost - sum.salaries - sum.bonuses - sum.upkeep - sum.loanPay);
 });
 
 test("migrate upgrades a v4 save to v5 (adds staff)", () => {
