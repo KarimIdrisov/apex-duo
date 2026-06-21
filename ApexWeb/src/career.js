@@ -17,7 +17,7 @@ import { initPitCrew, tickRacePitCrew, restPitCrew, tickInjuriesPerRace, tickOff
 import { ensureRivals, rivalMoraleDelta } from "./rivalry.js";
 import { sponsorIncomeMult, startBudgetMult, puWearMult, driverDevMult } from "./directors.js";
 import { pushNews, boardReaction, confidenceDelta } from "./news.js";
-import { seasonObjectives, evaluateObjectives, regResetFor, regArcNote } from "./board.js";
+import { seasonObjectives, evaluateObjectives, regResetFor, regResetForCareer, regArcNote } from "./board.js";
 
 // championship points for the top 10 finishers (current F1 system).
 // §Phase-6 — selectable points systems (an MM-faithful "ruleset" option; balance-safe — scoring only,
@@ -779,7 +779,7 @@ export function newSeason(career) {
   fresh.rivalJuniors = JSON.parse(JSON.stringify(career.rivalJuniors || []));   // rival-academy claims carry over
   { const ad = developAcademy(fresh, fresh.season);   // D-v2: feeder seasons (SL + dev + graduation), loans & poaching
     for (const n of (ad.news || [])) pushNews(fresh, n); }
-  const reg = regResetFor(fresh.season);                       // D8: regulation arc — a big shake-up on a cycle
+  const { reg, deep } = regResetForCareer(fresh.season, fresh.parts);   // §item-7: cadence reset, DEEPENED when the grid has converged near the ceiling (measured on the carried parts, pre-trim)
   for (const tn in fresh.parts) for (const k in fresh.parts[tn]) fresh.parts[tn][k] *= reg;            // regs change: redevelop parts
   for (const k in fresh.puParts) fresh.puParts[k] *= reg;                                              // regs trim engine dev too
   // --- winter window (Phase 3): the off-season is a long development gap. Regs reset (above), then
@@ -799,6 +799,7 @@ export function newSeason(career) {
   fresh.board.objectives = seasonObjectives(fresh.board.targetPos); fresh.board.podiums = 0; fresh.board.pointFinishes = 0;   // D8: new season's objectives
   pushNews(fresh, regArcNote(fresh.season));                   // D8: telegraph the regulation cadence
   pushNews(fresh, `Сезон ${fresh.season}: смена регламента — разработка частично обнулена.`);
+  if (deep) pushNews(fresh, "🏁 Поле сошлось у потолка — глубокий регламентный сброс перетасовал преимущество и открыл новый виток.");   // §item-7: convergence-triggered deep reset
   const en = eraNote(fresh.season);                            // P5: which parts the new regulation era rewards
   pushNews(fresh, `Регламентная эра ${en.era + 1}: упор на «${PART_LABEL[en.hot] || en.hot}», слабее отдача от «${PART_LABEL[en.cold] || en.cold}».`);
   return fresh;

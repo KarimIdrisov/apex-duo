@@ -37,3 +37,25 @@ export function regArcNote(season) {
     ? "⚠ Большие изменения регламента: разработка сильно обнулится."
     : "Регламент стабилен: развитие частично переносится.";
 }
+
+// §Phase-4 item 7 — a deeper, THRESHOLD-triggered reset layered on the cadence. When the grid's development
+// has CONVERGED (the field has piled levels onto the cars and everyone is bunched near the ceiling), the
+// regulations shake the grid harder — carryFactor → REG_DEEP — independent of the 3-season cadence. This is
+// MM's "the field caught up, so the rules reset the advantage" feel, and it keeps a fast-developing era from
+// running away. Deterministic (reads developed part levels only) and anti-runaway, so it's balance-safe.
+export const REG_DEEP = 0.25;        // carryFactor on a convergence-triggered deep reset (masterplan §6)
+export const REG_CONVERGE = 0.095;   // field-average developed part level above which the grid has "converged"
+// field-average developed part level across all teams (≈0 at the start of an era, rises as everyone develops).
+export function devMaturity(parts) {
+  if (!parts) return 0;
+  let sum = 0, n = 0;
+  for (const tn in parts) { const p = parts[tn]; for (const k in p) { sum += p[k] || 0; n++; } }
+  return n ? sum / n : 0;
+}
+// the effective reset for the upcoming season: the DEEPER of the cadence reset and (when the field has
+// converged) the threshold deep reset. `deep` flags a convergence-triggered reset stronger than the cadence.
+export function regResetForCareer(season, parts) {
+  const cadence = regResetFor(season);
+  const reg = (devMaturity(parts) >= REG_CONVERGE) ? Math.min(cadence, REG_DEEP) : cadence;
+  return { reg, deep: reg < cadence };
+}
