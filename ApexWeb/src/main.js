@@ -301,6 +301,7 @@ function onCommand(cmd) {
     case "set_engine": ctx.race?.setEngine(cmd.car, cmd.mode); break;
     case "set_order":  ctx.race?.setOrder(cmd.car, cmd.mode); break;
     case "set_team_order": ctx.race?.setTeamOrder(cmd.mode); break;
+    case "deploy_perk": if (ctx.race?.deployPerk(cmd.car, cmd.key)) pushRaceState(); break;   // §Phase-5 mechanic perk (HUD offers only Chemistry-unlocked perks; sim enforces once-per-race)
     case "request_pit": ctx.race?.requestPit(cmd.car, cmd.compound); break;
     case "toggle_pause":
       ctx.paused = !ctx.paused;
@@ -494,6 +495,7 @@ function raceSnapshot() {
       miniColors: c.player ? c.miniColors : undefined, sectorTimes: c.player ? c.sectorTimes : undefined,
       parts: c.player ? c.parts : undefined, partFail: c.player ? c._partFail : undefined,   // §Phase-2 part condition (HUD)
       feedback: (c.player && c.attrs) ? c.attrs.race_iq : undefined,   // §Phase-5: driver Feedback → trustworthiness of the tyre-life readout
+      perkUsed: c.player ? !!c._perkUsed : undefined, perkLaps: (c.player && c._perk) ? c._perk.lapsLeft : undefined,   // §Phase-5 mechanic perk state (HUD)
     })),
   };
 }

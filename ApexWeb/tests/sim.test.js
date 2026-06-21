@@ -50,6 +50,28 @@ test("push is faster than conserve, all else equal", () => {
   assert.ok(r.cars[0].avgLap < r.cars[1].avgLap, "push should average faster");
 });
 
+test("§Phase-5 mechanic perk: deployPerk applies a bounded effect, once per race", () => {
+  function wearAfter(deploy) {
+    const r = new Race(field(), TRACK, 4242);
+    r.cars[0].car = { ...r.cars[0].car, rel: 1 };           // no DNF confound
+    if (deploy) assert.equal(r.deployPerk(0, "tyresave"), true, "tyresave deploys");
+    let g = 0; while (r.cars[0].lap < 4 && g++ < 60000) r.step();
+    return r.cars[0].wear;
+  }
+  assert.ok(wearAfter(true) < wearAfter(false), "tyresave reduces wear over its window");
+  // once per race: a second deploy is rejected
+  const r = new Race(field(), TRACK, 1);
+  assert.equal(r.deployPerk(0, "tyresave"), true);
+  assert.equal(r.deployPerk(0, "fuelsave"), false, "only one perk per race");
+  assert.equal(r.deployPerk(0, "nope"), false, "unknown perk → no-op");
+  // one-shot cooldown resets tyre temperature into the window and counts as the deploy
+  const r2 = new Race(field(), TRACK, 2);
+  r2.cars[0].tyreTemp = 1.4;
+  assert.equal(r2.deployPerk(0, "cooldown"), true);
+  assert.equal(r2.cars[0].tyreTemp, 1, "cooldown resets temp to the window");
+  assert.equal(r2.deployPerk(0, "tyresave"), false, "cooldown used the once-per-race deploy");
+});
+
 test("MM burst modes flow through the sim: overtake faster + burns more; attack faster than push", () => {
   const r = new Race(field(), TRACK, 5);
   // isolate the levers: identical cars/drivers, rel=1 (no DNF confound). _pin (set by the public

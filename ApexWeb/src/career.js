@@ -6,6 +6,7 @@ import { suitorOffer, parentPullout, moneyEvent, gridChurn } from "./team_events
 import { defaultSponsors, titleOffers, evaluateSponsor, replacementSponsor } from "./sponsors.js";
 import { tickDevelopment, SUPPLY_INCOME, SUPPLY_FEE, runInParts, PU_POOL, PU_GRID_PEN, puWearForRace, PU_TOKENS_PER_SEASON, engineModeStress, eraNote, PART_LABEL, supplyFeeMult } from "./development.js";
 import { neutralChassis } from "./chassis.js";
+import { CHEM_START, chemAfterRace } from "./perks.js";
 import { gapDays, offseasonDays } from "./season_dates.js";
 import { initDrivers, developDrivers, retirePass, updateMorale, tickDriverRace, makeDriverRequest, maybeGainTrait, zeroDriverStats, salaryFor, DRIVER_NAME } from "./drivers.js";
 import { driverAttrs, assignTraits, TRAITS, overallToStars } from "./team.js";
@@ -35,7 +36,7 @@ export function pointsFor(career, i) {
 // prize money ($k) by race-finish position — a simple per-race payout (M2 deepens income).
 export const PRIZE = [1200, 1000, 850, 720, 620, 540, 470, 410, 360, 320, 280, 250, 220, 200, 180, 160, 150, 140, 130, 120, 110, 100];
 
-export const CAREER_V = 32;           // career save schema version
+export const CAREER_V = 33;           // career save schema version
 export const REG_RESET = 0.5;         // each season's regulation change trims everyone's car development
 export const RUNNING_COST = 800;      // $k per-race operating cost (M5 facilities refine it)
 // §Phase-6 — solvency + the board ultimatum that make money & confidence BITE (career.board.ultimatum is null-safe/additive).
@@ -117,6 +118,7 @@ export function newCareer({ teamIdx = 0, seed = 1, coop = false, directors = [],
 
     concept: "balanced",                                            // E3 car concept
     chassis: neutralChassis(),                                      // Phase 4: pre-season chassis design (supplier ritual → character traits)
+    mechChem: { p1: CHEM_START, p2: CHEM_START },                   // §Phase-5: per-car race-mechanic chemistry (gates the in-race perks)
     pu: { pool: PU_POOL, used: 1, wear: 0, penalty: 0 }, aiPu: {},   // E4 PU season allocation · E9 AI PU pools
     capSpent: 0, loan: null, seasonPayout: null, sponsorOffer: null,
     backer: backerFor(TEAMS[teamIdx].name),    // funding archetype (works/independent + grant + PU)
@@ -143,6 +145,7 @@ export function isSeasonOver(career) { return career.round >= CALENDAR.length; }
 // finishing order [{abbrev, team, retired}] (index 0 = winner). Mutates career; returns a summary.
 export function applyResult(career, classification, raceInfo = {}) {
   ensureRivals(career.drivers, career.teamIdx);   // rivalries: keep each player driver's rival valid
+  if (career.mechChem) for (const pl of ["p1", "p2"]) career.mechChem[pl] = chemAfterRace(career.mechChem[pl]);   // §Phase-5: a kept mechanic↔driver pairing builds chemistry each race (unlocks stronger perks)
   const posOfAbbrev = {};                          // finishing position by abbrev (for rival morale)
   classification.forEach((c, i) => { posOfAbbrev[c.abbrev] = i + 1; });
   const podium = [];
@@ -530,6 +533,10 @@ export function migrate(career) {
     const ppl = career.staff && career.staff.people;
     if (ppl) for (const role in ppl) { const p = ppl[role]; if (p && (p.age == null || p.potential == null)) { const g = staffGrowth(p.rating || 0.6, (career.seed || 1) + role.charCodeAt(0)); if (p.age == null) p.age = g.age; if (p.potential == null) p.potential = Math.max(p.rating || 0, g.potential); } }
     career.v = 32;
+  }
+  if (career.v < 33) {                 // §Phase-5: mechanic↔driver chemistry (gates the in-race perks)
+    if (career.mechChem == null) career.mechChem = { p1: CHEM_START, p2: CHEM_START };
+    career.v = 33;
   }
   // names of dynamically-added drivers (academy promotions, retirement rookies) live on the driver
   // object, but DRIVER_NAME is rebuilt from the static roster each load — repopulate it so the UI

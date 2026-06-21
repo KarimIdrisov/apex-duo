@@ -3,6 +3,7 @@ import { RNG, mix32 } from "./rng.js";
 import { COMPOUNDS, PACE_MODES, ENGINE_MODES, SKILL_K, CAR_K, CAR_PACE_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP, TYRE, DIRTY_GAP, EVENT, ATTRW, AI_HANDICAP, AI_NOISE, AI_FORM, RACE_FORM, DEFEND_ROLL, DEFEND_MAX, DNF_CONSIST, INCIDENT, FATIGUE_K, FATIGUE_PUSH } from "./data.js";
 import { startFuel, burnFor, weightTerm, engineTerm, fuelLaps } from "./fuel.js";
 import { tyreTerm, warmStep } from "./tyres.js";
+import { perkEffect } from "./perks.js";
 import { miniSplits, N_MINI, sampleAt } from "./track.js";
 import { slipstream, dirtyWear, passAccrual, zoneFor } from "./overtake.js";
 import { PASS_CREDIT_CAP, PASS_CREDIT_DECAY, DIRTY_PACE_K, LAP1_CAUTION,
@@ -100,6 +101,20 @@ export class Race {
   // through (one-shot reposition). Applied in _resolveCombat only between two isPlayer same-team cars.
   setTeamOrder(mode) { if (TEAM_ORDER_KEYS.has(mode)) this.teamOrder = mode; }
 
+  // §Phase-5 mechanic perk: deploy a once-per-race, bounded effect on a player car. One-shot perks
+  // (cooldown) apply instantly (reset tyre temp into the window); the rest arm a few-lap wear/fuel/pace
+  // modifier (decremented at each lap end). Ignored if the car already used its perk this race. Returns
+  // true if applied. Perks are opt-in deploys — a car never auto-gets one, so the balance harness is
+  // byte-identical (c._perk stays null).
+  deployPerk(i, key) {
+    const c = this.cars[i]; if (!c || c.retired || c._perkUsed) return false;
+    const fx = perkEffect(key); if (!fx) return false;
+    c._perkUsed = true;
+    if (fx.oneShot) { c.tyreTemp = 1; return true; }        // instant: tyres back in the operating window
+    c._perk = { ...fx, lapsLeft: fx.laps };
+    return true;
+  }
+
   // stateless lap-keyed RNG for event rolls (order lock-up, incident, caution) — deterministic,
   // independent of the per-tick rng/erng streams and of draw order. kind: 1=lockup 2=incident 3=caution.
   _keyRng(idx, lap, kind) {
@@ -119,6 +134,7 @@ export class Race {
     s += engineTerm(c.engine);          // fuel push/save lever
     s += weightTerm(c.fuel);            // heavy tank = slower (eases as fuel burns)
     s += c.setupBonus;                                           // <=0, faster when set well
+    if (c._perk) s -= c._perk.paceBonus;                         // §Phase-5: an active "pushnow" mechanic perk (default perk = none → 0)
     s += this.rng.noise(0.06) * (1.3 - ATTRW.noise * A(c).consistency);      // consistency steadies the lap
     s += c._dirtyPace || 0;                                                   // dirty-air pace loss (set by _resolveCombat, §18.11)
     s += c._brakeLimp || 0;                                                   // limping with a failed non-critical part (§Phase-2)
@@ -189,7 +205,7 @@ export class Race {
         const drvSmooth = 1 - ATTRW.smoothWear * (A(c).smoothness - 0.5) * 2;   // smooth inputs save the tyres a touch (§18.7 r3)
         const orderWear = c._orderBit ? (c.order === "attack" ? ATTACK_WEAR_MULT : c.order === "defend" ? DEFEND_WEAR_MULT : 1) : 1;
         const hotWear = 1 + TYRE.hotWearK * Math.max(0, c.tyreTemp - 1);   // overheating chews the tyre (§item-2)
-        c.wear += (comp.wear * pm.wear * drvTyre * carTyre * drvSmooth * orderWear * hotWear) + c._dirtyWear;
+        c.wear += (comp.wear * pm.wear * drvTyre * carTyre * drvSmooth * orderWear * hotWear * (c._perk ? c._perk.wearMult : 1)) + c._dirtyWear;
         c._dirtyWear = 0;
         // two-sided temp: aggressive pace/engine drives the target above the optimal window (overheat); easing toward it cools when backed off.
         // Phase 4: the chassis "Tyre Heating" trait (car.tyreHeat, default 1) scales how hard the same effort overheats — a cool chassis tolerates aggression, a hot one forces style-flicking.
@@ -197,8 +213,9 @@ export class Race {
         c.tyreTemp = warmStep(c.tyreTemp, c.tyre, heatTarget);
         this._serveOrderCost(c);   // temp scrub + held-lap counter + lap-keyed lock-up roll (clears _orderBit)
         const smooth = 1.1 - ATTRW.fuel * A(c).smoothness;              // smoother driver burns a touch less
-        c.fuel -= burnFor(c.engine, c.car.fuel) * smooth;
+        c.fuel -= burnFor(c.engine, c.car.fuel) * smooth * (c._perk ? c._perk.fuelMult : 1);
         c.tyreAge += 1;
+        if (c._perk && --c._perk.lapsLeft <= 0) c._perk = null;          // §Phase-5: the perk's few-lap window expires
         this._serveLapEnd(c); // phase 3: pit + DNF (finishers handled in order())
       }
     }

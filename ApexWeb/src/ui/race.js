@@ -11,6 +11,7 @@ import { TRACK_SHAPES } from "../track_shapes.js";
 import { effectiveTrack } from "../track_store.js";
 import { pitLaneSample, advancePitPhase } from "../pitlane.js";
 import { tyreWindowReadout } from "../drivers.js";
+import { availablePerks } from "../perks.js";
 
 // MM 5-step pace ladder (most aggressive → most conservative) and the engine ladder incl. the burst modes.
 const PACE = ["attack", "push", "balanced", "conserve", "backup"], ENGINE = ["save", "standard", "push", "overtake", "superovertake"];
@@ -277,6 +278,8 @@ function buildHud(root, ctx) {
         <div class="seg" id="d-order">${ORDER.map(o => `<button data-v="${o}">${ORDER_L[o]}</button>`).join("")}</div>
         <p class="label" style="margin-top:8px">Команда <span class="label" style="margin:0;opacity:.7">обе машины</span></p>
         <div class="seg" id="d-team">${TEAM_ORDER.map(o => `<button data-v="${o}">${TEAM_ORDER_L[o]}</button>`).join("")}</div>
+        <p class="label" style="margin-top:8px">Перк механика <span id="d-perk-hint" class="label" style="margin:0;opacity:.7"></span></p>
+        <div class="seg" id="d-perk"></div>
         <div id="d-forecast" style="margin-top:8px;display:none;border-radius:8px;padding:6px 8px;font-size:12px"></div>
         <p class="label" style="margin-top:8px">Пит — компаунд <span id="d-weather"></span></p>
         <div class="seg" id="d-compound">${["soft","medium","hard","inter","wet"].map(t => `<button data-v="${t}">${tyreIcon(t, 18)}</button>`).join("")}</div>
@@ -306,6 +309,7 @@ function buildHud(root, ctx) {
   root.querySelector("#d-engine").onclick = e => { const v = e.target.dataset && e.target.dataset.v; if (v) ctx.send({ cmd: "set_engine", car: myIdx(), mode: v }); };
   root.querySelector("#d-order").onclick = e => { const v = e.target.dataset && e.target.dataset.v; if (v) ctx.send({ cmd: "set_order", car: myIdx(), mode: v }); };
   root.querySelector("#d-team").onclick = e => { const v = e.target.dataset && e.target.dataset.v; if (v) ctx.send({ cmd: "set_team_order", mode: v }); };
+  root.querySelector("#d-perk").onclick = e => { const k = e.target.dataset && e.target.dataset.key; if (k) { sfx.click?.(); ctx.send({ cmd: "deploy_perk", car: myIdx(), key: k }); } };
   root.querySelector("#d-compound").onclick = e => { const b = e.target.closest("button"); if (b && b.dataset.v) { ctx.nextCompound = b.dataset.v; updateHud(root, ctx, ctx.snapshot); } };
   root.querySelector("#d-pit").onclick = () => { sfx.pit(); ctx.send({ cmd: "request_pit", car: myIdx(), compound: ctx.nextCompound || "medium" }); };
   root.querySelector("#d-pause").onclick = () => ctx.send({ cmd: "toggle_pause" });
@@ -403,6 +407,18 @@ function updateHud(root, ctx, snap) {
   const oh = $("#d-order-hint"); if (oh) oh.textContent = me.inFight ? "в борьбе" : "—";
   const og = $("#d-order"); if (og) og.style.opacity = me.inFight ? "1" : "0.6";   // dim when not racing anyone
   for (const b of $("#d-team").children) b.classList.toggle("on", b.dataset.v === (snap.teamOrder || "none"));
+  { // §Phase-5 mechanic perk: offer the Chemistry-unlocked perks; once deployed, show the active window / used state
+    const pe = $("#d-perk"), ph = $("#d-perk-hint");
+    if (pe) {
+      if (!ctx.career || !ctx.career.mechChem) { pe.innerHTML = `<span class="label" style="margin:0;opacity:.6">—</span>`; if (ph) ph.textContent = ""; }
+      else {
+        const chem = ctx.career.mechChem[ctx.myPlayer];
+        if (ph) ph.textContent = `химия ${Math.round((chem ?? 0.5) * 100)}%`;
+        if (me && me.perkUsed) pe.innerHTML = me.perkLaps ? `<span class="label" style="margin:0;color:var(--good)">перк активен · ${me.perkLaps} кр</span>` : `<span class="label" style="margin:0;opacity:.7">перк использован</span>`;
+        else { const av = availablePerks(chem); pe.innerHTML = av.length ? av.map(p => `<button data-key="${p.key}" title="${p.desc}">${p.label}</button>`).join("") : `<span class="label" style="margin:0;opacity:.7">нет доступных (низкая химия)</span>`; }
+      }
+    }
+  }
   // SC/VSC pit window: a caution makes a stop cheaper — flag it on the pit button (the MM "box now!" moment)
   const pitBtn = $("#d-pit");
   if (pitBtn) {

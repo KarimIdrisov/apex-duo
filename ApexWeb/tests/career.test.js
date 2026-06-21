@@ -3,6 +3,16 @@ import assert from "node:assert/strict";
 import { TEAMS } from "../src/data.js";
 import { CALENDAR, POINTS, newCareer, applyResult, advanceRound, isSeasonOver,
   constructorStandings, driverStandings, boardOutcome, currentRound, newSeason, teamAppeal, appealMult, seasonAwards, expectedFinish, STEWARD_FINE } from "../src/career.js";
+import { CHEM_START } from "../src/perks.js";
+
+test("§Phase-5 mechChem: initialised at start, grows each race, migrates from v32", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  assert.ok(c.mechChem && c.mechChem.p1 === CHEM_START && c.mechChem.p2 === CHEM_START, "init at the start value");
+  const before = c.mechChem.p1;
+  const order = TEAMS.flatMap(t => t.drivers.map(d => ({ abbrev: d.abbrev, team: t.name, retired: false })));
+  applyResult(c, order);
+  assert.ok(c.mechChem.p1 > before && c.mechChem.p2 > before, "chemistry grows after a race");
+});
 
 test("§Phase-6 stewards' fines: on-track penalties cost cash + board confidence", () => {
   const clean = newCareer({ teamIdx: 0, seed: 1 });
