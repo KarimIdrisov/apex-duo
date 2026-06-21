@@ -3,6 +3,11 @@
 // NOR 38 / VER 1 / LEC 1 (top teams, some variety). Tuned in data.js:
 // SKILL_K 3.0->7.0 (widen field to land spread in corridor),
 // DNF_BASE 0.005->0.0075 (lift retirements into ~1-2 band). All 24 node:test pass.
+// 2026-06-21 large-sample re-check (200 races, default difficulty): DNF 2.12/race (all mechanical,
+// 0 fuel) and full-SC 0.305 — both in-band (SC corridor is 0.15-0.42, see sim.test.js). The 40-60
+// race probes below are HIGH-VARIANCE: one run printed DNF 2.42 / SC 0.38, which looked like drift
+// but was sample noise — the 200-race truth sits inside the corridors. Read the printed targets as
+// soft, and confirm any apparent DNF/SC drift at N>=200 before touching the (unchanged) constants.
 import { Race } from "../src/sim.js";
 import { TEAMS, TRACK, COMPOUNDS, QUALI2 } from "../src/data.js";
 import { driverAttrs, composeCar, genPersonnel } from "../src/team.js";

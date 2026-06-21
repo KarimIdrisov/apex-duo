@@ -49,6 +49,30 @@ export const PART_CEILING = 0.34;    // per-part development ceiling under curre
 export const RUNIN_RACES = 3;        // races a freshly-fitted part stays "unproven" (elevated breakage)
 const SIZE_DEBT = { small: 0.7, medium: 1.0, large: 1.3 };   // bigger parts carry more run-in risk
 
+// --- Phase 4: chassis character traits feed the game ONLY here (sim core untouched). The pre-season
+// "supplier ritual" (chassis.js) sets four 0..1 traits (0.5 = neutral); a neutral/absent chassis applies
+// ZERO effect, so old saves, AI cars, and the balance harnesses stay byte-identical. ---
+export const CEIL_IMPROV_SPAN = 0.16;   // Improvability swings the effective per-part ceiling ±0.08 (PART_CEILING 0.26..0.42)
+export const CHASSIS_TYRE_SPAN = 0.10;  // Tyre-Wear trait nudges the tyre indicator ±0.05 (kinder/harsher on rubber)
+export const CHASSIS_FUEL_SPAN = 0.10;  // Fuel-Consumption trait nudges the fuel indicator ±0.05 (stint length)
+export const CHASSIS_HEAT_SPAN = 0.50;  // Tyre-Heating trait scales the in-race overheat target ×0.75..1.25 (cooler/hotter)
+// effective dev ceiling for THIS career's parts: Improvability raises/lowers the headroom for the season.
+export function effCeiling(career) {
+  const imp = (career && career.chassis && typeof career.chassis.improv === "number") ? career.chassis.improv : 0.5;
+  return PART_CEILING + (imp - 0.5) * CEIL_IMPROV_SPAN;
+}
+// per-race chassis-trait deltas applied to the player's effective car (tyre/fuel indicators + a heat
+// scalar that survives composeCar and feeds the sim's overheat target). null when there is no chassis.
+export function chassisIndicatorDeltas(career) {
+  const ch = career && career.chassis;
+  if (!ch) return null;
+  return {
+    tyre: (((ch.tyreLife ?? 0.5) - 0.5)) * CHASSIS_TYRE_SPAN,
+    fuel: (((ch.economy  ?? 0.5) - 0.5)) * CHASSIS_FUEL_SPAN,
+    tyreHeat: 1 - (((ch.cooling ?? 0.5) - 0.5)) * CHASSIS_HEAT_SPAN,   // cooler chassis → <1 → less overheating
+  };
+}
+
 // parallel programs: a bigger factory runs more at once (factory 0→1 slot, 2→2, 4→3).
 export function maxProjects(career) {
   const fac = (career && career.staff && career.staff.facilities) ? (career.staff.facilities.factory || 0) : 0;
@@ -61,8 +85,9 @@ export function playerSlotCap(career) {
   const tot = maxProjects(career);
   return (career && career.coop) ? Math.ceil(tot / 2) : tot;
 }
-// diminishing-returns factor as a part matures toward the regulation ceiling (never fully zero).
-export function maturityFactor(level) { return Math.max(0.15, 1 - (level || 0) / PART_CEILING); }
+// diminishing-returns factor as a part matures toward the (Improvability-scaled) regulation ceiling —
+// never fully zero. `ceiling` defaults to the flat PART_CEILING for callers without a career context.
+export function maturityFactor(level, ceiling = PART_CEILING) { return Math.max(0.15, 1 - (level || 0) / (ceiling || PART_CEILING)); }
 // seeded outcome tier for a completed project. Aggressive widens BOTH tails (more прорыв AND more провал).
 export function projectOutcome(approachKey, roll) {
   const a = APPROACH[approachKey] || APPROACH.balanced;
@@ -112,7 +137,7 @@ export function forecastRange(career, part, size, approachKey = "balanced") {
   const spec = PROJECT_SIZE[size]; if (!spec) return null;
   const ap = APPROACH[approachKey] || APPROACH.balanced;
   const level = (career && career.parts && career.parts[teamNameOf(career)] && career.parts[teamNameOf(career)][part]) || 0;
-  const mid = spec.gain * ap.gainK * maturityFactor(level) * eraEmphasis((career && career.season) || 1, part) * devMult(career && career.staff) * (1 + academyDevBonus(career));
+  const mid = spec.gain * ap.gainK * maturityFactor(level, effCeiling(career)) * eraEmphasis((career && career.season) || 1, part) * devMult(career && career.staff) * (1 + academyDevBonus(career));
   const cq = corrQuality(career, part);
   const width = mid * (0.55 - 0.30 * cq);
   return { low: Math.max(0, mid - width / 2), mid, high: mid + width / 2, corrQuality: cq, miscorr: miscorrChance(career, part, approachKey) };
@@ -240,6 +265,12 @@ export function applyRaceMods(ind, career, track) {
   const cs = customerSpecDelta(career);                 // P4: a customer running last-year's engine spec loses a little power/rel
   if (cs) { out.power = clampInd("power", (out.power ?? 0.85) + cs.power); out.rel = clampInd("rel", (out.rel ?? 0.9) + cs.rel); }
   out = applyConceptBias(out, career && career.concept);   // E3: concept skews aero↔power (sim weights it by track)
+  const ch = chassisIndicatorDeltas(career);               // Phase 4: chassis character traits → tyre/fuel indicators + a heat scalar
+  if (ch) {
+    out.tyre = clampInd("tyre", (out.tyre ?? 1) + ch.tyre);
+    out.fuel = clampInd("fuel", (out.fuel ?? 1) + ch.fuel);
+    out.tyreHeat = ch.tyreHeat;                            // survives composeCar → feeds the sim's overheat target (default 1 = neutral)
+  }
   return out;
 }
 
@@ -348,7 +379,7 @@ export function bestPartForArea(career, indicator) {
     if (pk === "pu") continue;                                  // engine → ДВС tab
     const contrib = (PART_CONTRIB[pk] || {})[indicator] || 0;
     if (contrib <= 0 || active.has(pk)) continue;
-    const score = contrib * maturityFactor(parts[pk] || 0);     // diminishing returns toward the ceiling
+    const score = contrib * maturityFactor(parts[pk] || 0, effCeiling(career));     // diminishing returns toward the (Improvability-scaled) ceiling
     if (score > bestScore) { bestScore = score; best = pk; }
   }
   return best;
@@ -413,7 +444,7 @@ export function tickDevelopment(career, days = 14) {
     const ap = APPROACH[p.approach] || APPROACH.balanced;
     const level = myParts[p.part] || 0;
     // intended gain (P5 era emphasis tilts which parts develop fastest this era).
-    const intended = p.gain * ap.gainK * out.mult * maturityFactor(level) * eraEmphasis(career.season || 1, p.part) * devMult(career.staff) * (1 + academyDevBonus(career));
+    const intended = p.gain * ap.gainK * out.mult * maturityFactor(level, effCeiling(career)) * eraEmphasis(career.season || 1, p.part) * devMult(career.staff) * (1 + academyDevBonus(career));
     const areaKey = Object.keys(PART_CONTRIB[p.part] || {}).sort((a, b) => PART_CONTRIB[p.part][b] - PART_CONTRIB[p.part][a])[0];
     const dirGain = devGainMult(career, areaKey);   // aero/engine specialist lifts gain in their area
     // P1/P2: correlation roll — did the part match the simulation? A miss under-delivers vs forecast; a

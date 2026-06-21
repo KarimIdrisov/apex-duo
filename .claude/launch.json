@@ -10,8 +10,8 @@
     },
     {
       "name": "apexweb",
-      "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "8077"],
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["-e", "const http=require('http'),fs=require('fs'),path=require('path');const T={'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.css':'text/css','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon'};http.createServer((q,r)=>{let p=decodeURIComponent(q.url.split('?')[0]);if(p==='/')p='/index.html';const fp=path.join(process.cwd(),p);fs.readFile(fp,(e,d)=>{if(e){r.writeHead(404);r.end('404');}else{r.writeHead(200,{'Content-Type':T[path.extname(fp)]||'application/octet-stream'});r.end(d);}});}).listen(8077,()=>console.log('apexweb static on 8077'));"],
       "cwd": "ApexWeb",
       "port": 8077
     },

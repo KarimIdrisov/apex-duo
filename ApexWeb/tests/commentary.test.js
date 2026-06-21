@@ -48,3 +48,14 @@ test("incident + lockup events produce a non-empty Russian line", () => {
   assert.ok(describe({ type: "incident", lap: 4, a: 2, abbr: "VER", dnf: false }).length > 0);
   assert.ok(describe({ type: "lockup", lap: 7, a: 1, abbr: "LEC" }).length > 0);
 });
+
+test("§Phase-2 part failures get named lines (engine/gearbox DNF, brake limp)", () => {
+  const eng = describe({ type: "dnf", lap: 30, abbr: "VER", part: "engine" });
+  assert.ok(/мотор|силов/i.test(eng) && eng.includes("VER"), "engine DNF names the engine");
+  const gb = describe({ type: "dnf", lap: 30, abbr: "LEC", part: "gearbox" });
+  assert.ok(/коробк|передач|трансмисс/i.test(gb), "gearbox DNF names the gearbox");
+  assert.ok(/тормоз/i.test(describe({ type: "part", lap: 22, abbr: "HAM", part: "brakes" })), "brake limp mentions brakes");
+  // an unknown part (or no part) still falls back to the generic DNF line, never empty
+  assert.ok(describe({ type: "dnf", lap: 5, abbr: "NOR", part: "wing" }).length > 0);
+  assert.ok(describe({ type: "dnf", lap: 5, abbr: "NOR", part: null }).length > 0);
+});

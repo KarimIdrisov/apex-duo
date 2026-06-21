@@ -2,7 +2,56 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { TEAMS } from "../src/data.js";
 import { CALENDAR, POINTS, newCareer, applyResult, advanceRound, isSeasonOver,
-  constructorStandings, driverStandings, boardOutcome, currentRound, newSeason } from "../src/career.js";
+  constructorStandings, driverStandings, boardOutcome, currentRound, newSeason, teamAppeal, appealMult, seasonAwards, expectedFinish, STEWARD_FINE } from "../src/career.js";
+
+test("§Phase-6 stewards' fines: on-track penalties cost cash + board confidence", () => {
+  const clean = newCareer({ teamIdx: 0, seed: 1 });
+  const fined = newCareer({ teamIdx: 0, seed: 1 });
+  const s0 = applyResult(clean, classify(clean), {});
+  const s1 = applyResult(fined, classify(fined), { penalties: 2 });
+  assert.equal(s1.fine, 2 * STEWARD_FINE, "fine = penalties × STEWARD_FINE");
+  assert.equal(clean.money - fined.money, 2 * STEWARD_FINE, "the fined team is exactly the fine poorer");
+  assert.ok(fined.board.confidence < clean.board.confidence, "the fine also dings board confidence");
+  assert.equal(s0.fine, undefined, "no penalties → no fine");
+});
+
+test("§Phase-6 expected finish: bounded 1..N; a top team is expected ahead of a back team", () => {
+  const top = newCareer({ teamIdx: 0, seed: 1 });
+  const back = newCareer({ teamIdx: 10, seed: 1 });
+  assert.ok(expectedFinish(top) < expectedFinish(back), "the best car is expected ahead of the worst");
+  for (const c of [top, back]) { const e = expectedFinish(c); assert.ok(e >= 1 && e <= TEAMS.length, `bounded (${e})`); }
+});
+
+test("§Phase-6 ruleset: a career scores under its selected points system; persists across seasons", () => {
+  const std = newCareer({ teamIdx: 0, seed: 1 });
+  const cls = newCareer({ teamIdx: 0, seed: 1, scoring: "classic" });
+  assert.equal(std.scoring, "standard"); assert.equal(cls.scoring, "classic");
+  applyResult(std, classify(std)); applyResult(cls, classify(cls));
+  assert.equal(std.driverPts[classify(std)[0].abbrev], 25, "standard P1 = 25");
+  assert.equal(cls.driverPts[classify(cls)[0].abbrev], 10, "classic P1 = 10");
+  // run to season end and start the next — the scoring preset carries over
+  let g = 0; while (!isSeasonOver(cls) && g++ < 100) { applyResult(cls, classify(cls)); advanceRound(cls); }
+  assert.equal(newSeason(cls).scoring, "classic", "the ruleset persists into the next season");
+});
+
+test("§Phase-6 season awards: Driver of the Season rewards points relative to machinery; champion = most points", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  const back = TEAMS[10].drivers[0].abbrev;   // a weak-car driver
+  const top = TEAMS[0].drivers[0].abbrev;      // the best-car driver
+  c.driverPts[back] = 200; c.driverPts[top] = 210;
+  const aw = seasonAwards(c);
+  assert.equal(aw.champion, top, "champion = most points");
+  assert.equal(aw.dots, back, "Driver of the Season = the overperformer relative to machinery");
+  assert.ok(aw.dotsName && aw.championName, "award names resolve");
+});
+
+test("§Phase-6 marketability: a top team with star drivers has more sponsor appeal than a struggling one", () => {
+  const top = newCareer({ teamIdx: 0, seed: 1 });    // McLaren — star drivers, top tier
+  const back = newCareer({ teamIdx: 10, seed: 1 });  // Cadillac — weaker
+  assert.ok(teamAppeal(top) > teamAppeal(back), "stronger team + star drivers = more appeal");
+  assert.ok(appealMult(top) > appealMult(back), "appeal scales sponsor income");
+  for (const c of [top, back]) { const m = appealMult(c); assert.ok(m >= 0.7 - 1e-9 && m <= 1.3 + 1e-9, `mult ${m} bounded 0.7..1.3`); }
+});
 
 // a finishing order putting the player team's two drivers P1/P2, rest in TEAMS order.
 function classify(career) {
@@ -11,6 +60,35 @@ function classify(career) {
   const rest = TEAMS.flatMap((t, i) => i === career.teamIdx ? [] : t.drivers.map(d => ({ abbrev: d.abbrev, team: t.name })));
   return [...head, ...rest];
 }
+// the opposite: the player's two drivers finish LAST (a result that crushes board confidence).
+function loseClassify(career) {
+  const me = TEAMS[career.teamIdx];
+  const rest = TEAMS.flatMap((t, i) => i === career.teamIdx ? [] : t.drivers.map(d => ({ abbrev: d.abbrev, team: t.name })));
+  const mine = me.drivers.map(d => ({ abbrev: d.abbrev, team: me.name }));
+  return [...rest, ...mine];
+}
+
+test("§Phase-6: insolvency flags + a mid-season ultimatum that can sack you or grant a reprieve", () => {
+  // insolvent + low confidence → an ultimatum is issued; failing it next race sacks you mid-season
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  c.money = -3000; c.board.confidence = 0.15;
+  const s1 = applyResult(c, loseClassify(c));
+  assert.ok(s1.insolvent, "a deep negative balance flags insolvency");
+  assert.ok(c.board.ultimatum && c.board.ultimatum.round === 1, "an ultimatum is issued for next race");
+  advanceRound(c);
+  const s2 = applyResult(c, loseClassify(c));
+  assert.ok(s2.sacked && c.done === true && c.sacked === true, "failing the ultimatum sacks you mid-season");
+  assert.equal(boardOutcome(c).midSeason, true);
+
+  // reprieve path: low confidence issues an ultimatum, a strong result meets it
+  const c2 = newCareer({ teamIdx: 5, seed: 2 });
+  c2.board.confidence = 0.10;
+  applyResult(c2, loseClassify(c2)); advanceRound(c2);
+  assert.ok(c2.board.ultimatum, "low confidence issues an ultimatum");
+  const sr = applyResult(c2, classify(c2));
+  assert.ok(sr.ultimatumMet && !c2.sacked && !c2.done, "meeting the demand earns a reprieve, not a sack");
+  assert.equal(c2.board.ultimatum, null, "the ultimatum clears once resolved");
+});
 
 test("newCareer initialises zeroed standings for the full grid + a board target", () => {
   const c = newCareer({ teamIdx: 0, seed: 7 });
@@ -61,6 +139,16 @@ test("deterministic: same inputs -> identical standings", () => {
   const b = newCareer({ teamIdx: 5, seed: 9 }); applyResult(b, classify(b));
   assert.deepEqual(a.teamPts, b.teamPts);
   assert.deepEqual(a.driverPts, b.driverPts);
+});
+
+test("engine co-director (Моторист) spares the player PU — less wear per race, AI untouched", () => {
+  const plain = newCareer({ teamIdx: 4, seed: 3, directors: [] });
+  const engineer = newCareer({ teamIdx: 4, seed: 3, directors: [{ specialty: "engine" }] });
+  applyResult(plain, classify(plain));
+  applyResult(engineer, classify(engineer));
+  assert.ok(plain.pu.wear > 0, "the PU wears over a race");
+  assert.ok(engineer.pu.wear < plain.pu.wear, "the engine specialist wears it slower");
+  assert.ok(Math.abs(engineer.pu.wear / plain.pu.wear - 0.85) < 1e-6, "exactly puWearMult(engine)=0.85 applied");
 });
 
 // --- M2 finances + sponsors ---
@@ -138,7 +226,7 @@ test("migrate v8 -> v9 backfills persistent driver attrs + traits (D5)", () => {
     drivers: { VER: { teamIdx: 1, age: 28, overall: 0.95, morale: 0.6, contractSeasons: 3, salary: 500 } } };
   const up = migrate(v8);
   assert.equal(up.v, CAREER_V);
-  assert.equal(Object.keys(up.drivers.VER.attrs).length, 13);
+  assert.equal(Object.keys(up.drivers.VER.attrs).length, 14);   // 13 skill attrs + fitness (§Phase-3)
   assert.ok(up.drivers.VER.traits.includes("overtaker"));
 });
 

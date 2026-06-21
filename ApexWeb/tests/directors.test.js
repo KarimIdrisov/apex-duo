@@ -63,3 +63,13 @@ test("an aero specialist makes in-season aero R&D cheaper", () => {
   const spend = dirs => { const c = newCareer({ teamIdx: 0, seed: 1, directors: dirs }); const m0 = c.money; assert.ok(startProject(c, "floor", "small"), "project started"); return m0 - c.money; };
   assert.ok(spend([{ specialty: "aero" }, { specialty: "engine" }]) < spend([]), "aero specialist spends less on a floor (aero) project");
 });
+
+import { composePitCrew, initPitCrew } from "../src/pitcrew.js";
+
+test("a mechanic specialist trims the composed pit botch + disaster chance (main.js wiring)", () => {
+  const pc = composePitCrew(initPitCrew(0.6, 1));
+  const bm = botchMult(coop("mechanic", "aero"));
+  assert.ok(pc.botchChance * bm < pc.botchChance, "botch chance reduced");
+  assert.ok(pc.disasterChance * bm < pc.disasterChance, "disaster chance reduced");
+  assert.equal(botchMult(coop("aero", "engine")), 1, "no mechanic → botch unchanged");
+});

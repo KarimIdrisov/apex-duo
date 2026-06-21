@@ -78,9 +78,13 @@ export const COMPOUNDS = {
 // tyre temperature model. temp 0..1 (1 = in the window). Fresh tyres are cold.
 export const TYRE = {
   warmPen:  1.2,   // s/lap when fully cold (temp 0) -> rewards warming up
-  ease:     0.5,   // how fast temp eases toward 1 each lap (× compound.warm)
+  ease:     0.5,   // how fast temp eases toward the target each lap (× compound.warm)
   gridTemp: 0.55,  // tyre temp at the race start (formation lap warmed them)
   pitTemp:  0.20,  // tyre temp leaving the pits (cold out-lap)
+  // two-sided temperature (§item-2): optimal at temp 1.0; below = cold (warmPen), ABOVE = overheat.
+  // Aggressive driving (pace/engine `heat`) drives the target above 1.0; the overheat costs pace + wear.
+  hotPen:   1.0,   // s/lap per unit of temp above 1.0 (overheating tyres are slow)
+  hotWearK: 0.6,   // extra per-lap wear per unit of temp above 1.0 (heat chews the tyre)
 };
 
 // per-sector car fit: how strongly power (straights) / aero (corners) reshapes the
@@ -132,6 +136,8 @@ export const INCIDENT = {
   lap1:        6.0,    // ×this on the opening lap (first-corner chaos)
   dnfShare:    0.15,   // fraction of incidents that retire the car (else a recovered moment) — keeps total DNF in the ~1-2 corridor
   timeScrub:   0.30,   // tyre-temp scrubbed on a NON-DNF incident — the spin is felt (organic pace loss)
+  wetK:        1.1,    // §Phase-3: ×(1 + wetK·wetness) — a wet track breeds mistakes (manage the human)
+  cliffK:      0.6,    // §Phase-3: ×(1 + cliffK) once past the tyre cliff — worn rubber is twitchy
   scDnf:       1.0,    // caution-roll weight when the incident was a DNF        (×track.sc)
   scMinor:     0.5,    // caution-roll weight when the incident was minor        (×track.sc)
   maxCautions: 3,      // backstop on cautions per race
@@ -176,17 +182,55 @@ export const RACE_FORM   = 0.15;  // ±s/lap per-RACE "form" swing applied to EV
                                   // deterministic best-package lock the car-pace term would otherwise create (§18.1)
 
 // pace modes: pace offset (s/lap), wear multiplier, mechanical-risk multiplier
+// driver pace lever — MM's 5 driving styles (Attack..Back Up). The middle three (push/balanced/
+// conserve) are the calibrated originals (AI + balance harness use only these); attack/backup are the
+// two extra player-only steps (more pace + more wear/risk / cruise + save the car). risk feeds the
+// per-lap DNF + incident rolls, so Attack genuinely gambles the car.
+// `heat` = how far above the optimal tyre-temp window (1.0) this mode drives the tyres (two-sided temp,
+// §item-2). Only the aggressive modes heat; conserve/backup floor at the window so backing off COOLS an
+// overheated tyre back toward optimal. The AI uses only push/balanced/conserve, and push heats barely,
+// so AI-vs-AI pace is almost unchanged — the overheat lever is mostly the player's attack mode.
 export const PACE_MODES = {
-  conserve: { pace: 0.45, wear:0.80, risk:0.4 },
-  balanced: { pace: 0.00, wear:1.00, risk:1.0 },
-  push:     { pace:-0.45, wear:1.30, risk:1.8 },
+  attack:   { pace:-0.70, wear:1.70, risk:2.6, heat:0.28 },   // MM "Attack" — maximum pace, eats + overheats the tyres
+  push:     { pace:-0.45, wear:1.30, risk:1.8, heat:0.05 },
+  balanced: { pace: 0.00, wear:1.00, risk:1.0, heat:0.00 },
+  conserve: { pace: 0.45, wear:0.80, risk:0.4, heat:0.00 },
+  backup:   { pace: 0.75, wear:0.55, risk:0.2, heat:0.00 },   // MM "Back Up" — cruise, save tyres/fuel/the car
 };
+export const PACE_LADDER = ["attack", "push", "balanced", "conserve", "backup"];   // most aggressive → most conservative (UI stepper)
 
 // tuning constants (start points from race_sim.gd; calibrated in tools/balance.mjs)
 export const SKILL_K   = 4.5;    // s/lap per unit driver-pace above 0.5 (compressed from 7.0 so the CAR is co-primary — §18.1)
 export const CAR_PACE_K = 9.0;   // s/lap per unit ((power+aero)/2 − fieldMean): the ABSOLUTE car-performance term (§18.1)
 export const CAR_K     = 1.2;    // s/lap per (power-aero)*(pw-df) track-character bias (on top of the absolute term)
-export const DNF_BASE  = 0.0075; // per-lap mechanical-failure scale * (1-rel)
+export const DNF_BASE  = 0.0075; // per-lap mechanical-failure scale * (1-rel) — LEGACY flat roll, replaced by the part-condition system (§Phase-2); kept for the harness/reference
+// §Phase-2 — in-race part condition. Each part wears over the race under mode/pace stress and, in the
+// red zone, can FAIL: a critical part (engine/gearbox) retires the car (this REPLACES the flat DNF roll
+// above); a non-critical one (brakes) costs pace + forces a pit. car.rel (from R&D reliability) slows the
+// wear, so developing reliability visibly cuts red-zone risk. Tuned (tools/balance.mjs) to ~1 mech DNF/race.
+export const PARTS = {
+  engine:  { critical: true,  label: "Мотор",   base: 0.0120 },   // stressed by engine mode (push/overtake)
+  gearbox: { critical: true,  label: "КПП",     base: 0.0090 },   // stressed by aggressive pace (shifts)
+  brakes:  { critical: false, label: "Тормоза", base: 0.0105 },   // stressed by aggressive pace (braking)
+};
+export const PART_WEAR = {
+  yellow: 0.40, red: 0.18,        // condition zone thresholds (green > yellow > red)
+  relK: 1.8,                      // wear ×(1 − relK·(rel − 0.85)): a reliable car's parts last longer (centered on ~field-mean rel)
+  riskK: 0.28,                    // pace-mode risk adds to gearbox/brake stress (attack/push wear them more)
+  engK: 3.0,                      // engine-mode heat adds to engine stress (push/overtake/super wear it more)
+  // the critical-DNF roll keeps the calibrated flat rate (erng-stream-preserving) but is AMPLIFIED by how
+  // degraded the parts are — a part in the red zone sharply raises the failure chance (the MM tension you
+  // can react to by backing off or pitting to repair). yellow/red add to the multiplier per degraded part.
+  yellowRisk: 0.4, redRisk: 1.6,
+  failK: 0.55,                    // per-lap failure prob (×consist) for a non-critical part (brakes) in the red zone
+  brakeLimp: 2.5,                 // s/lap pace loss while limping on failed brakes (until the forced pit)
+  repair: 0.55,                   // condition a pit repair restores to a part
+  repairTime: { engine: 8, gearbox: 7, brakes: 3 },  // extra seconds folded into the stop to repair a part
+};
+// §Phase-3 — driver fitness/stamina: a late-race pace fade scaled by how far a driver's fitness sits
+// BELOW the field mean (centered → field-neutral). Grows with race progress; sustained push tires more.
+export const FATIGUE_K = 0.9;    // s/lap at race end per unit of (fieldMeanFitness − fitness)
+export const FATIGUE_PUSH = 0.4; // extra fade fraction while pushing hard (attack/push pace, OT engine)
 export const STEP      = 0.25;   // sim time-step (seconds)
 export const COMBAT_GAP = 0.8;   // seconds: within this, two cars fight
 // defence roll (§18.7/§18.2-OPEN): at the pass-completion threshold a strong defender can repel the move
@@ -230,12 +274,18 @@ export const LONG_RUN_LAPS = 10;                                // laps simulate
 export const PRAC_SIGNAL_K = 0.8;                               // setup closeness -> lap-time swing (the readable "feel" gauge)
 export const PRAC_SETUP_NOISE = 0.18;                           // s/lap setup-test noise at consistency 0 (scaled by 1-consistency)
 
-// engine modes: pace offset (s/lap), fuel burn multiplier. Replaces ERS_MODES.
+// engine modes: pace offset (s/lap), fuel burn multiplier. Replaces ERS_MODES. save/standard/push are
+// the calibrated originals (AI + harness use only these). overtake/superovertake are MM's burst modes —
+// a big pace jump for a heavy fuel burn (and they count as "push" for PU wear, sim.js pushTicks); player-
+// only. `spend` flags a mode that taxes the power unit (feeds the §E6/Phase-2 wear feed).
 export const ENGINE_MODES = {
-  save:     { pace:  0.35, burn: 0.85 },
-  standard: { pace:  0.00, burn: 1.00 },
-  push:     { pace: -0.30, burn: 1.20 },
+  save:          { pace:  0.35, burn: 0.85, heat: 0.00 },
+  standard:      { pace:  0.00, burn: 1.00, heat: 0.00 },
+  push:          { pace: -0.30, burn: 1.20, heat: 0.03, spend: true },
+  overtake:      { pace: -0.55, burn: 1.50, heat: 0.10, spend: true },   // MM "Overtake" — big burst, heavy burn + heat
+  superovertake: { pace: -0.85, burn: 1.90, heat: 0.18, spend: true },   // MM "Super Overtake" — maximum burst
 };
+export const ENGINE_LADDER = ["save", "standard", "push", "overtake", "superovertake"];   // UI stepper order
 // fuel as a hard resource. fuel is measured in lap-equivalents of standard burn.
 export const FUEL = {
   margin:  0.06,   // start with +6% over the exact race need

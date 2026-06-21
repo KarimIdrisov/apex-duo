@@ -37,6 +37,10 @@ const T = {
   penalty: ["⚠ Стюарды наказывают {a} — 5 секунд за контакт!", "{a} получает 5-секундный штраф за столкновение!", "Слишком дерзко от {a} — штраф 5 с от стюардов."],
   launch_good: ["Отличный старт {a} — отыгрывает позиции!", "{a} выстреливает со старта!", "Реактивный старт {a}!"],
   launch_bad: ["{a} провалил старт — буксует на месте!", "Заглох на старте {a} — теряет места!", "Плохой старт у {a}!"],
+  // §Phase-2 part failures — a critical part retires the car, a non-critical one forces a limp to the pits
+  dnf_engine: ["💥 Отказ мотора у {a} — сход!", "{a} встаёт: силовая установка сдалась.", "Дым из {a} — мотор приказал долго жить, DNF."],
+  dnf_gearbox: ["Коробка передач у {a} умерла — сход!", "{a} теряет передачи и сходит с гонки.", "Трансмиссия подвела {a} — DNF."],
+  part: ["Тормоза сдают у {a} — аварийный заезд в боксы!", "{a} теряет тормоза, ковыляет на ремонт!", "Проблема с тормозами у {a} — ползёт в боксы."],
 };
 
 export function describe(ev) {
@@ -44,6 +48,7 @@ export function describe(ev) {
   const key = (ev.type === "pass" && ev.rivalry) ? "pass_rivalry"
             : (ev.type === "pass" && ev.zone && T["pass_" + ev.zone]) ? "pass_" + ev.zone
             : (ev.type === "pit" && ev.mishap && T["pit_" + ev.mishap]) ? "pit_" + ev.mishap
+            : (ev.type === "dnf" && ev.part && T["dnf_" + ev.part]) ? "dnf_" + ev.part   // §Phase-2 named part failure
             : ev.type;
   const list = T[key];
   let s = list[pick(ev, list.length)];

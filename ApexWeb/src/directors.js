@@ -34,7 +34,7 @@ function areaWeight(career, areaKey) {                       // weight of whiche
 
 export function devCostMult(career, areaKey) { return 1 - DEV_DISCOUNT * areaWeight(career, areaKey); }
 export function devGainMult(career, areaKey) { return 1 + DEV_GAIN * areaWeight(career, areaKey); }
-// engine/mentor/mechanic effects below are consumed by the later race & driver wiring (PU wear, driver dev, pit botch) — built now, wired in that phase.
+// engine/mentor/mechanic race & driver effects: puWearMult → career.js (player PU wear), driverDevMult → tickDriverRace (in-season driver dev), botchMult → main.js (pit botch/disaster chance).
 export function puWearMult(career)       { return 1 - PU_WEAR_REDUCE * specialtyWeight(career, "engine"); }
 export function sponsorIncomeMult(career){ return 1 + SPONSOR_BONUS * specialtyWeight(career, "financier"); }
 export function startBudgetMult(career)  { return 1 + BUDGET_BONUS * specialtyWeight(career, "financier"); }

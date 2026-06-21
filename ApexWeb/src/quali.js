@@ -53,3 +53,9 @@ export function buildGrid(field, track, seed) {
     .map(f => ({ idx: f.idx, abbrev: f.abbrev, time: qualiLap(f, f.car, track, f.setupBonus ?? 0, f.risk ?? 0.5, r, carMean) }))
     .sort((a, b) => a.time - b.time);
 }
+
+// F1/MM start-tyre rule: the top-10 ran the Q3 pole shootout on softs, so they MUST start the race on
+// that soft set; cars eliminated earlier are free to choose and take the harder, longer-running medium.
+// slot is the 0-based grid position. Q3 size = the last QUALI2.IN entry (10).
+export const Q3_SIZE = QUALI2.IN[QUALI2.IN.length - 1];
+export function startCompoundForSlot(slot) { return slot < Q3_SIZE ? "soft" : "medium"; }

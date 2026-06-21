@@ -50,6 +50,103 @@ test("push is faster than conserve, all else equal", () => {
   assert.ok(r.cars[0].avgLap < r.cars[1].avgLap, "push should average faster");
 });
 
+test("MM burst modes flow through the sim: overtake faster + burns more; attack faster than push", () => {
+  const r = new Race(field(), TRACK, 5);
+  // isolate the levers: identical cars/drivers, rel=1 (no DNF confound). _pin (set by the public
+  // setters) blocks the AI brain, so the lever I set sticks and the OTHER lever stays at its default.
+  const idCar = { ...r.cars[0].car, rel: 1 };
+  for (const i of [0, 1, 2, 3]) { r.cars[i].car = idCar; r.cars[i].skill = r.cars[0].skill; r.cars[i].attrs = r.cars[0].attrs; }
+  r.setEngine(0, "overtake"); r.setEngine(1, "push");   // engine lever (pace stays default for both)
+  r.setPace(2, "attack");     r.setPace(3, "push");     // pace lever (engine stays default for both)
+  for (let i = 0; i < 4000; i++) r.step();
+  assert.ok(r.cars[0].avgLap < r.cars[1].avgLap, "overtake engine averages faster than push");
+  assert.ok(r.cars[0].fuel < r.cars[1].fuel, "overtake burns more fuel than push");
+  assert.ok(r.cars[0].pushTicks > 0, "overtake counts as a PU-spending mode (pushTicks)");
+  assert.ok(r.cars[2].avgLap < r.cars[3].avgLap, "attack pace averages faster than push pace");
+});
+
+test("MM tyre heat: sustained attack overheats the tyre (temp>1) + wears it faster than balanced (§item-2)", () => {
+  const r = new Race(field(), TRACK, 11);
+  const idCar = { ...r.cars[0].car, rel: 1 };
+  for (const i of [0, 1]) { r.cars[i].car = idCar; r.cars[i].skill = r.cars[0].skill; r.cars[i].attrs = r.cars[0].attrs; }
+  r.setPace(0, "attack"); r.setPace(1, "balanced");   // _pin blocks the AI brain (no pit/mode override)
+  for (let i = 0; i < 3000; i++) r.step();             // ~9 laps, before any stop
+  assert.ok(r.cars[0].tyreTemp > 1.0, `attack overheats past the window (temp=${r.cars[0].tyreTemp.toFixed(2)})`);
+  assert.ok(r.cars[1].tyreTemp <= 1.0 + 1e-9, "balanced stays in the optimal window");
+  assert.ok(r.cars[0].wear > r.cars[1].wear, "the overheating attacker wears its tyres faster");
+});
+
+test("Phase-2 parts: a less reliable car retires more often (part wear → DNF)", () => {
+  function dnfCount(rel) {
+    let dnf = 0;
+    for (let s = 0; s < 20; s++) {
+      const r = new Race(field(), TRACK, 3000 + s);
+      r.cars[0].car = { ...r.cars[0].car, rel };
+      let g = 0; while (!r.finished && g++ < 500000) r.step();
+      if (r.cars[0].retired) dnf++;
+    }
+    return dnf;
+  }
+  assert.ok(dnfCount(0.80) > dnfCount(0.995), "a fragile car retires far more than a bulletproof one");
+});
+
+test("Phase-2 parts: every car carries declining part conditions; a mechanical DNF names a critical part", () => {
+  const r = new Race(field(), TRACK, 11);
+  for (let i = 0; i < 1500; i++) r.step();
+  for (const c of r.cars) if (!c.retired) assert.ok(c.parts.engine < 1 && c.parts.gearbox < 1, "parts wear over the race");
+  let found = false;
+  for (let s = 0; s < 30 && !found; s++) {
+    const rr = new Race(field(), TRACK, 1000 + s);
+    let g = 0; while (!rr.finished && g++ < 500000) rr.step();
+    const e = rr.events.find(ev => ev.type === "dnf" && ev.part);
+    if (e) { found = true; assert.ok(["engine", "gearbox"].includes(e.part), `critical part named (${e.part})`); }
+  }
+  assert.ok(found, "at least one part-attributed mechanical DNF over 30 races");
+});
+
+test("Phase-2 parts: a failed non-critical part (brakes) makes the car limp, then the pit repairs it", () => {
+  const r = new Race(field(), TRACK, 7);
+  const c = r.cars[0];        // an AI car — limps straight to the box on a brake failure
+  c.parts.brakes = 0.005;     // deep red: very likely to fail within a few laps
+  let g = 0, sawLimp = false;
+  while (c.lap < 10 && g++ < 80000) {
+    r.step();
+    if (c._brakeLimp > 0) sawLimp = true;
+    if (sawLimp && c.pitStops > 0 && c._brakeLimp === 0) break;   // limped, then pitted + repaired
+  }
+  assert.ok(sawLimp, "deep-red brakes fail and the car limps (pace penalty)");
+  assert.ok(c.pitStops > 0, "the AI limps to the box");
+  assert.equal(c._brakeLimp, 0, "the stop clears the limp");
+  assert.ok(c.parts.brakes > 0.005, "the stop repaired the brakes above the failure point");
+});
+
+test("Phase-3 fitness: an unfit driver fades late while a fit one holds pace; the gap widens (§Phase-3)", () => {
+  const r = new Race(field(), TRACK, 5);
+  const a = r.cars[0], b = r.cars[1];
+  const id = { ...a.car, rel: 1 }; a.car = id; b.car = id; a.skill = b.skill; a.attrs = { ...a.attrs }; b.attrs = { ...a.attrs };
+  a.attrs.fitness = 0.92; b.attrs.fitness = 0.55;   // a fit, b unfit, identical otherwise
+  const lt = (c, lap) => { c.lap = lap; c.wear = 10; c.tyre = "medium"; c.tyreTemp = 1; c.fuel = 20; c.pace = "balanced"; c.engine = "standard"; c._form = 0; return r._lapTime(c); };
+  const early = lt(a, 2) - lt(b, 2), late = lt(a, 62) - lt(b, 62);
+  assert.ok(late < early - 0.2, "the fitness gap widens as the race wears on");
+  assert.ok(late < -0.3, "a fit driver is clearly ahead of an unfit one by the end");
+});
+
+test("Phase-3 mistakes: a wet track and worn-past-cliff tyres breed more incidents (§Phase-3)", () => {
+  function incidents(wetness, wear) {
+    const r = new Race(field(), TRACK, 3);
+    const c = r.cars[0]; c.attrs = { ...c.attrs, composure: 0.2 }; c.pace = "push"; c._inFight = true; c.tyre = "medium";
+    let n = 0;
+    for (let lap = 2; lap < 3000; lap++) {   // Monte-Carlo over the lap-keyed RNG (no race stepping — fast)
+      c.lap = lap; c.wear = wear; c.retired = false; r.wetness = wetness;
+      const before = r.events.length; r._rollIncident(c);
+      if (r.events.length > before) n++;
+    }
+    return n;
+  }
+  assert.ok(incidents(0.6, 10) > incidents(0, 10), "a wet track produces more mistakes than a dry one");
+  assert.ok(incidents(0, 95) > incidents(0, 10), "worn past the medium cliff (95>78) → more mistakes than fresh");
+});
+
 test("determinism: same seed -> identical finish order", () => {
   const a = runToFinish(7).order().map(c => c.abbrev);
   const b = runToFinish(7).order().map(c => c.abbrev);
@@ -104,6 +201,28 @@ test("on-track passing scales with the pace edge — a clearly faster car passes
     return n;
   }
   assert.ok(passesAtEdge(0.8) > passesAtEdge(0.1), "a faster car must convert its edge into more on-track passes");
+});
+
+test("MM team orders: hold keeps a faster teammate behind; swap waves it through (player cars only)", () => {
+  // cars[0] and cars[1] are TEAMS[0]'s two drivers — already the same team; flag them as the player's.
+  function setup() {
+    const r = new Race(field(), TRACK, 4000);   // a seed where a 0.8 s/lap edge does convert to a pass when free
+    const a = r.cars[0], b = r.cars[1];
+    a.isPlayer = true; b.isPlayer = true;
+    a.car = { ...a.car, rel: 1 }; b.car = { ...a.car };
+    a.attrs = { ...a.attrs, pace: 0.6 }; b.attrs = { ...a.attrs, pace: 0.6 + 0.8 / SKILL_K };  // b ~0.8s/lap faster
+    for (const c of r.cars) { if (c !== a && c !== b) { c.lap = 1; c.lapFrac = 0; } }   // clear the field for a 1v1
+    a.lap = 1; a.lapFrac = 0.50; b.lap = 1; b.lapFrac = 0.50 - 0.4 / TRACK.lt;            // b ~0.4s behind its own car
+    return { r, a, b };
+  }
+  const bAhead = (r, a, b) => { let g = 0; while (b.lap < 12 && g++ < 60000) { r.step(); if ((b.lap + b.lapFrac) > (a.lap + a.lapFrac)) return true; } return false; };
+  // control: free racing — the faster teammate passes
+  { const { r, a, b } = setup(); assert.ok(bAhead(r, a, b), "control: a faster teammate passes when free"); }
+  // hold: the faster teammate is pinned behind its own car for the whole stint
+  { const { r, a, b } = setup(); r.setTeamOrder("hold"); assert.ok(!bAhead(r, a, b), "hold: the faster teammate never passes its own car"); }
+  // swap: the trailing teammate is waved through (one-shot), then the order auto-clears
+  { const { r, a, b } = setup(); r.setTeamOrder("swap"); assert.ok(bAhead(r, a, b), "swap: the trailing teammate gets through");
+    assert.equal(r.teamOrder, "none", "swap is a one-shot order (auto-clears)"); }
 });
 
 test("requestPit serves a stop and switches compound", () => {

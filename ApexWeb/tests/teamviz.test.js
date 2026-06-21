@@ -73,11 +73,18 @@ test("driverCard: shows name, team chip, avatar; car render only when opts.car",
   assert.doesNotMatch(noCar, /assets\/cars\//, "no car render without opts.car");
 });
 
-import { ATTR_RU, STAFF_TIP, personTipAttrs, staffTipAttrs, driverSkillTip, staffSkillTip } from "../src/ui/teamviz.js";
+import { ATTR_RU, STAFF_TIP, personTipAttrs, staffTipAttrs, driverSkillTip, staffSkillTip, starsHtml } from "../src/ui/teamviz.js";
+
+test("starsHtml renders 5 star glyphs with the 0..5 rating (§Phase-3)", () => {
+  const h = starsHtml(0.90, "#ffffff");
+  assert.equal((h.match(/[★☆]/g) || []).length, 5, "exactly 5 star glyphs");
+  assert.match(h, /из 5/, "carries the rating title");
+  assert.ok((starsHtml(0.97).match(/★/g) || []).length >= (starsHtml(0.70).match(/★/g) || []).length, "elite shows at least as many filled stars");
+});
 import { ATTR_KEYS } from "../src/team.js";
 
-test("ATTR_RU: a Russian label for every one of the 13 attribute keys", () => {
-  assert.equal(ATTR_KEYS.length, 13);
+test("ATTR_RU: a Russian label for every one of the 14 attribute keys", () => {
+  assert.equal(ATTR_KEYS.length, 14);
   for (const k of ATTR_KEYS) assert.equal(typeof ATTR_RU[k], "string", `missing label for ${k}`);
 });
 

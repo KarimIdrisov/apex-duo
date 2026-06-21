@@ -10,7 +10,7 @@ import { effectiveCar, startProject } from "../src/development.js";
 import { composePersonnel, upgradeStaff, upgradeFacility, upkeep, hireStaff, staffMarket } from "../src/staff.js";
 import { moraleMod, DRIVER_NAME } from "../src/drivers.js";
 import { negotiateSign, availableDrivers, signCost } from "../src/market.js";
-import { signJunior, promoteJunior, SUPERLICENSE } from "../src/academy.js";
+import { signJunior, promoteJunior, SL_GATE } from "../src/academy.js";
 import { evaluateObjectives } from "../src/board.js";
 
 function field() {
@@ -44,7 +44,7 @@ const career = newCareer({ teamIdx: 0, seed: 1 });
   // and the player keeps a competitive lineup (no income-wrecking downgrade).
   console.log(`transfer: negotiate ${top.abbrev} (ovr ${top.overall.toFixed(3)}, cost $${(signCost(top) / 1000).toFixed(1)}M vs $${(career.money / 1000).toFixed(1)}M) for ${out} -> ${res.ok} (${res.ok ? "signed" : res.reason})`); }
 { signJunior(career, "HIR"); const out = Object.keys(career.drivers).find(a => career.drivers[a].teamIdx === 0);
-  const ok = promoteJunior(career, "HIR", out); console.log(`academy: signed+promoted HIR for ${out} -> ${ok} (gate ${SUPERLICENSE})`); }
+  const ok = promoteJunior(career, "HIR", out); console.log(`academy: signed+promoted HIR for ${out} -> ${ok} (gate ${SL_GATE})`); }
 // D6: a weaker team can upgrade a role via the staff market (McLaren's in-house staff is already too strong to)
 { const weak = newCareer({ teamIdx: 10, seed: 1 });   // a back-of-grid team, low staff base
   const cand = staffMarket(weak.season || 1).filter(p => p.role === "strategist").sort((a, b) => b.rating - a.rating)[0];

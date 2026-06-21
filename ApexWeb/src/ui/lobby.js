@@ -3,6 +3,7 @@ import { TEAMS, TEAM_LOGO, DIFFICULTY } from "../data.js";
 import { teamColor, teamInk, carImgSrc } from "./teamviz.js";
 import { hostGame, joinGame, startSolo, startCareerSolo, hostCareer, continueCareer, deleteCareerSave } from "../main.js";
 import { loadCareer } from "../career_store.js";
+import { SCORING } from "../career.js";
 
 const logoSrc = i => `assets/teams/${TEAM_LOGO[TEAMS[i].name]}.png`;
 const teamCard = i => {
@@ -21,6 +22,8 @@ export function render(root, ctx) {
   ctx.difficulty = DIFFICULTY[ctx.diffKey].ai;
   const teamOpts = TEAMS.map((t,i)=>`<option value="${i}" ${i===ctx.teamIdx?"selected":""}>${t.name}</option>`).join("");
   const diffOpts = Object.entries(DIFFICULTY).map(([k,d])=>`<option value="${k}" ${k===ctx.diffKey?"selected":""}>${d.label}</option>`).join("");
+  ctx.ruleset = ctx.ruleset || "standard";
+  const scoreOpts = Object.entries(SCORING).map(([k,s])=>`<option value="${k}" ${k===ctx.ruleset?"selected":""}>${s.label}</option>`).join("");
   const saved = loadCareer();
   const TOTAL = 23;
   const resumeHtml = saved ? `
@@ -42,6 +45,9 @@ export function render(root, ctx) {
       <p class="label">Сложность ИИ</p>
       <select id="diff" style="width:100%;padding:8px">${diffOpts}</select>
       <div style="height:10px"></div>
+      <p class="label">Система очков (карьера)</p>
+      <select id="ruleset" style="width:100%;padding:8px">${scoreOpts}</select>
+      <div style="height:10px"></div>
       <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><input type="checkbox" id="career"> Карьера (сезон, 23 этапа)</label>
       <button class="primary" id="host">Создать комнату</button>
       <div style="height:8px"></div>
@@ -61,6 +67,7 @@ export function render(root, ctx) {
     ctx.diffKey = e.target.value;
     ctx.difficulty = DIFFICULTY[ctx.diffKey].ai;
   };
+  root.querySelector("#ruleset").onchange = e => { ctx.ruleset = e.target.value; };
   root.querySelector("#host").onclick = async (e) => {
     e.target.disabled = true; e.target.textContent = "Создаём комнату…";
     if (root.querySelector("#career").checked) hostCareer(ctx.teamIdx);   // career begins when the partner joins

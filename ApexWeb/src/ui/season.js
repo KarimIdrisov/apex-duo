@@ -1,7 +1,7 @@
 // ApexWeb/src/ui/season.js — the paddock: standings + finances + sponsors + the upcoming-weekend
 // gate (and the season-start title-sponsor choice / season-end verdict). Reads ctx.careerView +
 // ctx.careerReadyView (set by main on host AND client). Inline styles keep it self-contained.
-import { CALENDAR, constructorStandings, driverStandings, boardOutcome, RUNNING_COST, CAP_LIMIT, LOAN_RACES, LOAN_INTEREST, constructorPrizeFund } from "../career.js";
+import { CALENDAR, constructorStandings, driverStandings, boardOutcome, RUNNING_COST, CAP_LIMIT, LOAN_RACES, LOAN_INTEREST, constructorPrizeFund, teamAppeal, expectedFinish } from "../career.js";
 import { fmtDate, fmtDateShort, gapDays, gapLabel, offseasonDays, SPRINTS } from "../season_dates.js";
 import { evaluateObjectives, regArcNote } from "../board.js";
 import { objectiveLabel } from "../sponsors.js";
@@ -321,9 +321,9 @@ export function render(root, ctx) {
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:11px"><span style="color:${contrLow ? "var(--warn)" : "var(--muted)"}">контракт ${contr} сез</span><button class="rsstaff" data-role="${rk}" style="padding:2px 8px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--ink);font-size:11px">Продлить</button></div>
         <div style="display:flex;gap:6px;margin-top:7px"><button class="trainstaff" data-role="${rk}" style="flex:1;padding:5px;border-radius:7px;border:1px solid ${trainOn(rk) ? "var(--accent)" : "var(--border)"};background:${trainOn(rk) ? "var(--accent)" : "transparent"};color:${trainOn(rk) ? "#fff" : "var(--ink)"};font-size:11px;font-weight:600">${trainOn(rk) ? "🎓 обучение ✓" : "🎓 обучать"}</button>${upBtn("ready stf", `data-kind="staff" data-key="${rk}"`, can, `+ ${m$(cost)}`)}</div></div>`; };
   const facBuilding = which => c.facilityProject && c.facilityProject.which === which ? c.facilityProject : null;
-  const facCard = fk => { const lvl = st.facilities[fk], cost = FAC_UPGRADE_BASE * (lvl + 1); const bp = facBuilding(fk); const busy = !!c.facilityProject;
+  const facCard = fk => { const lvl = st.facilities[fk] || 0, cost = FAC_UPGRADE_BASE * (lvl + 1); const bp = facBuilding(fk); const busy = !!c.facilityProject;
     const can = lvl < FAC_MAX && c.money >= cost && !busy;
-    const affects = fk === "design" ? "ускоряет разработку и стратегию" : fk === "pit" ? "ускоряет пит-стопы" : `слотов разработки ${1 + Math.floor(lvl / 2)} · содержание`;
+    const affects = fk === "design" ? "ускоряет разработку и стратегию" : fk === "pit" ? "ускоряет пит-стопы" : fk === "sim" ? "ускоряет развитие пилотов" : `слотов разработки ${1 + Math.floor(lvl / 2)} · содержание`;
     const action = lvl >= FAC_MAX ? `<span style="font-size:11px;color:var(--muted)">максимум</span>`
       : bp ? `<span style="font-size:11px;color:var(--accent)">🏗 ${devEta(c, bp)}</span>`
       : busy ? `<span style="font-size:11px;color:var(--muted)">идёт другая стройка</span>`
@@ -590,8 +590,9 @@ export function render(root, ctx) {
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
         ${kpiCard("Бюджет", m$(c.money), `<div style="font-size:11px;color:var(--muted);margin-top:4px">${lastNet}</div>`)}
-        ${kpiCard("Очки команды", me.pts, `<div style="font-size:11px;color:var(--muted);margin-top:4px">${gapTxt}</div>`)}
+        ${kpiCard("Очки команды", me.pts, `<div style="font-size:11px;color:var(--muted);margin-top:4px">${gapTxt} · ожид. финиш P${expectedFinish(c)}</div>`)}
         ${kpiCard("Доверие совета", `${Math.round(conf * 100)}%`, barEl(conf * 100, confColor(conf)))}
+        ${(() => { const ap = teamAppeal(c); return kpiCard("Привлекательность", `${Math.round(ap * 100)}%`, barEl(ap * 100, "var(--accent2,#e7c84b)") + `<div style="font-size:11px;color:var(--muted);margin-top:4px">спонсоры: ×${(0.7 + 0.6 * ap).toFixed(2)} к доходу</div>`); })()}
         ${kpiCard("Прогресс сезона", `${c.round} / ${total}`, barEl(c.round / total * 100, "var(--accent)"))}
       </div></div>` : "";
   const standRow = (r) => `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;${r.isPlayer ? "background:var(--content2)" : ""}">
@@ -615,6 +616,11 @@ export function render(root, ctx) {
   const objectivesPanel = objs.length ? `<div class="bcard" style="--spine:var(--bc)"><p class="bcard-title">Задачи совета на сезон</p>
     ${objs.map(o => `<div style="margin:8px 0"><div style="display:flex;justify-content:space-between;font-size:13px"><span>${o.met ? "✅ " : ""}${o.label}</span><span style="color:var(--muted)">${Math.round(o.progress * 100)}%</span></div>${barEl(Math.min(1, o.progress) * 100, o.met ? "var(--good)" : "var(--accent)", 7)}</div>`).join("")}
     <p class="label" style="margin-top:8px;opacity:.7">След. сезон: ${regArcNote((c.season || 1) + 1)}</p></div>` : "";
+  // §Phase-6: a high-stakes ultimatum banner — you are one race from a mid-season sack
+  const ult = c.board && c.board.ultimatum;
+  const ultimatumPanel = ult ? `<div class="panel" style="border:2px solid var(--bad);background:rgba(231,85,59,.08)">
+      <div style="font-weight:800;font-size:15px;color:var(--bad)">⛔ Ультиматум совета</div>
+      <div style="font-size:13px;margin-top:4px">Финишируй <b>не ниже P${ult.demandPos}</b> в следующей гонке — иначе отставка по ходу сезона.${(c.money < 0) ? " Плюс выведи бюджет из минуса." : ""}</div></div>` : "";
   const offer = c.acquisitionOffer;
   const acquirePanel = offer ? `<div class="panel" style="border:2px solid var(--accent)">
       <p class="label">Предложение о выкупе команды</p>
@@ -680,7 +686,7 @@ export function render(root, ctx) {
     { key: "standings", label: "Зачёт",   tabs: [["standings", "Зачёт"]] },
   ];
   const TAB_CONTENT = {
-    overview:  dashboardHero + acquirePanel + `<div style="display:flex;gap:12px;flex-wrap:wrap">${miniStandings}${lastRaceCard}</div>` + momentumPanel + objectivesPanel + newsPanel + offers,
+    overview:  ultimatumPanel + dashboardHero + acquirePanel + `<div style="display:flex;gap:12px;flex-wrap:wrap">${miniStandings}${lastRaceCard}</div>` + momentumPanel + objectivesPanel + newsPanel + offers,
     calendar:  calendarTab,
     finance:   financeTab,
     car:       me ? carView : emptyMsg("Нет данных по машине"),

@@ -3,7 +3,18 @@
 // (driverSkillTip/staffSkillTip + attachPersonTips). Pure UI; reads data.js/team.js/staff.js
 // (read-only). No sim/network state.
 import { TEAMS, TEAM_LOGO } from "../data.js";
-import { driverAttrs, ATTR_KEYS, TRAITS } from "../team.js";
+import { driverAttrs, ATTR_KEYS, TRAITS, overallToStars } from "../team.js";
+
+// §Phase-3 — MM-style 0..5 star rating (full ★ / half ⯨ / empty ☆) from an overall, in the team colour.
+export function starsHtml(overall, color = "#e7c84b") {
+  const s = overallToStars(overall); let h = "";
+  for (let i = 1; i <= 5; i++) {
+    if (s >= i) h += `<span style="color:${color}">★</span>`;                       // full
+    else if (s >= i - 0.5) h += `<span style="color:${color};opacity:.5">★</span>`;  // half (dimmed)
+    else h += `<span style="color:rgba(255,255,255,.18)">☆</span>`;                  // empty
+  }
+  return `<span style="font-size:12px;letter-spacing:1px" title="${s.toFixed(1)} из 5">${h}</span>`;
+}
 import { ROLE_LABEL } from "../staff.js";
 
 const COLOR_BY_TEAM = {};
@@ -88,7 +99,7 @@ export function attrRadar(attrs, color, size = 116) {
 // RU labels for the 13 driver attributes (keys = ATTR_KEYS from team.js)
 export const ATTR_RU = { pace: "Темп", quali: "Квала", tyre: "Резина", overtaking: "Обгон",
   defending: "Защита", consistency: "Стабильн.", composure: "Хладнокр.", aggression: "Агрессия",
-  discipline: "Дисципл.", wet: "Дождь", starts: "Старт", race_iq: "Гонч. IQ", smoothness: "Плавность" };
+  discipline: "Дисципл.", wet: "Дождь", starts: "Старт", race_iq: "Гонч. IQ", smoothness: "Плавность", fitness: "Выносл." };
 
 // what each staff role affects (one line each)
 export const STAFF_TIP = {
@@ -130,7 +141,8 @@ export function driverSkillTip(abbrev, overall, team, name, age) {
     + `<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">${name}</div>`
     +   `<div style="font-size:11px;color:#A1A1AA">${team} · ${age} лет</div></div>`
     + `<div style="text-align:right"><div style="font-size:10px;color:#A1A1AA">OVR</div>`
-    +   `<div style="font-weight:800;font-size:20px;color:${col}">${Math.round(Number(overall) * 100)}</div></div></div>`
+    +   `<div style="font-weight:800;font-size:20px;color:${col}">${Math.round(Number(overall) * 100)}</div>`
+    +   `<div style="margin-top:1px">${starsHtml(overall, col)}</div></div></div>`
     + `<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px">${bars}</div>`;
 }
 
@@ -159,7 +171,8 @@ export function juniorSkillTip(abbrev, overall, name, age, series, tag, persona,
     + `<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">${name}</div>`
     +   `<div style="font-size:11px;color:#A1A1AA">${SERIES_RU[series] || series} · ${age} лет · ${arche}${pers}</div></div>`
     + `<div style="text-align:right"><div style="font-size:10px;color:#A1A1AA">OVR</div>`
-    +   `<div style="font-weight:800;font-size:20px;color:${col}">${Math.round(Number(overall) * 100)}</div></div></div>`
+    +   `<div style="font-weight:800;font-size:20px;color:${col}">${Math.round(Number(overall) * 100)}</div>`
+    +   `<div style="margin-top:1px">${starsHtml(overall, col)}</div></div></div>`
     + `<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px">${bars}</div>${morLine}`;
 }
 

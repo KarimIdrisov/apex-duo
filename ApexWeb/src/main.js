@@ -8,7 +8,7 @@ import * as practice from "./ui/practice.js";
 import * as quali from "./ui/quali.js";
 import * as race from "./ui/race.js";
 import { renderShell, shellSig } from "./ui/shell.js";
-import { buildGrid } from "./quali.js";
+import { buildGrid, startCompoundForSlot } from "./quali.js";
 import { paceBonus, closeness, trackIdeal } from "./setup.js";
 import { driverAttrs, composeCar, genPersonnel } from "./team.js";
 import { pickTrack } from "./track_shapes.js";
@@ -22,6 +22,7 @@ import * as seasonUI from "./ui/season.js";
 import * as resultUI from "./ui/result_career.js";
 import * as directorCreate from "./ui/director_create.js";
 import * as preseasonUI from "./ui/preseason.js";
+import { botchMult } from "./directors.js";
 import { newCareer, newSeason, currentRound, isSeasonOver, applyResult, advanceRound, chooseTitleSponsor, constructorStandings, takeLoan, acceptAcquisition, declineAcquisition, setDriverTraining, resolveDriverRequest } from "./career.js";
 const applyBoost = (car, b) => b ? { ...car, power: Math.min(1.2, car.power + b), aero: Math.min(1.2, car.aero + b) } : car;   // living-grid rival bump
 import { pushNews } from "./news.js";
@@ -299,6 +300,7 @@ function onCommand(cmd) {
     case "set_pace":  ctx.race?.setPace(cmd.car, cmd.mode); break;
     case "set_engine": ctx.race?.setEngine(cmd.car, cmd.mode); break;
     case "set_order":  ctx.race?.setOrder(cmd.car, cmd.mode); break;
+    case "set_team_order": ctx.race?.setTeamOrder(cmd.mode); break;
     case "request_pit": ctx.race?.requestPit(cmd.car, cmd.compound); break;
     case "toggle_pause":
       ctx.paused = !ctx.paused;
@@ -375,6 +377,8 @@ function startRaceHost() {
   grid.forEach((g, slot) => {
     const c = ctx.race.cars[g.idx];
     c.lap = 0; c.lapFrac = -slot * (GRID_GAP / ctx.track.lt); c.startPos = slot + 1;
+    // F1/MM start-tyre rule: top-10 (Q3) are locked onto the soft they qualified on; rest free to medium.
+    if (ctx.qualiSession) c.tyre = startCompoundForSlot(slot);
   });
   ctx.paused = false;
   ctx._frame = 0;
@@ -412,7 +416,8 @@ function buildField() {
       car: composeCar(ctx.career ? (isPlayerTeam ? applyRaceMods(effectiveCarPU(t.car, ctx.career.parts[t.name], ctx.career.puParts), ctx.career, ctx.track) : applyBoost(applyConceptBias(effectiveCar(t.car, ctx.career.parts[t.name]), aiConcept(t.name)), (ctx.career.gridBoost || {})[t.name])) : t.car), color: t.color, team: t.name, isPlayer: isPlayerTeam, player,
       attrs: (dr && dr.attrs) ? dr.attrs : driverAttrs(d.abbrev, overall),
       personnel: (ctx.career && isPlayerTeam) ? pcPersonnel(composePersonnel(ctx.career.staff), ctx.career.pitCrew) : genPersonnel(t.facility, ti),
-      pitCrew: (ctx.career && isPlayerTeam && ctx.career.pitCrew) ? (() => { const pc = composePitCrew(ctx.career.pitCrew); return { botchChance: pc.botchChance, disasterChance: pc.disasterChance }; })() : null,
+      pitCrew: (ctx.career && isPlayerTeam && ctx.career.pitCrew) ? (() => { const pc = composePitCrew(ctx.career.pitCrew), bm = botchMult(ctx.career); return { botchChance: pc.botchChance * bm, disasterChance: pc.disasterChance * bm }; })() : null,   // mechanic co-director (Гл. механик) trims botch/disaster (botchMult < 1)
+
       rival: (ctx.career && isPlayerTeam && dr) ? (dr.rival || null) : null,   // rivalries: this driver's personal rival
       setup, setupBonus: (player
         ? pracSetupBonus(player) + PRAC2.TRACK_PACE * pracTrackKnow(player)
@@ -477,7 +482,7 @@ function raceSnapshot() {
   ctx._evtIdx = ctx.race.events.length;
   return {
     type: "snapshot", phase: "race", trackName: ctx.trackName, paused: ctx.paused, finished: ctx.race.finished,
-    speed: ctx.speed || 1, scActive: ctx.race.scActive, vscActive: ctx.race.vscActive, wetness: ctx.race.wetness, weatherInfo: ctx.race.weatherInfo || null, events: newEvents,
+    speed: ctx.speed || 1, scActive: ctx.race.scActive, vscActive: ctx.race.vscActive, wetness: ctx.race.wetness, weatherInfo: ctx.race.weatherInfo || null, events: newEvents, teamOrder: ctx.race.teamOrder,
     practiceFindings: ctx.practiceFindings || null,
     cars: ctx.race.order().map(c => ({
       idx: c.idx, pos: c.pos, abbrev: c.abbrev, color: c.color, player: c.player,
@@ -487,6 +492,7 @@ function raceSnapshot() {
       pitStops: c.pitStops, tyreAge: c.tyreAge, tyreTemp: c.tyreTemp, lastLap: c.lastLap, startPos: c.startPos,
       inPit: c.pitTimer > 0,
       miniColors: c.player ? c.miniColors : undefined, sectorTimes: c.player ? c.sectorTimes : undefined,
+      parts: c.player ? c.parts : undefined, partFail: c.player ? c._partFail : undefined,   // §Phase-2 part condition (HUD)
     })),
   };
 }
@@ -522,7 +528,9 @@ function hostLoop(ts) {
           modeMix = { push: push / run, save: save / run, standard: Math.max(0, (run - push - save) / run) };
         }
         const starts = {}; for (const cc of ctx.race.cars) starts[cc.abbrev] = cc.startPos;   // G1: grid → poles + quali H2H
-        applyResult(ctx.career, cls, { pushFrac, modeMix, starts });
+        const pIdx = new Set(pcars.map(c => c.idx));   // §Phase-6: count the stewards' penalties the player's cars drew → cash fine
+        const penalties = ctx.race.events.filter(e => e.type === "penalty" && pIdx.has(e.a)).length;
+        applyResult(ctx.career, cls, { pushFrac, modeMix, starts, penalties });
         advanceRound(ctx.career);            // -> next round (or done)
         saveCareer(ctx.career);
         ctx.atResults = true; ctx.atPaddock = false; publishCareer();
@@ -626,7 +634,7 @@ function beginDirectorCreate(teamIdx, coop) {
 }
 // director-create confirmed → create the career (with the chosen specialties) → pre-season.
 function onDirectorsDone() {
-  ctx.career = newCareer({ teamIdx: ctx.teamIdx, seed: ctx._careerSeed, coop: !!ctx.coop, directors: ctx.pendingDirectors || [] });
+  ctx.career = newCareer({ teamIdx: ctx.teamIdx, seed: ctx._careerSeed, coop: !!ctx.coop, directors: ctx.pendingDirectors || [], scoring: ctx.ruleset || "standard" });
   ctx.atDirectorCreate = false; ctx.atPreseason = true; ctx._preBudget0 = null;
   rerender();
 }

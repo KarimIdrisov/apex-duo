@@ -40,6 +40,32 @@ test("engine modes + fuel constants present and ordered", () => {
   assert.ok(FUEL.margin > 0 && FUEL.weightK > 0);
 });
 
+import { PACE_LADDER, ENGINE_LADDER } from "../src/data.js";
+
+test("MM 5-step pace ladder: attack..backup monotonic in pace, wear and risk", () => {
+  assert.deepEqual(PACE_LADDER, ["attack", "push", "balanced", "conserve", "backup"]);
+  for (const m of PACE_LADDER) assert.ok(PACE_MODES[m], m);
+  // most aggressive -> most conservative: pace rises (slower), wear & risk fall, strictly monotonic
+  for (let i = 1; i < PACE_LADDER.length; i++) {
+    const a = PACE_MODES[PACE_LADDER[i - 1]], b = PACE_MODES[PACE_LADDER[i]];
+    assert.ok(a.pace < b.pace, `${PACE_LADDER[i - 1]} faster than ${PACE_LADDER[i]}`);
+    assert.ok(a.wear > b.wear && a.risk > b.risk, `${PACE_LADDER[i - 1]} harder on car than ${PACE_LADDER[i]}`);
+  }
+  // the calibrated middle three are unchanged
+  assert.equal(PACE_MODES.balanced.pace, 0); assert.equal(PACE_MODES.balanced.wear, 1); assert.equal(PACE_MODES.balanced.risk, 1);
+});
+
+test("MM burst engine modes: overtake/superovertake faster than push, burn more, flagged spend", () => {
+  assert.deepEqual(ENGINE_LADDER, ["save", "standard", "push", "overtake", "superovertake"]);
+  for (let i = 1; i < ENGINE_LADDER.length; i++) {
+    const a = ENGINE_MODES[ENGINE_LADDER[i - 1]], b = ENGINE_MODES[ENGINE_LADDER[i]];
+    assert.ok(b.pace < a.pace, `${ENGINE_LADDER[i]} faster than ${ENGINE_LADDER[i - 1]}`);
+    assert.ok(b.burn > a.burn, `${ENGINE_LADDER[i]} burns more than ${ENGINE_LADDER[i - 1]}`);
+  }
+  for (const m of ["push", "overtake", "superovertake"]) assert.ok(ENGINE_MODES[m].spend, `${m} spends the PU`);
+  assert.ok(!ENGINE_MODES.standard.spend && !ENGINE_MODES.save.spend);
+});
+
 import { TYRE } from "../src/data.js";
 
 test("compounds have a warm-up rate; TYRE constants present", () => {

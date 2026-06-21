@@ -5,27 +5,43 @@ import { backerFor } from "./backers.js";
 import { suitorOffer, parentPullout, moneyEvent, gridChurn } from "./team_events.js";
 import { defaultSponsors, titleOffers, evaluateSponsor, replacementSponsor } from "./sponsors.js";
 import { tickDevelopment, SUPPLY_INCOME, SUPPLY_FEE, runInParts, PU_POOL, PU_GRID_PEN, puWearForRace, PU_TOKENS_PER_SEASON, engineModeStress, eraNote, PART_LABEL, supplyFeeMult } from "./development.js";
+import { neutralChassis } from "./chassis.js";
 import { gapDays, offseasonDays } from "./season_dates.js";
 import { initDrivers, developDrivers, retirePass, updateMorale, tickDriverRace, makeDriverRequest, maybeGainTrait, zeroDriverStats, salaryFor, DRIVER_NAME } from "./drivers.js";
-import { driverAttrs, assignTraits, TRAITS } from "./team.js";
-import { initStaff, upkeep, salaryForStaff, applyCalendarLoad, initTeamStaff, tickStaffTrain, tickFacility, FAC_LABEL, STAFF_ROLES, ROLE_LABEL } from "./staff.js";
+import { driverAttrs, assignTraits, TRAITS, overallToStars } from "./team.js";
+import { initStaff, upkeep, salaryForStaff, applyCalendarLoad, initTeamStaff, tickStaffTrain, tickFacility, FAC_LABEL, STAFF_ROLES, ROLE_LABEL, simDriverBoost } from "./staff.js";
 import { mix32 } from "./rng.js";
 import { aiChurn } from "./market.js";
 import { developAcademy } from "./academy.js";
 import { initPitCrew, tickRacePitCrew, restPitCrew, tickInjuriesPerRace, tickOffseasonPitCrew } from "./pitcrew.js";
 import { ensureRivals, rivalMoraleDelta } from "./rivalry.js";
-import { sponsorIncomeMult, startBudgetMult } from "./directors.js";
+import { sponsorIncomeMult, startBudgetMult, puWearMult, driverDevMult } from "./directors.js";
 import { pushNews, boardReaction, confidenceDelta } from "./news.js";
 import { seasonObjectives, evaluateObjectives, regResetFor, regArcNote } from "./board.js";
 
 // championship points for the top 10 finishers (current F1 system).
-export const POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
+// §Phase-6 — selectable points systems (an MM-faithful "ruleset" option; balance-safe — scoring only,
+// the sim is untouched). career.scoring picks one; pointsFor() reads it. POINTS stays = the default.
+export const SCORING = {
+  standard: { label: "Современный F1 (25-18-15…)",        pts: [25, 18, 15, 12, 10, 8, 6, 4, 2, 1] },
+  classic:  { label: "Классика (10-8-6-5-4-3-2-1)",        pts: [10, 8, 6, 5, 4, 3, 2, 1] },
+  flat:     { label: "Плотный (15-12-10-8-7-6-5-4-3-2-1)", pts: [15, 12, 10, 8, 7, 6, 5, 4, 3, 2, 1] },
+};
+export const POINTS = SCORING.standard.pts;
+export function pointsFor(career, i) {
+  const s = SCORING[(career && career.scoring) || "standard"] || SCORING.standard;
+  return i < s.pts.length ? s.pts[i] : 0;
+}
 // prize money ($k) by race-finish position — a simple per-race payout (M2 deepens income).
 export const PRIZE = [1200, 1000, 850, 720, 620, 540, 470, 410, 360, 320, 280, 250, 220, 200, 180, 160, 150, 140, 130, 120, 110, 100];
 
-export const CAREER_V = 27;           // career save schema version
+export const CAREER_V = 29;           // career save schema version
 export const REG_RESET = 0.5;         // each season's regulation change trims everyone's car development
 export const RUNNING_COST = 800;      // $k per-race operating cost (M5 facilities refine it)
+// §Phase-6 — solvency + the board ultimatum that make money & confidence BITE (career.board.ultimatum is null-safe/additive).
+export const INSOLVENCY = { limit: -1500, confHit: 0.18 };  // $k balance below which the board panics; per-race confidence hit while insolvent
+export const ULTIMATUM = { conf: 0.18, restore: 0.30, slack: 2 };  // confidence that triggers an ultimatum; confidence restored on meeting it; demand = targetPos + slack (a touch easier than the season target)
+export const STEWARD_FINE = 250;   // $k cash fine per on-track stewards' penalty the player's cars drew (§Phase-6)
 export const CAP_LIMIT = 22000;       // $k — soft season cap on discretionary spend (dev + staff + transfers)
 export const LOAN_INTEREST = 0.18;    // total interest on a loan, repaid over LOAN_RACES
 export const LOAN_RACES = 8;
@@ -81,7 +97,7 @@ export const CALENDAR = [
 function allDrivers() { return TEAMS.flatMap(t => t.drivers.map(d => ({ abbrev: d.abbrev, team: t.name }))); }
 
 // a fresh career. teamIdx = which TEAMS entry the players manage; seed reserved for AI RNG.
-export function newCareer({ teamIdx = 0, seed = 1, coop = false, directors = [] } = {}) {
+export function newCareer({ teamIdx = 0, seed = 1, coop = false, directors = [], scoring = "standard" } = {}) {
   const driverPts = {}, teamPts = {};
   for (const d of allDrivers()) driverPts[d.abbrev] = 0;
   for (const t of TEAMS) teamPts[t.name] = 0;
@@ -95,10 +111,12 @@ export function newCareer({ teamIdx = 0, seed = 1, coop = false, directors = [] 
     sponsors: defaultSponsors(teamIdx, s), costCap: false, pendingOffers: titleOffers(teamIdx, s),
     parts: {}, projects: [], unproven: [], devSpentThisSeason: 0,   // E1: parallel projects + run-in debts
     directors, rewardMult: 1,                                      // career-start: co-directors + season-ambition reward scaler
+    scoring,                                                        // §Phase-6: selected points system (ruleset option)
     partsPrev: {},                                                  // P2: previous-spec snapshots for free revert
     devFocus: 0, nextCar: {},                                       // F1: this/next-year development split
 
     concept: "balanced",                                            // E3 car concept
+    chassis: neutralChassis(),                                      // Phase 4: pre-season chassis design (supplier ritual → character traits)
     pu: { pool: PU_POOL, used: 1, wear: 0, penalty: 0 }, aiPu: {},   // E4 PU season allocation · E9 AI PU pools
     capSpent: 0, loan: null, seasonPayout: null, sponsorOffer: null,
     backer: backerFor(TEAMS[teamIdx].name),    // funding archetype (works/independent + grant + PU)
@@ -132,7 +150,7 @@ export function applyResult(career, classification, raceInfo = {}) {
   const myTeam = TEAMS[career.teamIdx].name;
   const bestByTeam = {};
   classification.forEach((c, i) => {
-    const pts = i < POINTS.length ? POINTS[i] : 0;
+    const pts = pointsFor(career, i);
     if (career.driverPts[c.abbrev] != null) career.driverPts[c.abbrev] += pts;
     if (career.teamPts[c.team] != null) career.teamPts[c.team] += pts;
     if (i < 3) podium.push(c.abbrev);
@@ -149,7 +167,7 @@ export function applyResult(career, classification, raceInfo = {}) {
     sponsorIncome += r.payout;
     sp.happiness = Math.max(0, Math.min(1, sp.happiness + r.dHappiness));
   }
-  sponsorIncome = Math.round(sponsorIncome * sponsorIncomeMult(career));   // financier specialty lifts sponsor income
+  sponsorIncome = Math.round(sponsorIncome * sponsorIncomeMult(career) * appealMult(career));   // §Phase-6: marketability (standing + star drivers + confidence) scales sponsor income (financier specialty also lifts it)
   // living sponsors: a deal whose happiness collapses walks away; a fresh offer surfaces to refill a slot.
   const leavers = (career.sponsors || []).filter(s => s.happiness < 0.16);
   if (leavers.length) {
@@ -166,7 +184,7 @@ export function applyResult(career, classification, raceInfo = {}) {
     if (!dr) return;
     if (dr.teamIdx === career.teamIdx) {
       salaries += dr.salary;
-      playerRes.push({ abbrev: c.abbrev, dr, finishPos: i + 1, start: (raceInfo.starts && raceInfo.starts[c.abbrev]) || null, retired: !!c.retired, points: i < POINTS.length ? POINTS[i] : 0, expectedPos: 2 + dr.teamIdx * 2 });
+      playerRes.push({ abbrev: c.abbrev, dr, finishPos: i + 1, start: (raceInfo.starts && raceInfo.starts[c.abbrev]) || null, retired: !!c.retired, points: pointsFor(career, i), expectedPos: 2 + dr.teamIdx * 2 });
     } else {
       updateMorale(dr, i + 1, 2 + dr.teamIdx * 2);   // AI: cheap morale only
     }
@@ -178,7 +196,7 @@ export function applyResult(career, classification, raceInfo = {}) {
     const qAhead = (pair && playerRes[0].start && playerRes[1].start) ? (playerRes[0].start <= playerRes[1].start ? playerRes[0].abbrev : playerRes[1].abbrev) : null;
     for (const r of playerRes) {
       const beatTeammate = pair ? (r.abbrev === raceAhead) : null;
-      tickDriverRace(r.dr, { finishPos: r.finishPos, expectedPos: r.expectedPos, retired: r.retired, points: r.points, isPole: r.start === 1, beatTeammate });
+      tickDriverRace(r.dr, { finishPos: r.finishPos, expectedPos: r.expectedPos, retired: r.retired, points: r.points, isPole: r.start === 1, beatTeammate }, driverDevMult(career) * simDriverBoost(career.staff));   // §Phase-5: the Simulator HQ building speeds driver development
       const cl = r.dr.clauses;   // deep-contract performance bonuses
       if (cl && !r.retired) {
         if (r.finishPos === 1) bonuses += cl.winBonus || 0;
@@ -219,6 +237,39 @@ export function applyResult(career, classification, raceInfo = {}) {
   pushNews(career, boardReaction(bestPos, career.board.targetPos, summary.gp));
   if (bestPos <= 3) career.board.podiums = (career.board.podiums || 0) + 1;          // D8: objective counters
   if (bestPos <= 10) career.board.pointFinishes = (career.board.pointFinishes || 0) + 1;
+  // §Phase-6 — stewards' cash fines: each on-track penalty the player's cars drew costs money + a little
+  // board confidence (and can tip a struggling team toward insolvency, below).
+  if (raceInfo.penalties > 0) {
+    const fine = raceInfo.penalties * STEWARD_FINE;
+    career.money -= fine; career.capSpent = (career.capSpent || 0) + fine;
+    career.board.confidence = Math.max(0, career.board.confidence - 0.03 * raceInfo.penalties);
+    summary.fine = fine;
+    pushNews(career, `⚖ Штраф стюардов: $${(fine / 1000).toFixed(2)}M за ${raceInfo.penalties} наруш.`);
+  }
+  // §Phase-6 — solvency + the board's mid-season ultimatum (insolvency & low confidence now BITE).
+  const lastRound = career.round >= CALENDAR.length - 1;
+  if (career.money < INSOLVENCY.limit) {                                              // deep in the red → the board panics
+    career.board.confidence = Math.max(0, career.board.confidence - INSOLVENCY.confHit);
+    summary.insolvent = true;
+    pushNews(career, `⚠ Бюджет в глубоком минусе ($${(career.money / 1000).toFixed(1)}M) — совет в ярости.`);
+  }
+  if (career.board.ultimatum && career.board.ultimatum.round === career.round) {      // an ultimatum came due THIS race
+    const u = career.board.ultimatum; career.board.ultimatum = null;
+    if (bestPos <= u.demandPos && career.money >= INSOLVENCY.limit) {                 // met the demand AND solvent
+      career.board.confidence = Math.min(1, career.board.confidence + ULTIMATUM.restore);
+      pushNews(career, `✅ Ультиматум выполнен (P${bestPos} ≤ P${u.demandPos}). Совет даёт второй шанс.`);
+      summary.ultimatumMet = true;
+    } else {                                                                          // failed → mid-season dismissal
+      career.done = true; career.sacked = true;
+      pushNews(career, `⛔ Ультиматум провален — совет увольняет вас по ходу сезона.`);
+      summary.sacked = true;
+    }
+  } else if (!lastRound && !career.board.ultimatum && (career.board.confidence < ULTIMATUM.conf || summary.insolvent)) {
+    const demandPos = Math.max(1, Math.min(TEAMS.length, (career.board.targetPos || 1) + ULTIMATUM.slack));
+    career.board.ultimatum = { round: career.round + 1, demandPos };                 // concrete next-race demand
+    pushNews(career, `📋 Ультиматум совета: финишируй не ниже P${demandPos} в следующей гонке — иначе отставка.`);
+    summary.ultimatumIssued = demandPos;
+  }
   const mev = moneyEvent(career, career.round, (career.seed >>> 0) + career.round * 17);   // rare one-off money event
   if (mev) { career.money += mev.delta; pushNews(career, mev.news); summary.event = mev.news; summary.eventDelta = mev.delta; }   // expose the windfall amount so the money ledger reconciles
   // E1: bed in freshly-fitted parts (decay the run-in reliability debt). E2: regenerate aero/R&D capacity
@@ -232,7 +283,8 @@ export function applyResult(career, classification, raceInfo = {}) {
     // P3: when the full engine-mode mix is present it OWNS mode-based wear (push captured in modeStress),
     // so the legacy pushFrac term is suppressed to avoid double-counting; old callers (no modeMix) keep E6.
     const pushTerm = raceInfo.modeMix ? 0 : (raceInfo.pushFrac || 0);
-    career.pu.wear = (career.pu.wear || 0) + puWearForRace(trk, puRel, pushTerm, engineModeStress(raceInfo.modeMix));
+    // co-director: an engine specialist (Моторист) spares the PU (puWearMult < 1). Player team only — AI wears below.
+    career.pu.wear = (career.pu.wear || 0) + puWearForRace(trk, puRel, pushTerm, engineModeStress(raceInfo.modeMix)) * puWearMult(career);
     while (career.pu.wear >= 1) {
       career.pu.wear -= 1; career.pu.used = (career.pu.used || 1) + 1;
       if (career.pu.used > career.pu.pool) {
@@ -456,6 +508,15 @@ export function migrate(career) {
     career.rewardMult = career.rewardMult ?? 1;
     career.v = 27;
   }
+  if (career.v < 28) {                 // §Phase-5/6: Simulator HQ facility + points-system preset
+    if (career.staff && career.staff.facilities && career.staff.facilities.sim == null) career.staff.facilities.sim = career.staff.facilities.factory || 0;
+    career.scoring = career.scoring || "standard";
+    career.v = 28;
+  }
+  if (career.v < 29) {                 // §Phase-4: pre-season chassis design (neutral = no effect on old saves)
+    career.chassis = career.chassis || neutralChassis();
+    career.v = 29;
+  }
   // names of dynamically-added drivers (academy promotions, retirement rookies) live on the driver
   // object, but DRIVER_NAME is rebuilt from the static roster each load — repopulate it so the UI
   // (which often resolves DRIVER_NAME[abbrev]) shows their real names across reloads.
@@ -555,6 +616,50 @@ export function driverStandings(career) {
   return Object.keys(career.driverPts).map(a => ({ abbrev: a, team: info[a], pts: career.driverPts[a] }))
     .sort((a, b) => b.pts - a.pts).map((r, i) => ({ ...r, pos: i + 1 }));
 }
+// §Phase-6 — team marketability/"appeal" 0..1: championship standing + the two drivers' star power +
+// board confidence. A winning team with star drivers attracts richer sponsor deals (appealMult below).
+export function teamAppeal(career) {
+  const cons = constructorStandings(career);
+  const me = cons.find(s => s.isPlayer);
+  const pos = me ? me.pos : TEAMS.length;
+  const standing = 1 - (pos - 1) / Math.max(1, TEAMS.length - 1);            // P1 → 1, last → 0
+  const mine = Object.values(career.drivers || {}).filter(d => d.teamIdx === career.teamIdx);
+  const stars = mine.length ? mine.reduce((s, d) => s + overallToStars(d.overall), 0) / (mine.length * 5) : 0.5;
+  const conf = career.board ? (career.board.confidence ?? 0.5) : 0.5;
+  return Math.max(0, Math.min(1, 0.35 * standing + 0.45 * stars + 0.20 * conf));
+}
+export function appealMult(career) { return 0.7 + 0.6 * teamAppeal(career); }   // 0.7 (low appeal) .. 1.3 (high)
+
+// §Phase-6 — season-end awards. "Driver of the Season" rewards PERFORMANCE RELATIVE TO MACHINERY
+// (MM-style: a midfield driver who scores big can beat the champion), alongside the champion + top rookie.
+export function seasonAwards(career) {
+  const champ = driverStandings(career)[0] || null;
+  let dots = null, bestScore = -1, rookie = null, bestRookiePts = -1;
+  for (const ab in career.driverPts) {
+    const pts = career.driverPts[ab] || 0, dr = career.drivers[ab];
+    const tier = dr ? dr.teamIdx : Math.floor(TEAMS.length / 2);
+    const score = pts / Math.max(1, TEAMS.length - tier);   // points per unit of car strength → overperformance
+    if (score > bestScore) { bestScore = score; dots = ab; }
+    if (dr && dr.fromAcademy && pts > bestRookiePts) { bestRookiePts = pts; rookie = ab; }
+  }
+  const nm = ab => (career.drivers[ab] && career.drivers[ab].name) || ab;
+  return {
+    champion: champ ? champ.abbrev : null, championName: champ ? nm(champ.abbrev) : null,
+    dots, dotsName: dots ? nm(dots) : null, dotsPts: dots ? (career.driverPts[dots] || 0) : 0,
+    rookie, rookieName: rookie ? nm(rookie) : null, rookiePts: rookie ? bestRookiePts : 0,
+  };
+}
+
+// §Phase-6 — the board's dynamic expected best-car finish this race: the car's tier baseline blended
+// with where the team currently sits in the championship. Surfaced so you know if you over/under-performed.
+export function expectedFinish(career) {
+  const cons = constructorStandings(career);
+  const me = cons.find(s => s.isPlayer);
+  const standing = me ? me.pos : TEAMS.length;
+  const tier = (career.teamIdx || 0) + 1;
+  return Math.max(1, Math.min(TEAMS.length, Math.round(0.55 * standing + 0.45 * tier)));
+}
+
 export function boardOutcome(career) {
   const standings = constructorStandings(career);
   const me = standings.find(s => s.isPlayer);
@@ -562,13 +667,18 @@ export function boardOutcome(career) {
   const target = career.board.targetPos;
   const met = me ? finalPos <= target : false;
   const confidence = career.board.confidence ?? 0.5;
-  return { finalPos, target, met, confidence, sacked: !met && confidence < 0.25, objectives: evaluateObjectives(career) };
+  // §Phase-6: a mid-season ultimatum failure (career.sacked) is a dismissal regardless of the final standing.
+  return { finalPos, target, met, confidence, sacked: !!career.sacked || (!met && confidence < 0.25), midSeason: !!career.sacked, objectives: evaluateObjectives(career) };
 }
 // start a new season: reset round + points, keep team + money + seed, bump the season number.
 export function newSeason(career) {
-  const fresh = newCareer({ teamIdx: career.teamIdx, seed: career.seed, coop: career.coop });
+  const fresh = newCareer({ teamIdx: career.teamIdx, seed: career.seed, coop: career.coop, scoring: career.scoring });
   fresh.season = career.season + 1;
   fresh.money = career.money;
+  // §Phase-6 — announce last season's awards (Driver of the Season relative to machinery + top rookie).
+  const aw = seasonAwards(career); fresh.lastAwards = aw;
+  if (aw.dots) pushNews(fresh, `🏆 Пилот сезона ${career.season}: ${aw.dotsName} (${aw.dotsPts} очк. — лучший результат относительно машины).`);
+  if (aw.rookie) pushNews(fresh, `🌟 Новичок сезона: ${aw.rookieName}.`);
   // deep-copy carried state so the prior season's career object stays immutable
   fresh.parts = JSON.parse(JSON.stringify(career.parts || {}));     // part development carries over (regs reset below)
   fresh.devSpentThisSeason = 0;
@@ -584,6 +694,7 @@ export function newSeason(career) {
   fresh.identity = career.identity || null;                                  // a rebrand carries between seasons
   fresh.gridBoost = { ...(career.gridBoost || {}) };
   fresh.concept = career.concept || "balanced";                              // E3: car concept carries (changeable in winter)
+  fresh.chassis = career.chassis || neutralChassis();                        // Phase 4: chassis design carries (per-season redesign UI is a follow-up)
   // --- off-season events (Phase C) ---
   const finalPos = (constructorStandings(career).find(s => s.isPlayer) || {}).pos || TEAMS.length;
   const evSeed = (fresh.seed >>> 0) + fresh.season * 2246822519;

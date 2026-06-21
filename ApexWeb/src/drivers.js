@@ -111,7 +111,8 @@ function applyTrainingDrift(dr, amt) {
 
 // G1+G2+G3: one race for a player driver — season stats, short-term form, morale, in-season training.
 // info: { finishPos, expectedPos, retired, points, isPole, beatTeammate (bool|null) }.
-export function tickDriverRace(dr, info) {
+// devMult (default 1 = no change): a Mentor co-director speeds in-season development (driverDevMult > 1).
+export function tickDriverRace(dr, info, devMult = 1) {
   const s = dr.stats || (dr.stats = zeroDriverStats());
   s.starts += 1; s.points += info.points || 0;
   if (info.retired) s.dnf += 1; else s.bestFin = Math.min(s.bestFin, info.finishPos);
@@ -125,7 +126,7 @@ export function tickDriverRace(dr, info) {
   if (info.beatTeammate === false) d -= 0.015; else if (info.beatTeammate === true) d += 0.010;
   d += ((dr.form ?? 0.5) - 0.5) * 0.02;
   dr.morale = clamp01((dr.morale ?? 0.6) * 0.90 + 0.6 * 0.10 + d);
-  applyTrainingDrift(dr, TRAIN_RACE);
+  applyTrainingDrift(dr, TRAIN_RACE * devMult);
 }
 
 // G4: a driver whose key attr crosses mastery may unlock the matching trait. Returns the trait key or null.

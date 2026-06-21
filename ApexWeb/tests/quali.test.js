@@ -1,7 +1,7 @@
 // ApexWeb/tests/quali.test.js
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { qualiLap, qualiLapClean, qualiSector, buildGrid } from "../src/quali.js";
+import { qualiLap, qualiLapClean, qualiSector, buildGrid, startCompoundForSlot, Q3_SIZE } from "../src/quali.js";
 import { TEAMS, TRACK, QUALI2 } from "../src/data.js";
 import { RNG } from "../src/rng.js";
 import { driverAttrs } from "../src/team.js";
@@ -9,6 +9,12 @@ import { driverAttrs } from "../src/team.js";
 const drv = TEAMS[0].drivers[0], car = TEAMS[0].car;
 // setupBonus: a midfield setup (~neutral closeness) ≈ 0; a perfect setup ≈ -0.15
 const NEUTRAL_BONUS = 0;
+
+test("F1/MM start-tyre rule: top-10 (Q3) start on soft, the rest free to medium", () => {
+  assert.equal(Q3_SIZE, 10);
+  for (let slot = 0; slot < 10; slot++) assert.equal(startCompoundForSlot(slot), "soft", `P${slot + 1} soft`);
+  for (const slot of [10, 11, 15, 21]) assert.equal(startCompoundForSlot(slot), "medium", `P${slot + 1} medium`);
+});
 
 test("a strong qualifier out-qualifies a same-overall racer", () => {
   const quali = { abbrev: "LEC", skill: 0.85, attrs: driverAttrs("LEC", 0.85) };  // LEC: +0.12 quali signature

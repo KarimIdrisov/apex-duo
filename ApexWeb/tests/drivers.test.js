@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { TEAMS } from "../src/data.js";
-import { DRIVER_AGE, initDrivers, developDrivers, updateMorale, moraleMod, salaryFor, reSign } from "../src/drivers.js";
+import { DRIVER_AGE, initDrivers, developDrivers, updateMorale, moraleMod, salaryFor, reSign, tickDriverRace } from "../src/drivers.js";
 
 test("initDrivers builds a record per grid driver with age/overall/morale/contract/salary", () => {
   const d = initDrivers();
@@ -80,4 +80,16 @@ test("D5: a young driver's attributes and overall both rise over a season", () =
   const d = initDrivers(); const o0 = d.ANT.overall, pace0 = d.ANT.attrs.pace;
   developDrivers(d);
   assert.ok(d.ANT.overall > o0 && d.ANT.attrs.pace > pace0);
+});
+
+// --- mentor co-director: driverDevMult speeds in-season development (tickDriverRace devMult) ---
+test("mentor: tickDriverRace devMult scales in-season development of the focused attrs", () => {
+  const mk = () => { const dr = initDrivers().NOR; dr.training = "quali"; dr.attrs.quali = 0.5; dr.attrs.pace = 0.5; return dr; };
+  const base = mk(), mentored = mk();
+  const info = { finishPos: 2, expectedPos: 2, retired: false, points: 18, isPole: false, beatTeammate: null };
+  tickDriverRace(base, info, 1);            // no mentor (neutral)
+  tickDriverRace(mentored, info, 2);        // a strong mentor (devMult 2)
+  assert.ok(mentored.attrs.quali > base.attrs.quali, "a mentor develops the focused attr faster");
+  assert.ok(base.attrs.quali > 0.5, "even without a mentor, in-season training still nudges the focus");
+  assert.equal(tickDriverRace(initDrivers().NOR, info), undefined, "default devMult (omitted) does not throw");
 });

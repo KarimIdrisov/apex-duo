@@ -5,8 +5,8 @@ import { mix32 } from "./rng.js";
 
 export const STAFF_ROLES = ["designer", "strategist", "pitCrew"];
 export const ROLE_LABEL = { designer: "Гл. конструктор", strategist: "Стратег", pitCrew: "Пит-крю" };
-export const FACILITIES = ["design", "pit", "factory"];
-export const FAC_LABEL = { design: "КБ", pit: "Пит-бокс", factory: "Завод" };
+export const FACILITIES = ["design", "pit", "factory", "sim"];
+export const FAC_LABEL = { design: "КБ", pit: "Пит-бокс", factory: "Завод", sim: "Симулятор" };
 export const FAC_MAX = 5;
 
 export const STAFF_UPGRADE_COST = 2500;   // $k to raise a staff rating one step
@@ -22,7 +22,7 @@ export function initStaff(teamFacility, seed) {
   const base = clamp01(f + (r - 0.5) * 0.06);
   const lv = Math.max(0, Math.min(FAC_MAX, Math.round(f * 3)));
   const dft = () => ({ name: "—", specialty: null, rating: base, salary: salaryForStaff(base), contractSeasons: 3 });   // default in-house staff
-  return { designer: base, strategist: base, pitCrew: base, fatigue: 0, facilities: { design: lv, pit: lv, factory: lv },
+  return { designer: base, strategist: base, pitCrew: base, fatigue: 0, facilities: { design: lv, pit: lv, factory: lv, sim: lv },
     people: { designer: dft(), strategist: dft(), pitCrew: dft() } };
 }
 
@@ -64,7 +64,14 @@ export function devMult(staff) {
 export function upkeep(staff) {
   if (!staff) return 0;
   const lv = staff.facilities;
-  return 70 * (lv.design + lv.pit + lv.factory);
+  return 70 * (lv.design + lv.pit + lv.factory + (lv.sim || 0));
+}
+
+// §Phase-5 — the Simulator (HQ building) speeds the player's driver development: a higher sim → more
+// per-race growth. Null-safe (old saves without the sim facility read as level 0 = neutral ×1).
+export function simDriverBoost(staff) {
+  const lv = (staff && staff.facilities && staff.facilities.sim) || 0;
+  return 1 + (lv / FAC_MAX) * 0.30;   // up to +30% driver development at a maxed Simulator
 }
 
 // upgrade a staff rating one step. Returns true if applied.

@@ -1,6 +1,6 @@
 // ApexWeb/src/sim.js
 import { RNG, mix32 } from "./rng.js";
-import { COMPOUNDS, PACE_MODES, SKILL_K, CAR_K, CAR_PACE_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP, TYRE, DIRTY_GAP, EVENT, ATTRW, AI_HANDICAP, AI_NOISE, AI_FORM, RACE_FORM, DEFEND_ROLL, DEFEND_MAX, DNF_CONSIST, INCIDENT } from "./data.js";
+import { COMPOUNDS, PACE_MODES, ENGINE_MODES, SKILL_K, CAR_K, CAR_PACE_K, STEP, DNF_BASE, GRID_GAP, COMBAT_GAP, TYRE, DIRTY_GAP, EVENT, ATTRW, AI_HANDICAP, AI_NOISE, AI_FORM, RACE_FORM, DEFEND_ROLL, DEFEND_MAX, DNF_CONSIST, INCIDENT, FATIGUE_K, FATIGUE_PUSH } from "./data.js";
 import { startFuel, burnFor, weightTerm, engineTerm, fuelLaps } from "./fuel.js";
 import { tyreTerm, warmStep } from "./tyres.js";
 import { miniSplits, N_MINI, sampleAt } from "./track.js";
@@ -11,12 +11,15 @@ import { PASS_CREDIT_CAP, PASS_CREDIT_DECAY, DIRTY_PACE_K, LAP1_CAUTION,
   ATTACK_WEAR_MULT, ATTACK_SCRUB, DEFEND_WEAR_MULT, DEFEND_SCRUB,
   ORDER_MISTAKE_BASE, ORDER_MISTAKE_RAMP, ORDER_MISTAKE_RAMP_CAP, ORDER_MISTAKE_SCRUB_MIN, ORDER_MISTAKE_SCRUB_MAX } from "./data.js";
 import { incidentChance, cautionFromIncident } from "./events.js";
+import { PARTS, PART_WEAR } from "./data.js";
+import { initParts, partWear, failChance, partZone, PART_KEYS } from "./parts.js";
 import { scheduleWeather, wetnessAt, weatherTerm, liveForecast } from "./weather.js";
 import { planRace, pitDecision, engineMode, paceMode, combatOrder } from "./ai_strategy.js";
 import { ATTR_KEYS } from "./team.js";
 
-const ENGINE_KEYS = new Set(["save", "standard", "push"]);
+const ENGINE_KEYS = new Set(Object.keys(ENGINE_MODES));   // save/standard/push + overtake/superovertake (MM burst modes)
 const ORDER_KEYS = new Set(["none", "attack", "defend"]);
+const TEAM_ORDER_KEYS = new Set(["none", "hold", "swap"]);   // MM team orders for the player's two cars
 const NEUTRAL_ATTRS = Object.fromEntries(ATTR_KEYS.map(k => [k, 0.5]));
 const A = c => c.attrs || NEUTRAL_ATTRS;   // attribute accessor with a neutral fallback
 
@@ -49,6 +52,7 @@ export class Race {
       lastMini: [], bestMini: new Array(N_MINI).fill(Infinity), miniColors: [], sectorTimes: [0, 0, 0],
       _dirtyWear: 0, _dirtyPace: 0, _blueDelay: 0, _blueBudget: 0, _blueLast: -1, _creditVs: -1, _launch: 0,
       order: "none", _orderBit: false, _orderLaps: 0, _inFight: false,
+      parts: initParts(), _brakeLimp: 0, _partFail: null, _dnfPart: null,   // §Phase-2 in-race part condition; _partFail = failed brake (limp); _dnfPart = the critical part that retired the car
     }));
     // field-mean car performance ((power+aero)/2), fixed for the race — the anchor the
     // absolute car-pace term is measured against, so a better-than-average car is faster (§18.1).
@@ -56,6 +60,9 @@ export class Race {
     // field-mean consistency — the DNF modulation is centered on THIS (not 0.5) so it shifts incidents
     // between drivers without changing the field-wide DNF rate (attrs cluster around each driver's overall, not 0.5).
     this.consMean = this.cars.reduce((s, c) => s + A(c).consistency, 0) / this.cars.length;
+    // field-mean fitness — the late-race fatigue fade is centered on THIS so it adds fit-vs-unfit texture
+    // without shifting the field-wide pace (§Phase-3).
+    this.fitMean = this.cars.reduce((s, c) => s + A(c).fitness, 0) / this.cars.length;
     this.difficulty = difficulty;   // AI sharpness scalar (lobby-selected; default ~Обычная)
     for (const c of this.cars) {
       // per-race "form": a fixed whole-race pace offset, seeded (no rng draw → other streams untouched),
@@ -75,6 +82,7 @@ export class Race {
     this._fastLap = Infinity;         // best lap time seen so far (for "fastest lap" events)
     this._scWas = false;              // safety-car edge detector
     this._retiredSeen = new Set();    // idx already announced as DNF
+    this.teamOrder = "none";          // MM team order for the player's two cars: none | hold | swap
   }
 
   _emit(ev) { this.events.push(ev); }   // append a structured event (read-only w.r.t. the sim)
@@ -86,6 +94,11 @@ export class Race {
 
   // player combat order for their own car (validated; player cars are skipped by the AI brain already)
   setOrder(i, mode) { const c = this.cars[i]; if (c && ORDER_KEYS.has(mode)) c.order = mode; }
+
+  // MM team order for the player's two cars (team-level; either co-op player or the solo human can set it).
+  // "hold" = the trailing teammate holds station (no intra-team pass); "swap" = wave the trailing car
+  // through (one-shot reposition). Applied in _resolveCombat only between two isPlayer same-team cars.
+  setTeamOrder(mode) { if (TEAM_ORDER_KEYS.has(mode)) this.teamOrder = mode; }
 
   // stateless lap-keyed RNG for event rolls (order lock-up, incident, caution) — deterministic,
   // independent of the per-tick rng/erng streams and of draw order. kind: 1=lockup 2=incident 3=caution.
@@ -108,8 +121,12 @@ export class Race {
     s += c.setupBonus;                                           // <=0, faster when set well
     s += this.rng.noise(0.06) * (1.3 - ATTRW.noise * A(c).consistency);      // consistency steadies the lap
     s += c._dirtyPace || 0;                                                   // dirty-air pace loss (set by _resolveCombat, §18.11)
+    s += c._brakeLimp || 0;                                                   // limping with a failed non-critical part (§Phase-2)
     s += c._blueDelay || 0;                                                   // time threading past a lapped car (blue flags, set by _resolveBlueFlags)
     s += c._form || 0;                                                        // per-race form (off/on weekend), every car
+    // §Phase-3 stamina: an unfit driver fades late in the race (centered on the field mean → field-neutral);
+    // sustained pushing tires faster. Fit drivers actually gain a touch in the closing laps.
+    s += FATIGUE_K * (c.lap / Math.max(1, t.laps)) * (this.fitMean - A(c).fitness) * 2 * (pm.risk > 1 ? 1 + FATIGUE_PUSH : 1);
     if (c.player == null && this.difficulty < 1) {                            // difficulty handicap (AI only)
       s += (1 - this.difficulty) * AI_HANDICAP;                              // easier AI = a touch slower
       s += (c._aiForm || 0);                                                 // per-race form: off/on weekend (creates upsets)
@@ -150,7 +167,7 @@ export class Race {
       c.lapFrac += dt / lt;
       c.lapTimeAccum += dt;
       c.runTicks = (c.runTicks || 0) + 1;                                  // E4/P3: track running time + engine-mode usage
-      if (c.engine === "push") c.pushTicks = (c.pushTicks || 0) + 1;       //     → feeds PU wear (push spends the engine)
+      if (ENGINE_MODES[c.engine] && ENGINE_MODES[c.engine].spend) c.pushTicks = (c.pushTicks || 0) + 1;  // push/overtake/superovertake spend the PU (feeds PU wear)
       else if (c.engine === "save") c.saveTicks = (c.saveTicks || 0) + 1;  //     → save spares it (lift & coast)
       if (c.lapFrac >= 1) {            // lap completed (phase 3 owns bookkeeping)
         const carry = (c.lapFrac - 1) * lt;   // time already spent past the line this tick (sub-step precision)
@@ -171,9 +188,13 @@ export class Race {
         const carTyre = 1.2 - ATTRW.carWear * (c.car.tyre ?? 1);         // car.tyre 1.0 = neutral (1.0)
         const drvSmooth = 1 - ATTRW.smoothWear * (A(c).smoothness - 0.5) * 2;   // smooth inputs save the tyres a touch (§18.7 r3)
         const orderWear = c._orderBit ? (c.order === "attack" ? ATTACK_WEAR_MULT : c.order === "defend" ? DEFEND_WEAR_MULT : 1) : 1;
-        c.wear += (comp.wear * pm.wear * drvTyre * carTyre * drvSmooth * orderWear) + c._dirtyWear;
+        const hotWear = 1 + TYRE.hotWearK * Math.max(0, c.tyreTemp - 1);   // overheating chews the tyre (§item-2)
+        c.wear += (comp.wear * pm.wear * drvTyre * carTyre * drvSmooth * orderWear * hotWear) + c._dirtyWear;
         c._dirtyWear = 0;
-        c.tyreTemp = warmStep(c.tyreTemp, c.tyre);
+        // two-sided temp: aggressive pace/engine drives the target above the optimal window (overheat); easing toward it cools when backed off.
+        // Phase 4: the chassis "Tyre Heating" trait (car.tyreHeat, default 1) scales how hard the same effort overheats — a cool chassis tolerates aggression, a hot one forces style-flicking.
+        const heatTarget = 1 + Math.max(0, pm.heat + ((ENGINE_MODES[c.engine] && ENGINE_MODES[c.engine].heat) || 0)) * (c.car.tyreHeat ?? 1);
+        c.tyreTemp = warmStep(c.tyreTemp, c.tyre, heatTarget);
         this._serveOrderCost(c);   // temp scrub + held-lap counter + lap-keyed lock-up roll (clears _orderBit)
         const smooth = 1.1 - ATTRW.fuel * A(c).smoothness;              // smoother driver burns a touch less
         c.fuel -= burnFor(c.engine, c.car.fuel) * smooth;
@@ -195,7 +216,7 @@ export class Race {
     this._scWas = this.scActive; this._vscWas = this.vscActive;
     this._resolveSC();   // bunching is full-SC only (it checks this.scActive)
     for (const c of this.cars) {
-      if (c.retired && !this._retiredSeen.has(c.idx)) { this._retiredSeen.add(c.idx); this._emit({ type: "dnf", lap: c.lap, a: c.idx, abbr: c.abbrev }); }
+      if (c.retired && !this._retiredSeen.has(c.idx)) { this._retiredSeen.add(c.idx); this._emit({ type: "dnf", lap: c.lap, a: c.idx, abbr: c.abbrev, part: c._dnfPart || null }); }   // part = the failed critical part (§Phase-2) or null
     }
     if (this.cars.every(c => c.retired || c.lap >= this.track.laps)) {
       if (!this.finished) { const w = this.order()[0]; this._emit({ type: "finish", lap: w.lap, a: w.idx, abbr: w.abbrev }); }
@@ -261,6 +282,23 @@ export class Race {
       // close combat: hold-up + pass-credit, with slipstream and braking-zone concentration
       if (gapSec > 0 && gapSec < COMBAT_GAP && me.lap === ahead.lap) {
         me._inFight = true; ahead._inFight = true;                 // both are racing (incident-traffic + HUD)
+        // MM team orders: between two of the player's OWN cars, the manager freezes the order (hold) or
+        // waves the trailing car through (swap). Skips normal intra-team combat. Writes only lapFrac (invariant).
+        if (this.teamOrder !== "none" && me.isPlayer && ahead.isPlayer && me.team === ahead.team) {
+          if (this.teamOrder === "swap") {
+            const slot = ahead.lapFrac + (COMBAT_GAP * 0.1) / this.track.lt;   // nip the trailing car just ahead
+            if (slot < 1) {                                                    // guard the lap boundary (§16 invariant)
+              me.lapFrac = slot; me._passCredit = 0; this.teamOrder = "none";  // one-shot reposition, then auto-clear
+              this._emit({ type: "team_order", order: "swap", lap: me.lap, a: me.idx, abbr: me.abbrev, b: ahead.idx, abbrB: ahead.abbrev });
+              continue;
+            }
+          }
+          // hold (or a swap blocked by the lap line): pin the trailing teammate behind, bank no credit
+          me._passCredit = 0; me._creditVs = ahead.idx;
+          const tFrac = (ahead.lap + ahead.lapFrac) - (COMBAT_GAP * 0.5) / this.track.lt - me.lap;
+          if (tFrac < me.lapFrac) me.lapFrac = Math.max(0, tFrac);
+          continue;
+        }
         if (me.order === "attack") me._orderBit = true;            // attacking this lap → pays the cost at lap end
         if (ahead.order === "defend") ahead._orderBit = true;      // defender pays too
         const edge = this._lapTime(ahead) - (this._lapTime(me) - (me._dirtyPace || 0));   // >0 => me faster on CLEAN pace; dirty air slows me on track but must not zero my passing intent (audit r3)
@@ -437,15 +475,58 @@ export class Race {
         if (pr < c.pitCrew.disasterChance) { pitLoss += 8 + 6 * this._keyRng(c.idx, c.lap, 8).unit(); pitMishap = "disaster"; }
         else if (pr < c.pitCrew.botchChance) { pitLoss += 1.5 + 2.5 * this._keyRng(c.idx, c.lap, 9).unit(); pitMishap = "slow"; }
       }
+      // §Phase-2: a pit repairs worn/failed parts — fixes a brake limp and tops up any part in the red
+      // zone, folding the repair time into the stationary stop. Clears the limp so the out-lap is clean.
+      if (c.parts) {
+        let repaired = 0;
+        for (const k of PART_KEYS) {
+          if (c._partFail === k || c.parts[k] < PART_WEAR.red) {
+            c.parts[k] = Math.min(1, c.parts[k] + PART_WEAR.repair);
+            repaired = Math.max(repaired, PART_WEAR.repairTime[k] || 0);
+          }
+        }
+        if (repaired) pitLoss += repaired;
+        c._brakeLimp = 0; c._partFail = null;
+      }
       c.pitStops += 1;
       c.pitTimer = pitLoss;   // sit stationary in the box for pitLoss s — drained in step() (race time passes, rivals gain, the out-lap shows it). Replaces the old lapFrac subtraction that got clamped to ~0.
       this._emit({ type: "pit", lap: c.lap, a: c.idx, abbr: c.abbrev, compound: c.tyre, mishap: pitMishap });
     }
     if (c.fuel <= 0) { c.retired = true; return; }   // ran the tank dry
-    const pm = PACE_MODES[c.pace];
-    const consist = 1 + DNF_CONSIST * (this.consMean - A(c).consistency) * 2;   // jittery-vs-field driver → more incidents; field-neutral so the DNF rate holds (§18.7 r3)
-    if (this.erng.unit() < DNF_BASE * (1 - c.car.rel) * pm.risk * consist) c.retired = true;
+    this._wearParts(c);   // §Phase-2: part condition wears + red-zone failures (replaces the flat mechanical DNF roll)
+    if (c.retired) return;
     this._rollIncident(c);
+  }
+
+  // §Phase-2: wear each part by this lap's stress, then roll failures for parts in the red zone. A failed
+  // critical part (engine/gearbox) retires the car; a failed non-critical part (brakes) costs pace and
+  // forces a pit. Reliability (car.rel) slows the wear. Uses lap-keyed RNG (per-part stream) so it doesn't
+  // perturb the erng caution stream. Jittery drivers (consistency<field) fail a touch more (§18.7 r3 preserved).
+  _wearParts(c) {
+    const pm = PACE_MODES[c.pace], em = ENGINE_MODES[c.engine];
+    const consist = 1 + DNF_CONSIST * (this.consMean - A(c).consistency) * 2;
+    const paceStress = 1 + PART_WEAR.riskK * (pm.risk - 1);
+    const stress = { engine: 1 + PART_WEAR.engK * ((em && em.heat) || 0), gearbox: paceStress, brakes: paceStress };
+    let mult = 1, worstCrit = null, worstCond = 2;
+    for (const k of PART_KEYS) {
+      c.parts[k] = Math.max(0, c.parts[k] - partWear(k, stress[k], c.car.rel));
+      const z = partZone(c.parts[k]);
+      if (z !== "green") mult += (z === "red" ? PART_WEAR.redRisk : PART_WEAR.yellowRisk);   // degraded parts amplify the failure chance
+      if (PARTS[k].critical) { if (c.parts[k] < worstCond) { worstCond = c.parts[k]; worstCrit = k; } }
+      else if (c.parts[k] < PART_WEAR.red && !c._partFail                                     // non-critical (brakes) in the red zone can fail → limp + forced pit (once)
+        && this._keyRng(c.idx, c.lap, 22).unit() < failChance(c.parts[k]) * consist) {
+        c._partFail = k; c._brakeLimp = PART_WEAR.brakeLimp;
+        if (c.player == null && !c.pitPending) c.pitPending = c.tyre;                          // the AI limps straight to the box
+        this._emit({ type: "part", lap: c.lap, a: c.idx, abbr: c.abbrev, part: k });
+      }
+    }
+    // critical mechanical DNF: the calibrated flat rate (erng-stream-preserving — one draw, as before),
+    // AMPLIFIED by part degradation so a red engine/gearbox is the warned, likely cause of a retirement.
+    // A mechanical failure retires the car SILENTLY (no caution — matches the old flat roll, keeps the SC
+    // corridor); the cause part rides the single dnf announcement (line ~212) for the lenta.
+    if (this.erng.unit() < DNF_BASE * (1 - c.car.rel) * pm.risk * consist * mult) {
+      c.retired = true; c._dnfPart = worstCrit;
+    }
   }
 
   // on-track incident roll for a car at a completed lap (lap-keyed, deterministic). An incident loses
@@ -453,7 +534,10 @@ export class Race {
   _rollIncident(c) {
     if (c.retired) return;
     const pm = PACE_MODES[c.pace];
-    const p = incidentChance(INCIDENT.base, pm.risk, A(c).composure, c._inFight, c.lap, INCIDENT);
+    let p = incidentChance(INCIDENT.base, pm.risk, A(c).composure, c._inFight, c.lap, INCIDENT);
+    p *= 1 + INCIDENT.wetK * (this.wetness || 0);                          // §Phase-3: a wet track breeds mistakes
+    const cliff = COMPOUNDS[c.tyre] ? COMPOUNDS[c.tyre].cliff : Infinity;
+    if (c.wear > cliff) p *= 1 + INCIDENT.cliffK;                          // §Phase-3: worn past the cliff → twitchy
     const ir = this._keyRng(c.idx, c.lap, 2);
     if (ir.unit() >= p) return;
     let wasDNF = false;

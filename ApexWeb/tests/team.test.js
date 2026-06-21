@@ -2,14 +2,19 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ATTR_KEYS, driverAttrs, genPersonnel } from "../src/team.js";
 
-test("driverAttrs returns all 13 attrs in [0,1], deterministic, centered near overall", () => {
+test("driverAttrs returns all 14 attrs in [0,1], deterministic, skill attrs centered near overall", () => {
   const a = driverAttrs("LEC", 0.90), b = driverAttrs("LEC", 0.90);
   assert.deepEqual(a, b);                              // deterministic
   assert.equal(Object.keys(a).length, ATTR_KEYS.length);
-  assert.equal(ATTR_KEYS.length, 13);
+  assert.equal(ATTR_KEYS.length, 14);                 // 13 skill attrs + fitness (§Phase-3)
   for (const k of ATTR_KEYS) assert.ok(a[k] >= 0 && a[k] <= 1, `${k}=${a[k]}`);
-  const mean = ATTR_KEYS.reduce((s, k) => s + a[k], 0) / ATTR_KEYS.length;
-  assert.ok(mean > 0.78 && mean < 1.0, `mean ${mean} near overall 0.90`);
+  // the 13 skill attrs cluster near `overall`; fitness is its OWN axis (~0.70, independent of overall)
+  const skill = ATTR_KEYS.filter(k => k !== "fitness");
+  const mean = skill.reduce((s, k) => s + a[k], 0) / skill.length;
+  assert.ok(mean > 0.82 && mean < 1.0, `skill mean ${mean} near overall 0.90`);
+  assert.ok(a.fitness >= 0.3 && a.fitness <= 0.99, `fitness ${a.fitness} is its own ~0.7 axis`);
+  // a much weaker driver still has a comparable fitness range (decorrelated from overall)
+  assert.ok(Math.abs(driverAttrs("LEC", 0.70).fitness - a.fitness) < 1e-9, "fitness ignores overall");
 });
 
 test("signature drivers get their trait bump (HAM/ALO wet beat a control)", () => {
@@ -26,7 +31,18 @@ test("genPersonnel scales pit speed + strategy with facility, deterministic", ()
 });
 
 // --- D5: per-attribute development + traits ---
-import { overallFromAttrs, attrDrift, TRAITS, traitBias, ATTR_PEAK, assignTraits } from "../src/team.js";
+import { overallFromAttrs, attrDrift, TRAITS, traitBias, ATTR_PEAK, assignTraits, overallToStars } from "../src/team.js";
+
+test("overallToStars: 0..5 stars in half-steps, rising with overall (§Phase-3)", () => {
+  assert.equal(overallToStars(0.97), 5);
+  assert.equal(overallToStars(0.50), 0);
+  assert.ok(overallToStars(0.90) > overallToStars(0.75), "a stronger driver gets more stars");
+  for (const o of [0.6, 0.72, 0.85, 0.95]) {
+    const s = overallToStars(o);
+    assert.ok(s >= 0 && s <= 5, `${o}→${s} in range`);
+    assert.equal(s * 2, Math.round(s * 2), `${o}→${s} is a half-step`);
+  }
+});
 
 test("overallFromAttrs: readout rises with the headline attrs, stays in 0..1", () => {
   const lo = {}, hi = {}; for (const k of ATTR_KEYS) { lo[k] = 0.6; hi[k] = 0.9; }

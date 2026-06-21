@@ -3,7 +3,9 @@
 import { RNG, mix32 } from "./rng.js";
 
 export const ATTR_KEYS = ["pace", "quali", "tyre", "overtaking", "defending",
-  "consistency", "composure", "aggression", "discipline", "wet", "starts", "race_iq", "smoothness"];
+  "consistency", "composure", "aggression", "discipline", "wet", "starts", "race_iq", "smoothness", "fitness"];
+// fitness (§Phase-3): stamina — a fit driver holds pace late in the race; an unfit one fades. The effect
+// is centered on the field mean (sim.js), so it adds texture without shifting the field-wide pace.
 
 // star traits: per-attribute bumps layered on top of the overall.
 const SIGNATURE = {
@@ -27,13 +29,20 @@ export function driverAttrs(abbrev, overall) {
   const r = new RNG(seedOf(abbrev));
   const sig = SIGNATURE[abbrev] || {};
   const a = {};
-  for (const k of ATTR_KEYS) a[k] = clamp01(overall + r.noise(0.06) + (sig[k] || 0));
+  for (const k of ATTR_KEYS) {
+    // fitness is its OWN axis (centered ~0.70, independent of overall) so the late-race fade doesn't
+    // systematically favour the already-fast cars — it stays a separate "manage the human" trait (§Phase-3).
+    a[k] = k === "fitness" ? clamp01(0.70 + r.noise(0.20) + (sig[k] || 0))
+                           : clamp01(overall + r.noise(0.06) + (sig[k] || 0));
+  }
   return a;
 }
 
-// 5-indicator car: power/aero/reliability from the team car; tyre/fuel economy passthrough.
+// 5-indicator car: power/aero/reliability from the team car; tyre/fuel economy passthrough. tyreHeat
+// (Phase 4 chassis "Tyre Heating" trait) also passes through to the sim's overheat target; default 1 =
+// neutral, so a car composed without a chassis (AI, balance harness) behaves exactly as before.
 export function composeCar(car) {
-  return { power: car.power, aero: car.aero, rel: car.rel, tyre: car.tyre ?? 1, fuel: car.fuel ?? 1 };
+  return { power: car.power, aero: car.aero, rel: car.rel, tyre: car.tyre ?? 1, fuel: car.fuel ?? 1, tyreHeat: car.tyreHeat ?? 1 };
 }
 
 // --- D5: per-attribute development + traits ---
@@ -45,9 +54,16 @@ export function overallFromAttrs(a) {
   return s / w;
 }
 
+// §Phase-3 — MM-style 0..5 star rating from an overall (half-star steps). The F1 pool spans ~0.65..0.97,
+// mapped so a rookie reads ~1-2★ and an elite ~5★. Used in the driver card next to the OVR number.
+export function overallToStars(overall) {
+  const x = (Number(overall) - 0.55) / 0.084;          // 0.55→0★ .. 0.97→5★
+  return Math.max(0, Math.min(5, Math.round(x * 2) / 2));  // clamp 0..5, half-star granularity
+}
+
 // per-attribute peak age: physical (pace/quali/starts) peak early; craft (race_iq/tyre/wet) peak late.
 export const ATTR_PEAK = {
-  pace: 25, quali: 25, starts: 24, aggression: 26, smoothness: 31,
+  pace: 25, quali: 25, starts: 24, aggression: 26, smoothness: 31, fitness: 26,
   overtaking: 28, consistency: 30, defending: 30, composure: 32, discipline: 32, tyre: 33, wet: 33, race_iq: 35,
 };
 // one season of drift for an attribute at a given age (rise below peak, decline above; bounded ±0.025).

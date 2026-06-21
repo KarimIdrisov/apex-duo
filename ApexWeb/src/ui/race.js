@@ -2,7 +2,7 @@
 // header + real SVG circuit map + your-car control strip + full timing leaderboard.
 // Skeleton is built ONCE (so the lever buttons survive ~12 Hz updates and clicks
 // land); only values + the board + car dots are mutated each snapshot.
-import { TRACK, TRACK_PATH, DRIVER_INFO } from "../data.js";
+import { TRACK, TRACK_PATH, DRIVER_INFO, COMPOUNDS, PARTS, PART_WEAR } from "../data.js";
 import { teamColor, teamLogoSrc } from "./teamviz.js";
 import { describe } from "../commentary.js";
 import { sfx } from "../audio.js";
@@ -11,11 +11,15 @@ import { TRACK_SHAPES } from "../track_shapes.js";
 import { effectiveTrack } from "../track_store.js";
 import { pitLaneSample, advancePitPhase } from "../pitlane.js";
 
-const PACE = ["conserve", "balanced", "push"], ENGINE = ["save", "standard", "push"];
-const PACE_L = { conserve: "Save", balanced: "Norm", push: "Push" };
-const ENGINE_L = { save: "Save", standard: "Std", push: "Push" };
+// MM 5-step pace ladder (most aggressive → most conservative) and the engine ladder incl. the burst modes.
+const PACE = ["attack", "push", "balanced", "conserve", "backup"], ENGINE = ["save", "standard", "push", "overtake", "superovertake"];
+const PACE_L = { attack: "Атака", push: "Push", balanced: "Norm", conserve: "Save", backup: "Берег" };
+const ENGINE_L = { save: "Save", standard: "Std", push: "Push", overtake: "OT", superovertake: "OT+" };
 const ORDER = ["attack", "defend", "none"];
 const ORDER_L = { attack: "⚔ Атака", defend: "🛡 Защита", none: "Нейтр" };
+// MM team orders for the player's two cars (team-level)
+const TEAM_ORDER = ["hold", "swap", "none"];
+const TEAM_ORDER_L = { hold: "🚦 Строй", swap: "⇄ Пропустить", none: "Свобода" };
 const SPEEDS = [1, 2, 4];
 
 const logo = (a, s = 18) => { const info = DRIVER_INFO[a]; return info ? `<img src="${teamLogoSrc(info.team)}" alt="" style="height:${s}px;width:${s}px;object-fit:contain;vertical-align:middle;margin-right:6px">` : ""; };
@@ -262,12 +266,16 @@ function buildHud(root, ctx) {
         <div class="bar"><i id="d-wear"></i></div>
         <p class="label" style="margin-top:8px">Топливо <span id="d-fuel-txt"></span></p>
         <div class="bar"><i id="d-fuel"></i></div>
+        <p class="label" style="margin-top:8px">Состояние деталей</p>
+        <div id="d-parts" style="display:flex;gap:6px"></div>
         <p class="label" style="margin-top:10px">Темп</p>
         <div class="seg" id="d-pace">${PACE.map(p => `<button data-v="${p}">${PACE_L[p]}</button>`).join("")}</div>
         <p class="label" style="margin-top:8px">Мотор</p>
         <div class="seg" id="d-engine">${ENGINE.map(e => `<button data-v="${e}">${ENGINE_L[e]}</button>`).join("")}</div>
         <p class="label" style="margin-top:8px">Приказ <span id="d-order-hint" class="label" style="margin:0;opacity:.7"></span></p>
         <div class="seg" id="d-order">${ORDER.map(o => `<button data-v="${o}">${ORDER_L[o]}</button>`).join("")}</div>
+        <p class="label" style="margin-top:8px">Команда <span class="label" style="margin:0;opacity:.7">обе машины</span></p>
+        <div class="seg" id="d-team">${TEAM_ORDER.map(o => `<button data-v="${o}">${TEAM_ORDER_L[o]}</button>`).join("")}</div>
         <div id="d-forecast" style="margin-top:8px;display:none;border-radius:8px;padding:6px 8px;font-size:12px"></div>
         <p class="label" style="margin-top:8px">Пит — компаунд <span id="d-weather"></span></p>
         <div class="seg" id="d-compound">${["soft","medium","hard","inter","wet"].map(t => `<button data-v="${t}">${tyreIcon(t, 18)}</button>`).join("")}</div>
@@ -296,6 +304,7 @@ function buildHud(root, ctx) {
   root.querySelector("#d-pace").onclick = e => { const v = e.target.dataset && e.target.dataset.v; if (v) ctx.send({ cmd: "set_pace", car: myIdx(), mode: v }); };
   root.querySelector("#d-engine").onclick = e => { const v = e.target.dataset && e.target.dataset.v; if (v) ctx.send({ cmd: "set_engine", car: myIdx(), mode: v }); };
   root.querySelector("#d-order").onclick = e => { const v = e.target.dataset && e.target.dataset.v; if (v) ctx.send({ cmd: "set_order", car: myIdx(), mode: v }); };
+  root.querySelector("#d-team").onclick = e => { const v = e.target.dataset && e.target.dataset.v; if (v) ctx.send({ cmd: "set_team_order", mode: v }); };
   root.querySelector("#d-compound").onclick = e => { const b = e.target.closest("button"); if (b && b.dataset.v) { ctx.nextCompound = b.dataset.v; updateHud(root, ctx, ctx.snapshot); } };
   root.querySelector("#d-pit").onclick = () => { sfx.pit(); ctx.send({ cmd: "request_pit", car: myIdx(), compound: ctx.nextCompound || "medium" }); };
   root.querySelector("#d-pause").onclick = () => ctx.send({ cmd: "toggle_pause" });
@@ -359,7 +368,15 @@ function updateHud(root, ctx, snap) {
   $("#d-me").textContent = `P${me.pos} ${me.abbrev}`;
   $("#d-gaps").innerHTML = `${ahead ? "↑ " + gap(ahead, me) : "— лидер"}${behind ? " &nbsp; ↓ " + gap(me, behind) : ""}`;
   const cold = (me.tyreTemp ?? 1) < 0.85 ? ` <span style="color:#4aa3ff" title="шина не прогрета">❄</span>` : "";
-  $("#d-tyrelabel").innerHTML = `Резина ${tyreIcon(me.tyre, 22)} <span style="text-transform:capitalize">${me.tyre}</span>${cold} · ${me.tyreAge} кр · износ`;
+  const hot = (me.tyreTemp ?? 1) > 1.05 ? ` <span style="color:#ff6b3b" title="перегрев — сбрось темп">🔥</span>` : "";
+  // tyre life window: laps until the cliff at the current wear rate (MM-style "~N laps left" readout)
+  const comp = COMPOUNDS[me.tyre]; let win = "";
+  if (comp) {
+    const rate = me.tyreAge > 0 ? me.wear / me.tyreAge : comp.wear;
+    if (me.wear >= comp.cliff) win = ` · <span style="color:#ff6b3b">🧨 за обрывом</span>`;
+    else if (rate > 0) { const n = Math.floor((comp.cliff - me.wear) / rate); win = ` · <span style="color:${n <= 3 ? "#e7c84b" : "var(--muted)"}" title="кругов до обрыва резины при текущем темпе">~${n} кр до обрыва</span>`; }
+  }
+  $("#d-tyrelabel").innerHTML = `Резина ${tyreIcon(me.tyre, 22)} <span style="text-transform:capitalize">${me.tyre}</span>${cold}${hot} · ${me.tyreAge} кр${win}`;
   const COLORS = { p: "#b14aef", g: "#3ddc84", y: "#e7c84b" };
   const cols = me.miniColors || [];
   $("#d-mini").innerHTML = cols.length
@@ -371,11 +388,28 @@ function updateHud(root, ctx, snap) {
   $("#d-fuel").style.width = Math.max(0, Math.min(100, ratio / 1.4 * 100)) + "%";
   $("#d-fuel").style.background = ratio >= 1 ? "var(--good)" : "var(--bad)";        // red = short
   $("#d-fuel-txt").textContent = `${(me.fuelLaps || 0).toFixed(1)} кр запас`;
+  // §Phase-2 part condition: green/yellow/red bars; ⚠ on a failed (limping) part — back off or pit to repair
+  const pe = $("#d-parts");
+  if (pe) pe.innerHTML = Object.keys(PARTS).map(k => {
+    const cond = (me.parts && me.parts[k] != null) ? me.parts[k] : 1;
+    const col = cond > PART_WEAR.yellow ? "#3ddc84" : cond > PART_WEAR.red ? "#e7c84b" : "#e7553b";
+    const warn = me.partFail === k ? " ⚠" : "";
+    return `<div style="flex:1" title="${PARTS[k].label} ${Math.round(cond * 100)}%"><div class="label" style="margin:0;font-size:10px">${PARTS[k].label}${warn}</div><div class="bar" style="height:6px"><i style="display:block;height:100%;border-radius:inherit;width:${Math.round(cond * 100)}%;background:${col}"></i></div></div>`;
+  }).join("");
   for (const b of $("#d-pace").children) b.classList.toggle("on", b.dataset.v === me.pace);
   for (const b of $("#d-engine").children) b.classList.toggle("on", b.dataset.v === me.engine);
   for (const b of $("#d-order").children) b.classList.toggle("on", b.dataset.v === me.order);
   const oh = $("#d-order-hint"); if (oh) oh.textContent = me.inFight ? "в борьбе" : "—";
   const og = $("#d-order"); if (og) og.style.opacity = me.inFight ? "1" : "0.6";   // dim when not racing anyone
+  for (const b of $("#d-team").children) b.classList.toggle("on", b.dataset.v === (snap.teamOrder || "none"));
+  // SC/VSC pit window: a caution makes a stop cheaper — flag it on the pit button (the MM "box now!" moment)
+  const pitBtn = $("#d-pit");
+  if (pitBtn) {
+    const caution = snap.scActive || snap.vscActive;
+    pitBtn.innerHTML = caution ? "⛽ В боксы · <b>дёшево!</b>" : "⛽ В боксы";
+    pitBtn.style.boxShadow = caution ? "0 0 0 2px #e7c84b" : "none";
+    pitBtn.title = caution ? "Питстоп под жёлтыми теряет меньше времени — окно для стопа!" : "";
+  }
   const wet = snap.wetness || 0;
   $("#d-weather").innerHTML = wet < 0.1 ? "☀️ сухо" : wet < 0.45 ? "🌦️ сыро " + Math.round(wet * 100) + "%" : "🌧️ дождь " + Math.round(wet * 100) + "%";
   // weather radar / forecast strip — anticipation for the slick↔inter↔wet gamble

@@ -1,6 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { STAFF_ROLES, FACILITIES, FAC_MAX, initStaff, composePersonnel, devMult, upkeep, upgradeStaff, upgradeFacility, STAFF_UPGRADE_COST } from "../src/staff.js";
+import { STAFF_ROLES, FACILITIES, FAC_MAX, initStaff, composePersonnel, devMult, upkeep, upgradeStaff, upgradeFacility, STAFF_UPGRADE_COST, simDriverBoost } from "../src/staff.js";
+
+test("§Phase-5 Simulator (HQ building) speeds driver development; null-safe for old saves", () => {
+  assert.equal(simDriverBoost(null), 1);
+  assert.equal(simDriverBoost({ facilities: {} }), 1, "old save without the sim facility = neutral ×1");
+  assert.ok(simDriverBoost({ facilities: { sim: FAC_MAX } }) > simDriverBoost({ facilities: { sim: 0 } }), "more simulator = faster dev");
+  assert.ok(simDriverBoost({ facilities: { sim: FAC_MAX } }) <= 1.3 + 1e-9, "bounded");
+  assert.ok(FACILITIES.includes("sim"), "the Simulator is part of the facility upgrade tree");
+});
 
 test("initStaff seeds ratings + facility levels from the team facility strength", () => {
   const strong = initStaff(0.95, 1), weak = initStaff(0.68, 1);
