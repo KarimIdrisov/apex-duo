@@ -5,8 +5,10 @@ import { mix32 } from "./rng.js";
 
 export const STAFF_ROLES = ["designer", "strategist", "pitCrew"];
 export const ROLE_LABEL = { designer: "Гл. конструктор", strategist: "Стратег", pitCrew: "Пит-крю" };
-export const FACILITIES = ["design", "pit", "factory", "sim"];
-export const FAC_LABEL = { design: "КБ", pit: "Пит-бокс", factory: "Завод", sim: "Симулятор" };
+// §Phase-5 — the R&D building tree. Beyond КБ/Пит-бокс/Завод: Симулятор (driver dev), Аэротруба
+// (aero component quality → Known Components), Кадровый центр (staff training speed).
+export const FACILITIES = ["design", "pit", "factory", "sim", "tunnel", "staffctr"];
+export const FAC_LABEL = { design: "КБ", pit: "Пит-бокс", factory: "Завод", sim: "Симулятор", tunnel: "Аэротруба", staffctr: "Кадровый центр" };
 export const FAC_MAX = 5;
 
 export const STAFF_UPGRADE_COST = 2500;   // $k to raise a staff rating one step
@@ -22,7 +24,7 @@ export function initStaff(teamFacility, seed) {
   const base = clamp01(f + (r - 0.5) * 0.06);
   const lv = Math.max(0, Math.min(FAC_MAX, Math.round(f * 3)));
   const dft = () => ({ name: "—", specialty: null, rating: base, salary: salaryForStaff(base), contractSeasons: 3 });   // default in-house staff
-  return { designer: base, strategist: base, pitCrew: base, fatigue: 0, facilities: { design: lv, pit: lv, factory: lv, sim: lv },
+  return { designer: base, strategist: base, pitCrew: base, fatigue: 0, facilities: { design: lv, pit: lv, factory: lv, sim: lv, tunnel: lv, staffctr: lv },
     people: { designer: dft(), strategist: dft(), pitCrew: dft() } };
 }
 
@@ -64,7 +66,7 @@ export function devMult(staff) {
 export function upkeep(staff) {
   if (!staff) return 0;
   const lv = staff.facilities;
-  return 70 * (lv.design + lv.pit + lv.factory + (lv.sim || 0));
+  return 70 * (lv.design + lv.pit + lv.factory + (lv.sim || 0) + (lv.tunnel || 0) + (lv.staffctr || 0));
 }
 
 // §Phase-5 — the Simulator (HQ building) speeds the player's driver development: a higher sim → more
@@ -268,7 +270,7 @@ export function tickStaffTrain(career) {
   let spent = 0;
   for (const role of STAFF_ROLES) {
     if (!career.staffTrain[role]) continue;
-    const accel = 1 + (st.facilities.design / FAC_MAX) * 0.6;
+    const accel = 1 + (st.facilities.design / FAC_MAX) * 0.6 + ((st.facilities.staffctr || 0) / FAC_MAX) * 0.6;   // §Phase-5: the Кадровый центр accelerates staff training
     st[role] = clamp01(st[role] + 0.0045 * accel);
     if (st.people && st.people[role]) st.people[role].rating = st[role];
     spent += STAFF_TRAIN_COST;

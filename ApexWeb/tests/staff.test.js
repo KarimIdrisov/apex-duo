@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { STAFF_ROLES, FACILITIES, FAC_MAX, initStaff, composePersonnel, devMult, upkeep, upgradeStaff, upgradeFacility, STAFF_UPGRADE_COST, simDriverBoost, designerFocus, DESIGNER_FOCUS } from "../src/staff.js";
+import { STAFF_ROLES, FACILITIES, FAC_MAX, initStaff, composePersonnel, devMult, upkeep, upgradeStaff, upgradeFacility, STAFF_UPGRADE_COST, simDriverBoost, designerFocus, DESIGNER_FOCUS, tickStaffTrain } from "../src/staff.js";
 
 test("§Phase-5 Simulator (HQ building) speeds driver development; null-safe for old saves", () => {
   assert.equal(simDriverBoost(null), 1);
@@ -25,6 +25,21 @@ test("§Phase-4 designerFocus is per-area: specialist tilts gain by area, genera
   assert.ok(designerFocus(eng, "power") > designerFocus(aero, "power"), "engine designer beats aero designer on power parts");
   assert.ok(SPECIALTIES.powertrain && SPECIALTIES.powertrain.role === "designer", "powertrain is a hireable designer specialty");
   assert.equal(designerFocus(eng, "power"), 1 + DESIGNER_FOCUS);
+});
+
+test("§Phase-5 R&D building tree: Wind Tunnel + Staff Centre present, seeded, add upkeep, train staff", () => {
+  assert.ok(FACILITIES.includes("tunnel") && FACILITIES.includes("staffctr"), "both buildings in the tree");
+  const s = initStaff(0.9, 1);
+  assert.ok(s.facilities.tunnel > 0 && s.facilities.staffctr > 0, "seeded from team strength");
+  const more = { facilities: { design: 1, pit: 1, factory: 1, sim: 1, tunnel: 1, staffctr: 1 } };
+  const fewer = { facilities: { design: 1, pit: 1, factory: 1, sim: 1, tunnel: 0, staffctr: 0 } };
+  assert.ok(upkeep(more) > upkeep(fewer), "the new buildings add upkeep");
+  // the Staff Centre accelerates staff training
+  const mk = ctr => ({ money: 1e6, staff: { designer: 0.7, strategist: 0.7, pitCrew: 0.7, facilities: { design: 0, pit: 0, factory: 0, sim: 0, tunnel: 0, staffctr: ctr }, people: { designer: {}, strategist: {}, pitCrew: {} } }, staffTrain: { designer: true } });
+  const withCtr = mk(5), noCtr = mk(0);
+  const w0 = withCtr.staff.designer, n0 = noCtr.staff.designer;
+  tickStaffTrain(withCtr); tickStaffTrain(noCtr);
+  assert.ok((withCtr.staff.designer - w0) > (noCtr.staff.designer - n0), "the Staff Centre speeds training");
 });
 
 test("initStaff seeds ratings + facility levels from the team facility strength", () => {

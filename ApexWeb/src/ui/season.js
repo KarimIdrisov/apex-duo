@@ -323,7 +323,7 @@ export function render(root, ctx) {
   const facBuilding = which => c.facilityProject && c.facilityProject.which === which ? c.facilityProject : null;
   const facCard = fk => { const lvl = st.facilities[fk] || 0, cost = FAC_UPGRADE_BASE * (lvl + 1); const bp = facBuilding(fk); const busy = !!c.facilityProject;
     const can = lvl < FAC_MAX && c.money >= cost && !busy;
-    const affects = fk === "design" ? "ускоряет разработку и стратегию" : fk === "pit" ? "ускоряет пит-стопы" : fk === "sim" ? "ускоряет развитие пилотов" : `слотов разработки ${1 + Math.floor(lvl / 2)} · содержание`;
+    const affects = fk === "design" ? "ускоряет разработку и стратегию" : fk === "pit" ? "ускоряет пит-стопы" : fk === "sim" ? "ускоряет развитие пилотов" : fk === "tunnel" ? "качество аэро-деталей (known components)" : fk === "staffctr" ? "ускоряет обучение штата" : `слотов разработки ${1 + Math.floor(lvl / 2)} · содержание`;
     const action = lvl >= FAC_MAX ? `<span style="font-size:11px;color:var(--muted)">максимум</span>`
       : bp ? `<span style="font-size:11px;color:var(--accent)">🏗 ${devEta(c, bp)}</span>`
       : busy ? `<span style="font-size:11px;color:var(--muted)">идёт другая стройка</span>`

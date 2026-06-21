@@ -86,8 +86,10 @@ export function knownStrength(career, part) {
   const st = career && career.staff; if (!st) return 0;
   const fac = st.facilities || {};
   const design = (fac.design || 0) / 5, sim = (fac.sim || 0) / 5, designer = st.designer || 0.6;
-  const focus = designerFocus(st, areaOfPart(part));                 // >1 in the designer's specialty area
-  return Math.max(0, Math.min(1, 0.30 * design + 0.20 * sim + 1.2 * (designer - 0.6) + 0.6 * (focus - 1)));
+  const area = areaOfPart(part);
+  const focus = designerFocus(st, area);                             // >1 in the designer's specialty area
+  const tunnel = (area === "aero") ? 0.25 * (fac.tunnel || 0) / 5 : 0;   // §Phase-5: the Аэротруба deepens aero "known components"
+  return Math.max(0, Math.min(1, 0.30 * design + 0.20 * sim + 1.2 * (designer - 0.6) + 0.6 * (focus - 1) + tunnel));
 }
 // the known-component tier (0..KNOWN_MAX) for a part: knowledge strength × how far the part is developed
 // toward the base ceiling (uses PART_CEILING, not effCeiling — no circularity). Deterministic integer.

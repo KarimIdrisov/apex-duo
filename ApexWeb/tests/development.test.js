@@ -103,6 +103,13 @@ test("§Phase-4 item 4: Known Components raise a developed part's ceiling on a s
   assert.ok(knownBonus(impHi, "floor") > knownBonus(strong, "floor"), "high Improvability boosts the known-component bonus");
 });
 
+test("§Phase-5 Wind Tunnel deepens aero known-component strength (aero parts only)", () => {
+  const base = fakeCareer({ staff: { designer: 0.9, facilities: { design: 3, sim: 3, tunnel: 0 } } });
+  const tun = fakeCareer({ staff: { designer: 0.9, facilities: { design: 3, sim: 3, tunnel: 5 } } });
+  assert.ok(knownStrength(tun, "floor") > knownStrength(base, "floor"), "the Wind Tunnel lifts aero known strength");
+  assert.equal(knownStrength(tun, "pu"), knownStrength(base, "pu"), "no effect on a non-aero (power) part");
+});
+
 // --- P2: regression + free revert ---
 test("aggressive programs can regress a part; revertPart restores the previous spec", () => {
   // run many seeds; on aggressive at least one fit must come out negative (gain<0)
