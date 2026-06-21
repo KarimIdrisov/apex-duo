@@ -3,7 +3,7 @@
 // reads the 5 composed indicators (composeCar). AI develops parts deterministically (catch-up biased).
 import { mix32 } from "./rng.js";
 import { TEAMS } from "./data.js";
-import { devMult, staffRelBonus } from "./staff.js";
+import { devMult, staffRelBonus, designerFocus } from "./staff.js";
 import { academyDevBonus } from "./academy.js";
 import { devGainMult, devCostMult } from "./directors.js";
 
@@ -137,7 +137,8 @@ export function forecastRange(career, part, size, approachKey = "balanced") {
   const spec = PROJECT_SIZE[size]; if (!spec) return null;
   const ap = APPROACH[approachKey] || APPROACH.balanced;
   const level = (career && career.parts && career.parts[teamNameOf(career)] && career.parts[teamNameOf(career)][part]) || 0;
-  const mid = spec.gain * ap.gainK * maturityFactor(level, effCeiling(career)) * eraEmphasis((career && career.season) || 1, part) * devMult(career && career.staff) * (1 + academyDevBonus(career));
+  const areaKey = Object.keys(PART_CONTRIB[part] || {}).sort((a, b) => (PART_CONTRIB[part][b] || 0) - (PART_CONTRIB[part][a] || 0))[0];
+  const mid = spec.gain * ap.gainK * maturityFactor(level, effCeiling(career)) * eraEmphasis((career && career.season) || 1, part) * devMult(career && career.staff) * (1 + academyDevBonus(career)) * designerFocus(career && career.staff, areaKey);
   const cq = corrQuality(career, part);
   const width = mid * (0.55 - 0.30 * cq);
   return { low: Math.max(0, mid - width / 2), mid, high: mid + width / 2, corrQuality: cq, miscorr: miscorrChance(career, part, approachKey) };
@@ -446,7 +447,7 @@ export function tickDevelopment(career, days = 14) {
     // intended gain (P5 era emphasis tilts which parts develop fastest this era).
     const intended = p.gain * ap.gainK * out.mult * maturityFactor(level, effCeiling(career)) * eraEmphasis(career.season || 1, p.part) * devMult(career.staff) * (1 + academyDevBonus(career));
     const areaKey = Object.keys(PART_CONTRIB[p.part] || {}).sort((a, b) => PART_CONTRIB[p.part][b] - PART_CONTRIB[p.part][a])[0];
-    const dirGain = devGainMult(career, areaKey);   // aero/engine specialist lifts gain in their area
+    const dirGain = devGainMult(career, areaKey) * designerFocus(career.staff, areaKey);   // co-director area perk × chief-designer area expertise (engine designer ≠ wing designer)
     // P1/P2: correlation roll — did the part match the simulation? A miss under-delivers vs forecast; a
     // miss on an aggressive program can regress the part below its previous spec (net negative gain).
     const corrRoll = mix32((seed ^ 0x9e3779b9) >>> 0) / 4294967296;

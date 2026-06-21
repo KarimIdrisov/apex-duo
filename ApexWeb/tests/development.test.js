@@ -63,6 +63,17 @@ test("forecastRange tightens (narrower band) as correlation quality rises", () =
   const top = forecastRange(fakeCareer({ staff: { designer: 0.95, facilities: { design: 5 } } }), "floor", "medium");
   assert.ok((weak.high - weak.low) > (top.high - top.low), "poor team sees a wider forecast band");
 });
+test("§Phase-4 per-area designer expertise tilts the forecast (engine designer ≠ wing designer)", () => {
+  const mk = spec => { const c = fakeCareer(); c.staff.people.designer.specialty = spec; return c; };
+  // the cross-over: the engine designer forecasts more on the POWER part (pu); the aero designer more on
+  // an AERO part (floor). (Both specialists also carry a small global dev boost, so the contrast shows
+  // as engine>aero on power and aero>engine on aero — their specialty AREA is where each wins.)
+  assert.ok(forecastRange(mk("powertrain"), "pu", "medium").mid > forecastRange(mk("aero"), "pu", "medium").mid, "engine designer develops the power part faster");
+  assert.ok(forecastRange(mk("aero"), "floor", "medium").mid > forecastRange(mk("powertrain"), "floor", "medium").mid, "aero designer develops the aero part faster");
+  assert.ok(forecastRange(mk("powertrain"), "pu", "medium").mid > forecastRange(mk(null), "pu", "medium").mid, "engine designer beats a generalist on the power part");
+  // a generalist designer (default specialty) leaves the forecast byte-identical to the bare default
+  assert.equal(forecastRange(mk(null), "pu", "medium").mid, forecastRange(fakeCareer(), "pu", "medium").mid, "generalist = byte-identical default");
+});
 
 // --- P2: regression + free revert ---
 test("aggressive programs can regress a part; revertPart restores the previous spec", () => {

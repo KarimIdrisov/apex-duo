@@ -102,11 +102,24 @@ export function upgradeFacility(career, which) {
 // specialty tags — each belongs to one role and now grants a CONCRETE bonus (T2): aero → faster R&D,
 // mechanical → car reliability, tactician → race strategy (SC/pit/wet), pit ace → faster stops.
 export const SPECIALTIES = {
-  aero:       { label: "Аэродинамик",  role: "designer",   fx: "dev",      fxVal: 0.06,  fxLabel: "+6% к разработке" },
-  mechanical: { label: "Механик",      role: "designer",   fx: "rel",      fxVal: 0.015, fxLabel: "+надёжность машины" },
-  tactician:  { label: "Тактик",       role: "strategist", fx: "strategy", fxVal: 0.05,  fxLabel: "+стратегия (SC/питы/дождь)" },
-  pitace:     { label: "Ас пит-стопа", role: "pitCrew",    fx: "pit",      fxVal: 0.04,  fxLabel: "быстрее пит-стопы" },
+  aero:       { label: "Аэродинамик",          role: "designer",   fx: "dev",      fxVal: 0.06,  fxLabel: "+6% к разработке" },
+  mechanical: { label: "Механик",              role: "designer",   fx: "rel",      fxVal: 0.015, fxLabel: "+надёжность машины" },
+  powertrain: { label: "Моторный конструктор", role: "designer",   fx: "dev",      fxVal: 0.06,  fxLabel: "+6% к разработке" },
+  tactician:  { label: "Тактик",               role: "strategist", fx: "strategy", fxVal: 0.05,  fxLabel: "+стратегия (SC/питы/дождь)" },
+  pitace:     { label: "Ас пит-стопа",         role: "pitCrew",    fx: "pit",      fxVal: 0.04,  fxLabel: "быстрее пит-стопы" },
 };
+// §Phase-4 — the chief designer's expertise is AREA-SPECIFIC, not just a global rating: a designer
+// develops their specialty's area faster and off-area parts a touch slower ("engine designer ≠ wing
+// designer", masterplan §5.5). A generalist designer (specialty null — the default) is NEUTRAL, so
+// development stays byte-identical. Mapped onto the dev-area vocabulary (aero/tyre/fuel/rel/power).
+export const DESIGNER_FOCUS = 0.10;                                  // ± per-area gain swing of a specialist designer
+const DESIGNER_AREA = { aero: "aero", mechanical: "rel", powertrain: "power" };
+export function designerFocus(staff, areaKey) {
+  const sp = staff && staff.people && staff.people.designer && staff.people.designer.specialty;
+  const area = DESIGNER_AREA[sp];
+  if (!area) return 1;                                               // generalist → neutral (balance-safe default)
+  return areaKey === area ? 1 + DESIGNER_FOCUS : 1 - DESIGNER_FOCUS * 0.5;
+}
 // total bonus of a given kind across the team's hired specialists.
 export function specialtyBonus(staff, kind) {
   if (!staff || !staff.people) return 0;
@@ -122,6 +135,7 @@ export const STAFF_MARKET_POOL = [
   { id: "d1", name: "Адриан Коул",  role: "designer",   specialty: "aero",       rating: 0.93 },
   { id: "d2", name: "Лука Ферри",   role: "designer",   specialty: "mechanical", rating: 0.85 },
   { id: "d3", name: "Йонас Берг",   role: "designer",   specialty: "aero",       rating: 0.78 },
+  { id: "d4", name: "Рэй Окада",    role: "designer",   specialty: "powertrain", rating: 0.86 },
   { id: "s1", name: "Мария Сантос", role: "strategist", specialty: "tactician",  rating: 0.91 },
   { id: "s2", name: "Том Прайс",    role: "strategist", specialty: "tactician",  rating: 0.83 },
   { id: "s3", name: "Икэр Руис",    role: "strategist", specialty: "tactician",  rating: 0.76 },
@@ -173,7 +187,7 @@ const NAME_POOL = [
   "Якоб Майер", "Рик ван дер Берг", "Сантьяго Вега", "Имре Надь", "Феликс Браун", "Дани Ортис", "Нора Линд",
   "Хьюго Мартин", "Зейн Малик", "Артуро Росси",
 ];
-const ROLE_SPECS = { designer: ["aero", "mechanical"], strategist: ["tactician"], pitCrew: ["pitace"] };
+const ROLE_SPECS = { designer: ["aero", "mechanical", "powertrain"], strategist: ["tactician"], pitCrew: ["pitace"] };
 const STAFF_CONTRACT_RACES = 999;   // (display only; contracts tick per season)
 
 // one named staffer for a role at a target rating, deterministic by (name, role, seed).

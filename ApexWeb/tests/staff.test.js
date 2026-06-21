@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { STAFF_ROLES, FACILITIES, FAC_MAX, initStaff, composePersonnel, devMult, upkeep, upgradeStaff, upgradeFacility, STAFF_UPGRADE_COST, simDriverBoost } from "../src/staff.js";
+import { STAFF_ROLES, FACILITIES, FAC_MAX, initStaff, composePersonnel, devMult, upkeep, upgradeStaff, upgradeFacility, STAFF_UPGRADE_COST, simDriverBoost, designerFocus, DESIGNER_FOCUS } from "../src/staff.js";
 
 test("§Phase-5 Simulator (HQ building) speeds driver development; null-safe for old saves", () => {
   assert.equal(simDriverBoost(null), 1);
@@ -8,6 +8,23 @@ test("§Phase-5 Simulator (HQ building) speeds driver development; null-safe for
   assert.ok(simDriverBoost({ facilities: { sim: FAC_MAX } }) > simDriverBoost({ facilities: { sim: 0 } }), "more simulator = faster dev");
   assert.ok(simDriverBoost({ facilities: { sim: FAC_MAX } }) <= 1.3 + 1e-9, "bounded");
   assert.ok(FACILITIES.includes("sim"), "the Simulator is part of the facility upgrade tree");
+});
+
+test("§Phase-4 designerFocus is per-area: specialist tilts gain by area, generalist is neutral", () => {
+  // a generalist designer (default specialty null) → neutral 1.0 everywhere (balance-safe, byte-identical)
+  const generalist = initStaff(0.8, 1);
+  assert.equal(generalist.people.designer.specialty, null);
+  for (const area of ["aero", "power", "rel", "tyre", "fuel"]) assert.equal(designerFocus(generalist, area), 1);
+  assert.equal(designerFocus(null, "aero"), 1, "null-safe");
+  // a powertrain ("engine") designer develops the power area faster, off-areas slower
+  const eng = { people: { designer: { specialty: "powertrain" } } };
+  assert.ok(designerFocus(eng, "power") > 1 && designerFocus(eng, "aero") < 1, "engine designer favours power over aero");
+  // an aero designer is the mirror — so engine designer ≠ wing designer
+  const aero = { people: { designer: { specialty: "aero" } } };
+  assert.ok(designerFocus(aero, "aero") > designerFocus(eng, "aero"), "aero designer beats engine designer on aero parts");
+  assert.ok(designerFocus(eng, "power") > designerFocus(aero, "power"), "engine designer beats aero designer on power parts");
+  assert.ok(SPECIALTIES.powertrain && SPECIALTIES.powertrain.role === "designer", "powertrain is a hireable designer specialty");
+  assert.equal(designerFocus(eng, "power"), 1 + DESIGNER_FOCUS);
 });
 
 test("initStaff seeds ratings + facility levels from the team facility strength", () => {
