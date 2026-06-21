@@ -581,11 +581,21 @@ export function migrate(career) {
   return career;
 }
 // accept a season-start title-sponsor offer: replace the title deal, clear the offers.
-export function chooseTitleSponsor(career, offerIdx) {
+// §Phase-6 — upfront-payment-vs-retainer lever: take part of the season's retainer as a LUMP now in
+// exchange for a lower per-race retainer. Mean-neutral over the calendar (lump = the foregone retainer
+// share × all rounds), so it's a cashflow choice (front-load the budget) not free money.
+export const SPONSOR_UPFRONT_SHARE = 0.5;
+export function chooseTitleSponsor(career, offerIdx, upfront = false) {
   const chosen = career.pendingOffers && career.pendingOffers[offerIdx];
   if (!chosen) return;
+  const deal = { ...chosen, kind: "title" };
+  if (upfront) {
+    const lump = Math.round(deal.retainer * SPONSOR_UPFRONT_SHARE * CALENDAR.length);   // the whole season's foregone retainer, paid now
+    deal.retainer = Math.round(deal.retainer * (1 - SPONSOR_UPFRONT_SHARE));
+    career.money += lump;
+  }
   const secondaries = (career.sponsors || []).filter(s => s.kind !== "title");
-  career.sponsors = [{ ...chosen, kind: "title" }, ...secondaries];
+  career.sponsors = [deal, ...secondaries];
   career.pendingOffers = [];
 }
 export { reSign } from "./drivers.js";

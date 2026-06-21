@@ -32,8 +32,9 @@ export function render(root, ctx, onDone) {
       <button class="preplus" data-a="${a.key}" ${can ? "" : "disabled"} style="padding:2px 10px">+ ${fmtM(cost)}</button>
     </div>`;
   };
-  const offerChip = (o, i) => `<button class="presp" data-i="${i}" style="text-align:left;padding:7px 10px;margin:0 6px 6px 0">
-    <b>${o.name}</b><br><span class="label">${fmtM(o.retainer)}/гонка + ${fmtM(o.bonus)} за «${objectiveLabel(o.objective)}»</span></button>`;
+  const offerChip = (o, i) => `<span style="display:inline-flex;gap:4px;margin:0 6px 6px 0;vertical-align:top">
+    <button class="presp" data-i="${i}" data-up="0" style="text-align:left;padding:7px 10px"><b>${o.name}</b><br><span class="label">${fmtM(o.retainer)}/гонка + ${fmtM(o.bonus)} за «${objectiveLabel(o.objective)}»</span></button>
+    <button class="presp" data-i="${i}" data-up="1" title="аванс: половина сезонного ретейнера сразу в кассу, вдвое меньше выплата/гонка (cashflow-выбор)" style="padding:7px 8px;align-self:stretch">💰<br><span class="label">аванс</span></button></span>`;
   const ambChip = k => { const a = AMBITIONS[k], sel = k === ambKey;
     return `<button class="preamb" data-k="${k}" style="text-align:left;padding:7px 10px;margin:0 6px 6px 0;${sel ? "outline:2px solid var(--good)" : ""}">
       <b>${a.label}</b><br><span class="label">цель тир${a.offset >= 0 ? "+" : ""}${a.offset} · награда ×${a.reward}</span></button>`; };
@@ -77,7 +78,7 @@ export function render(root, ctx, onDone) {
   root.querySelectorAll(".prechx").forEach(el => el.onclick = () => { setChassisPick(c, el.dataset.cat, el.dataset.tier); render(root, ctx, onDone); });
   root.querySelector("#preauto").onclick = () => { autoBuild(c); render(root, ctx, onDone); };
   root.querySelector("#prereset").onclick = () => { c.money = ctx._preBudget0; c.parts = JSON.parse(ctx._preParts0); c.chassis = JSON.parse(ctx._preChassis0); render(root, ctx, onDone); };
-  root.querySelectorAll(".presp").forEach(el => el.onclick = () => { chooseTitleSponsor(c, +el.dataset.i); render(root, ctx, onDone); });
+  root.querySelectorAll(".presp").forEach(el => el.onclick = () => { chooseTitleSponsor(c, +el.dataset.i, el.dataset.up === "1"); render(root, ctx, onDone); });
   root.querySelectorAll(".preamb").forEach(el => el.onclick = () => { applyAmbition(c, el.dataset.k); render(root, ctx, onDone); });
   root.querySelector("#prego").onclick = () => onDone();
 }

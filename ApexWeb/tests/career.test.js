@@ -38,6 +38,18 @@ test("§Phase-3 under-valuing a driver (paid far less than teammate) costs moral
   assert.ok(mk(true) < mk(false), "an under-valued driver ends with lower morale than an equal-pay control");
 });
 
+test("§Phase-6 sponsor upfront-vs-retainer: lump now, lower retainer, mean-neutral over the season", () => {
+  const base = newCareer({ teamIdx: 0, seed: 1 }), up = newCareer({ teamIdx: 0, seed: 1 });
+  const m0 = up.money;
+  chooseTitleSponsor(base, 0, false);
+  chooseTitleSponsor(up, 0, true);
+  const bt = base.sponsors.find(s => s.kind === "title"), ut = up.sponsors.find(s => s.kind === "title");
+  assert.ok(up.money > m0, "upfront pays a lump now");
+  assert.ok(ut.retainer < bt.retainer, "and a lower per-race retainer");
+  const N = CALENDAR.length, upTotal = (up.money - m0) + ut.retainer * N, baseTotal = bt.retainer * N;
+  assert.ok(Math.abs(upTotal - baseTotal) / baseTotal < 0.02, "season total ≈ neutral (cashflow choice, not free money)");
+});
+
 test("§Phase-6 runningCostFor scales with race length; mean-neutral over the calendar", () => {
   assert.ok(runningCostFor({ laps: 78 }) > runningCostFor({ laps: 44 }), "a longer race costs more to run");
   const total = CALENDAR.reduce((a, r) => a + runningCostFor(r), 0), flat = CALENDAR.length * RUNNING_COST;
