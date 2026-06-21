@@ -35,7 +35,7 @@ export function pointsFor(career, i) {
 // prize money ($k) by race-finish position — a simple per-race payout (M2 deepens income).
 export const PRIZE = [1200, 1000, 850, 720, 620, 540, 470, 410, 360, 320, 280, 250, 220, 200, 180, 160, 150, 140, 130, 120, 110, 100];
 
-export const CAREER_V = 29;           // career save schema version
+export const CAREER_V = 30;           // career save schema version
 export const REG_RESET = 0.5;         // each season's regulation change trims everyone's car development
 export const RUNNING_COST = 800;      // $k per-race operating cost (M5 facilities refine it)
 // §Phase-6 — solvency + the board ultimatum that make money & confidence BITE (career.board.ultimatum is null-safe/additive).
@@ -516,6 +516,10 @@ export function migrate(career) {
   if (career.v < 29) {                 // §Phase-4: pre-season chassis design (neutral = no effect on old saves)
     career.chassis = career.chassis || neutralChassis();
     career.v = 29;
+  }
+  if (career.v < 30) {                 // §Phase-4 item 6: gearbox split — seed gearbox = developed pu so total power is conserved
+    for (const tn in (career.parts || {})) { const p = career.parts[tn]; if (p && p.gearbox == null) p.gearbox = p.pu || 0; }
+    career.v = 30;
   }
   // names of dynamically-added drivers (academy promotions, retirement rookies) live on the driver
   // object, but DRIVER_NAME is rebuilt from the static roster each load — repopulate it so the UI

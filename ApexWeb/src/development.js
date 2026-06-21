@@ -10,15 +10,21 @@ import { devGainMult, devCostMult } from "./directors.js";
 export const INDICATORS = ["power", "aero", "tyre", "fuel", "rel"];
 
 // the developable parts and how each contributes to the indicators (per unit of part level).
-export const PARTS = ["fw", "rw", "floor", "sidepods", "susp", "pu"];
-export const PART_LABEL = { fw: "Переднее крыло", rw: "Заднее крыло", floor: "Днище", sidepods: "Понтоны", susp: "Подвеска", pu: "Силовая установка" };
+// §Phase-4 item 6 — the power indicator is split between the ENGINE (pu, top-end) and the GEARBOX
+// (acceleration/transmission). pu.power 0.70 → 0.45 with gearbox.power 0.25 CONSERVES total power
+// (a save's pu develops both via migration; AI develops gearbox in lockstep), so "engine first,
+// gearbox second" becomes a real allocation without shifting the field. (gearbox is the same component
+// whose in-race condition the Phase-2 parts.js model wears — develop it here, it lasts longer there.)
+export const PARTS = ["fw", "rw", "floor", "sidepods", "susp", "pu", "gearbox"];
+export const PART_LABEL = { fw: "Переднее крыло", rw: "Заднее крыло", floor: "Днище", sidepods: "Понтоны", susp: "Подвеска", pu: "Силовая установка", gearbox: "Коробка / разгон" };
 export const PART_CONTRIB = {
   fw:       { aero: 0.50, tyre: 0.20 },
   rw:       { aero: 0.45, fuel: 0.10 },
   floor:    { aero: 0.60, tyre: 0.15 },
   sidepods: { fuel: 0.40, rel: 0.20, aero: 0.15 },
   susp:     { tyre: 0.50, aero: 0.20 },
-  pu:       { power: 0.70, fuel: 0.30, rel: 0.15 },
+  pu:       { power: 0.45, fuel: 0.30, rel: 0.15 },
+  gearbox:  { power: 0.25 },
 };
 
 // upgrade sizes: part-level gain, $k cost, DAYS to complete, risk (chance-weighted shortfall).
@@ -329,7 +335,7 @@ export function aiConcept(teamName) {
   return "balanced";
 }
 
-const zeroParts = () => ({ fw: 0, rw: 0, floor: 0, sidepods: 0, susp: 0, pu: 0 });
+const zeroParts = () => ({ fw: 0, rw: 0, floor: 0, sidepods: 0, susp: 0, pu: 0, gearbox: 0 });
 function clampInd(k, v) { return k === "rel" ? Math.max(0.3, Math.min(0.995, v)) : Math.max(0.3, Math.min(1.20, v)); }
 
 // part levels -> indicator deltas via PART_CONTRIB.
@@ -358,11 +364,12 @@ export function effectiveCar(baseCar, parts) {
 // "intensity"; the best chassis part for that area is chosen automatically. Power lives on the
 // ДВС tab (engine, outside the cap). All of this is a clarity layer over the existing part model.
 export const DEV_AREAS = [
-  { key: "aero",  label: "Аэро / прижим",   indicator: "aero",  engine: false },
-  { key: "tyre",  label: "Резина / баланс", indicator: "tyre",  engine: false },
-  { key: "fuel",  label: "Эффективность",   indicator: "fuel",  engine: false },
-  { key: "rel",   label: "Надёжность",      indicator: "rel",   engine: false },
-  { key: "power", label: "Мощность ДВС",    indicator: "power", engine: true  },
+  { key: "aero",  label: "Аэро / прижим",     indicator: "aero",  engine: false },
+  { key: "tyre",  label: "Резина / баланс",   indicator: "tyre",  engine: false },
+  { key: "fuel",  label: "Эффективность",     indicator: "fuel",  engine: false },
+  { key: "rel",   label: "Надёжность",        indicator: "rel",   engine: false },
+  { key: "accel", label: "Коробка / разгон",  indicator: "power", engine: false },  // §item-6: chassis-side power (gearbox), developable in-season — "gearbox second" after the engine
+  { key: "power", label: "Мощность ДВС",      indicator: "power", engine: true  },
 ];
 // one combined choice instead of size × approach: gentle/standard/all-in.
 export const INTENSITY = {
@@ -487,9 +494,11 @@ export function tickDevelopment(career, days = 14) {
     const amt = AI_DEV_PER_DAY * dt * (t.facility ?? 0.75) * atr * variance * 2;   // ×2 = split across two parts (parity)
     const P = career.parts[t.name], k = aiConcept(t.name);
     const em = (part) => eraEmphasis(career.season || 1, part);                    // P5: era tilts AI focus too
-    if (k === "power") { P.pu += amt * 0.7 * em("pu"); P.sidepods += amt * 0.3 * em("sidepods"); }   // straight-line lean
+    // §item-6: power dev is now engine+gearbox — mirror the AI's pu increment onto gearbox so its total
+    // power (0.45·pu + 0.25·gearbox, with gearbox tracking pu) is byte-identical to the old 0.70·pu.
+    if (k === "power") { const e = amt * 0.7 * em("pu"); P.pu += e; P.gearbox = (P.gearbox || 0) + e; P.sidepods += amt * 0.3 * em("sidepods"); }   // straight-line lean
     else if (k === "downforce") { P.floor += amt * 0.6 * em("floor"); P.fw += amt * 0.4 * em("fw"); } // cornering lean
-    else { P.floor += amt * 0.5 * em("floor"); P.pu += amt * 0.5 * em("pu"); }     // balanced
+    else { P.floor += amt * 0.5 * em("floor"); const e = amt * 0.5 * em("pu"); P.pu += e; P.gearbox = (P.gearbox || 0) + e; }     // balanced
   });
   // PU engine project (works) — completes like a chassis project; OFF the cost cap.
   if (career.puProject) {

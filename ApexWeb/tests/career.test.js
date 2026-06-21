@@ -194,7 +194,7 @@ test("migrate upgrades a v1 save to v2 (adds sponsors)", () => {
 });
 
 // --- M3 car development ---
-import { startProject } from "../src/development.js";
+import { startProject, partsToDeltas } from "../src/development.js";
 
 test("newCareer at v3 carries carDev + a null project + a season dev-spend counter", () => {
   const c = newCareer({ teamIdx: 0, seed: 1 });
@@ -431,6 +431,17 @@ test("migrate v26 → v27 backfills directors + rewardMult", () => {
   assert.equal(up.v, CAREER_V);
   assert.deepEqual(up.directors, []);
   assert.equal(up.rewardMult, 1);
+});
+
+test("§Phase-4 item 6: migrate seeds gearbox = developed pu so total power is conserved", () => {
+  const old = { v: 29, teamIdx: 0, seed: 1, board: { targetPos: 1 }, driverPts: {}, teamPts: {},
+    parts: { McLaren: { pu: 0.2, floor: 0.1 }, Ferrari: { pu: 0.15 } } };
+  const up = migrate(old);
+  assert.equal(up.v, CAREER_V);
+  assert.equal(up.parts.McLaren.gearbox, 0.2, "gearbox seeded to the developed pu level");
+  assert.equal(up.parts.Ferrari.gearbox, 0.15);
+  // power is conserved: 0.45·pu + 0.25·gearbox(=pu) == old 0.70·pu
+  assert.ok(Math.abs(partsToDeltas(up.parts.McLaren).power - 0.70 * 0.2) < 1e-9, "old single-part power preserved");
 });
 
 test("an ambitious season multiplies the end-of-season constructor prize", () => {

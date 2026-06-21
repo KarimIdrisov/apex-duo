@@ -10,7 +10,7 @@ import { objectiveLabel } from "../sponsors.js";
 import { CATEGORIES, TIERS, TIER_ORDER, setChassisPick, traitStars, TRAIT_KEYS, TRAIT_LABEL, TRAIT_HINT, neutralChassis } from "../chassis.js";
 
 const fmtM = k => "$" + (Math.round(k) / 1000).toFixed(1) + "M";
-const AREA_LABEL = { aero: "Аэро / прижим", power: "Мотор / ERS", tyre: "Резина / баланс", fuel: "Эффективность", rel: "Надёжность" };
+const AREA_LABEL = { aero: "Аэро / прижим", power: "Мотор / ERS", accel: "Коробка / разгон", tyre: "Резина / баланс", fuel: "Эффективность", rel: "Надёжность" };
 // half-star readout (★ / ½), used for the chassis character traits (matches the driver-card vocabulary).
 const starStr = n => "★".repeat(Math.floor(n)) + (n % 1 ? "½" : "") || "—";
 

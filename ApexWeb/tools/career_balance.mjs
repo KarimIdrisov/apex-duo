@@ -56,7 +56,7 @@ let totalPts = 0, minPass = 1e9, maxPass = 0, races = 0;
 const expectedPerRace = POINTS.reduce((a, b) => a + b, 0);
 while (!isSeasonOver(career)) {
   const round = CALENDAR[career.round];
-  if (!career.project && career.money > 2000) startProject(career, ["floor", "pu", "fw"][career.round % 3], "small");
+  if (!career.project && career.money > 2000) startProject(career, ["floor", "pu", "fw", "gearbox"][career.round % 4], "small");
   if (career.round < 6 && career.money > 8000) { upgradeStaff(career, "designer"); upgradeFacility(career, "design"); }
   const { order, passes } = runRace(careerTrack(round), 1000 + career.round);
   const before = Object.values(career.driverPts).reduce((a, b) => a + b, 0);
@@ -83,17 +83,22 @@ const myParts = career.parts[TEAMS[0].name] || {};
 console.log(`dev: player parts floor +${(myParts.floor || 0).toFixed(3)} pu +${(myParts.pu || 0).toFixed(3)}; field (power+aero)/2 spread ${spread.toFixed(3)}`);
 if (!(Object.values(myParts).some(v => v > 0))) { console.error("player car did not develop over the season"); process.exit(1); }
 if (spread > 0.45) { console.error(`grid spread ${spread.toFixed(3)} too wide — development ran away`); process.exit(1); }
-const antBefore = career.drivers["ANT"].overall, aloBefore = career.drivers["ALO"].overall;
-const antAttr0 = { ...career.drivers["ANT"].attrs }, aloAttr0 = { ...career.drivers["ALO"].attrs };
 const next = newSeason(career);
-console.log(`drivers: ANT ${antBefore.toFixed(3)}->${next.drivers["ANT"].overall.toFixed(3)} (age ${next.drivers["ANT"].age}), ALO ${aloBefore.toFixed(3)}->${next.drivers["ALO"].overall.toFixed(3)}; player morale ${Object.keys(career.drivers).filter(a => career.drivers[a].teamIdx === 0).map(a => Math.round(career.drivers[a].morale * 100) + "%").join("/")}`);
-if (!(next.drivers["ANT"].overall > antBefore && next.drivers["ALO"].overall < aloBefore)) { console.error("driver development curve broken (young should rise, veteran fall)"); process.exit(1); }
+// pick a clearly-young and clearly-veteran driver that survive into next season — chosen DYNAMICALLY
+// (silly-season churn reshapes the grid; hardcoding ANT/ALO broke once they aged/left).
+const surv = ab => career.drivers[ab] && next.drivers[ab] && career.drivers[ab].attrs && next.drivers[ab].attrs;
+const byAge = Object.keys(career.drivers).filter(surv).sort((a, b) => career.drivers[a].age - career.drivers[b].age);
+const youngAb = byAge[0], vetAb = byAge[byAge.length - 1];
+const y0 = career.drivers[youngAb], v0 = career.drivers[vetAb];
+const yAttr0 = { ...y0.attrs }, vAttr0 = { ...v0.attrs };
+console.log(`drivers: ${youngAb} ${y0.overall.toFixed(3)}->${next.drivers[youngAb].overall.toFixed(3)} (age ${next.drivers[youngAb].age}), ${vetAb} ${v0.overall.toFixed(3)}->${next.drivers[vetAb].overall.toFixed(3)} (age ${next.drivers[vetAb].age}); player morale ${Object.keys(career.drivers).filter(a => career.drivers[a].teamIdx === 0).map(a => Math.round(career.drivers[a].morale * 100) + "%").join("/")}`);
+if (!(next.drivers[youngAb].overall > y0.overall && next.drivers[vetAb].overall < v0.overall)) { console.error("driver development curve broken (young should rise, veteran fall)"); process.exit(1); }
 // D5: attributes develop independently and within bounds
-const antPaceUp = next.drivers["ANT"].attrs.pace - antAttr0.pace;
-const aloPaceDn = aloAttr0.pace - next.drivers["ALO"].attrs.pace, aloIqDn = aloAttr0.race_iq - next.drivers["ALO"].attrs.race_iq;
-console.log(`attrs (D5): ANT pace ${antAttr0.pace.toFixed(3)}->${next.drivers["ANT"].attrs.pace.toFixed(3)}; ALO pace -${aloPaceDn.toFixed(3)} vs race_iq -${aloIqDn.toFixed(3)}`);
-if (!(antPaceUp > 0)) { console.error("a young driver's pace did not improve (D5 attr dev)"); process.exit(1); }
-if (!(aloPaceDn > aloIqDn)) { console.error("a veteran's pace should fade faster than craft (D5 attr dev)"); process.exit(1); }
+const yPaceUp = next.drivers[youngAb].attrs.pace - yAttr0.pace;
+const vPaceDn = vAttr0.pace - next.drivers[vetAb].attrs.pace, vIqDn = vAttr0.race_iq - next.drivers[vetAb].attrs.race_iq;
+console.log(`attrs (D5): ${youngAb} pace ${yAttr0.pace.toFixed(3)}->${next.drivers[youngAb].attrs.pace.toFixed(3)}; ${vetAb} pace -${vPaceDn.toFixed(3)} vs race_iq -${vIqDn.toFixed(3)}`);
+if (!(yPaceUp > 0)) { console.error("a young driver's pace did not improve (D5 attr dev)"); process.exit(1); }
+if (!(vPaceDn > vIqDn)) { console.error("a veteran's pace should fade faster than craft (D5 attr dev)"); process.exit(1); }
 for (const ab in next.drivers) { const a0 = career.drivers[ab] && career.drivers[ab].attrs, a1 = next.drivers[ab].attrs;
   if (a0 && a1) for (const k in a1) if (Math.abs(a1[k] - a0[k]) > 0.05) { console.error(`attr ${k} drifted ${(a1[k] - a0[k]).toFixed(3)} for ${ab} — too fast (D5)`); process.exit(1); } }
 console.log(`staff: designer ${Math.round(career.staff.designer * 100)}, design office L${career.staff.facilities.design}, upkeep ${upkeep(career.staff).toFixed(0)}k/race`);

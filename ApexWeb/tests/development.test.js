@@ -14,9 +14,18 @@ function fakeCareer(over = {}) {
 
 test("partsToDeltas composes part levels into indicator deltas via PART_CONTRIB", () => {
   const d = partsToDeltas({ pu: 0.1, floor: 0.1 });
-  assert.ok(Math.abs(d.power - 0.07) < 1e-9, "pu 0.1 -> +0.07 power");
+  assert.ok(Math.abs(d.power - 0.045) < 1e-9, "pu 0.1 -> +0.045 power (engine; gearbox carries the rest)");
   assert.ok(d.aero > 0.05, "floor lifts aero");
   assert.deepEqual(partsToDeltas(null), { power: 0, aero: 0, tyre: 0, fuel: 0, rel: 0 });
+});
+test("§Phase-4 item 6: power splits engine(pu)+gearbox, conserving the old single-part total", () => {
+  assert.ok(PARTS.includes("gearbox"), "gearbox is a developable part");
+  assert.ok((PART_CONTRIB.gearbox.power || 0) > 0, "gearbox contributes power");
+  // engine + gearbox developed together reproduce the OLD pu-only power (0.70 per unit level)
+  const split = partsToDeltas({ pu: 0.2, gearbox: 0.2 });
+  assert.ok(Math.abs(split.power - 0.14) < 1e-9, "0.45·0.2 + 0.25·0.2 = 0.14 = old 0.70·0.2 (conserved)");
+  // developing only the engine yields less power than engine+gearbox → "engine first, gearbox second"
+  assert.ok(partsToDeltas({ pu: 0.2, gearbox: 0.2 }).power > partsToDeltas({ pu: 0.2 }).power, "the gearbox adds power on top of the engine");
 });
 
 test("effectiveCar adds composed part deltas onto the base car; rel clamped", () => {
