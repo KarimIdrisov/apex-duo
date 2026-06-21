@@ -1,7 +1,7 @@
 // ApexWeb/src/ui/season.js — the paddock: standings + finances + sponsors + the upcoming-weekend
 // gate (and the season-start title-sponsor choice / season-end verdict). Reads ctx.careerView +
 // ctx.careerReadyView (set by main on host AND client). Inline styles keep it self-contained.
-import { CALENDAR, constructorStandings, driverStandings, boardOutcome, RUNNING_COST, CAP_LIMIT, LOAN_RACES, LOAN_INTEREST, constructorPrizeFund, teamAppeal, expectedFinish } from "../career.js";
+import { CALENDAR, constructorStandings, driverStandings, boardOutcome, RUNNING_COST, CAP_LIMIT, LOAN_RACES, LOAN_INTEREST, constructorPrizeFund, teamAppeal, expectedFinish, BOARD_FUNDS } from "../career.js";
 import { fmtDate, fmtDateShort, gapDays, gapLabel, offseasonDays, SPRINTS } from "../season_dates.js";
 import { evaluateObjectives, regArcNote } from "../board.js";
 import { objectiveLabel } from "../sponsors.js";
@@ -127,6 +127,11 @@ export function render(root, ctx) {
         ${barEl((1 - c.loan.remaining / c.loan.total) * 100, "var(--accent)", 7)}</div>`
     : `<div class="bcard" style="--spine:var(--bc)"><p class="bcard-title">Кредит — деньги сейчас, возврат с процентами за ${LOAN_RACES} этапов</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap">${LOAN_OPTS.map(a => `<button class="ready loanbtn" data-amt="${a}" style="flex:1;min-width:120px;padding:8px"><b>Взять ${m$(a)}</b><br><span style="font-size:11px;color:rgba(6,18,31,.78)">вернуть ${m$(Math.round(a * (1 + LOAN_INTEREST)))}</span></button>`).join("")}</div></div>`;
+  // §Phase-6: request funds from the board — cash now, no repayment, but board confidence drops; once per season.
+  const fundsPanel = c.boardFundsUsed
+    ? `<div class="bcard" style="--spine:var(--bc)"><p class="bcard-title">Средства от совета</p><p class="label" style="margin:0;opacity:.65">в этом сезоне уже запрошены</p></div>`
+    : `<div class="bcard" style="--spine:var(--bc)"><p class="bcard-title">Средства от совета — деньги сразу, без возврата, но падает доверие</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">${[2000, 4000].map(a => `<button class="ready fundsbtn" data-amt="${a}" style="flex:1;min-width:120px;padding:8px"><b>Запросить ${m$(a)}</b><br><span style="font-size:11px;color:rgba(6,18,31,.78)">−${Math.round(BOARD_FUNDS.confPer1M * (a / 1000) * 100)}% доверия совета</span></button>`).join("")}</div></div>`;
   const sponsorCard = s => { const hp = Math.round(s.happiness * 100), risk = s.happiness < 0.3;
     const hc = s.happiness >= 0.6 ? "var(--good)" : s.happiness >= 0.3 ? "var(--warn)" : "var(--bad)";
     return `<div style="background:var(--content2);border-radius:var(--r-md);padding:10px 12px;margin-bottom:8px">
@@ -147,7 +152,7 @@ export function render(root, ctx) {
     <p class="label" style="margin-top:6px;opacity:.75">${bk.type === "works" ? "Концерн финансирует команду" + (bk.puMaker ? " и разрабатывает ДВС (вне кост-капа)." : ".") : "Независимая: живёт на призовые + спонсоры + грант владельца."}</p></div>`;
   const financeTab = finHero
     + `<div style="display:flex;gap:12px;flex-wrap:wrap">${budgetChart}${breakdown}</div>`
-    + `<div style="display:flex;gap:12px;flex-wrap:wrap">${sponsorsPanel}<div style="flex:1;min-width:260px;display:flex;flex-direction:column;gap:12px">${backerPanel}${capMeter}${loanPanel}</div></div>`;
+    + `<div style="display:flex;gap:12px;flex-wrap:wrap">${sponsorsPanel}<div style="flex:1;min-width:260px;display:flex;flex-direction:column;gap:12px">${backerPanel}${capMeter}${loanPanel}${fundsPanel}</div></div>`;
 
   // development panel (D3) — the player team's PARTS (level + per-part projects) + the composed car
   const myTeamName = me ? me.team : null;
@@ -749,6 +754,7 @@ export function render(root, ctx) {
   root.querySelectorAll("button.jextend").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_junior_extend", player: ctx.myPlayer, abbrev: b.dataset.ab }); });
   root.querySelectorAll("button.acadup").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_academy_upgrade", player: ctx.myPlayer }); });
   root.querySelectorAll("button.loanbtn").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_loan", player: ctx.myPlayer, amount: +b.dataset.amt }); });
+  root.querySelectorAll("button.fundsbtn").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_funds", player: ctx.myPlayer, amount: +b.dataset.amt }); });
   const ssp = root.querySelector("button.signsponsor"); if (ssp) ssp.onclick = () => { ssp.disabled = true; ctx.send({ cmd: "career_sign_sponsor", player: ctx.myPlayer }); };
   const akeep = root.querySelector("button.acq-keep"); if (akeep) akeep.onclick = () => { akeep.disabled = true; ctx.send({ cmd: "career_acquire_accept", player: ctx.myPlayer, rebrand: false }); };
   const areb = root.querySelector("button.acq-rebrand"); if (areb) areb.onclick = () => { areb.disabled = true; ctx.send({ cmd: "career_acquire_accept", player: ctx.myPlayer, rebrand: true }); };

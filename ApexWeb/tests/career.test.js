@@ -4,6 +4,25 @@ import { TEAMS } from "../src/data.js";
 import { CALENDAR, POINTS, newCareer, applyResult, advanceRound, isSeasonOver,
   constructorStandings, driverStandings, boardOutcome, currentRound, newSeason, teamAppeal, appealMult, seasonAwards, expectedFinish, STEWARD_FINE } from "../src/career.js";
 import { CHEM_START } from "../src/perks.js";
+import { requestBoardFunds, runningCostFor } from "../src/career.js";
+
+test("§Phase-6 requestBoardFunds: cash now, confidence cost, once per season", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  c.board.confidence = 0.6;
+  const m0 = c.money;
+  assert.equal(requestBoardFunds(c, 4000), 4000, "draws the requested cash (capped)");
+  assert.equal(c.money, m0 + 4000, "cash added");
+  assert.ok(c.board.confidence < 0.6, "board confidence dropped");
+  assert.equal(c.boardFundsUsed, true);
+  assert.equal(requestBoardFunds(c, 2000), 0, "only once per season");
+  assert.equal(requestBoardFunds(newCareer({ teamIdx: 0, seed: 1 }), -5), 0, "rejects a non-positive request");
+});
+
+test("§Phase-6 runningCostFor scales with race length; mean-neutral over the calendar", () => {
+  assert.ok(runningCostFor({ laps: 78 }) > runningCostFor({ laps: 44 }), "a longer race costs more to run");
+  const total = CALENDAR.reduce((a, r) => a + runningCostFor(r), 0), flat = CALENDAR.length * RUNNING_COST;
+  assert.ok(Math.abs(total - flat) / flat < 0.01, "season total ≈ flat RUNNING_COST (mean-neutral)");
+});
 
 test("§Phase-5 mechChem: initialised at start, grows each race, migrates from v32", () => {
   const c = newCareer({ teamIdx: 0, seed: 1 });
@@ -178,7 +197,7 @@ test("applyResult books prize + sponsor income minus running cost into a net led
     ...TEAMS.flatMap((t, i) => i === 0 ? [] : t.drivers.map(d => ({ abbrev: d.abbrev, team: t.name })))];
   const before = c.money;
   const sum = applyResult(c, order);
-  assert.ok(sum.prize > 0 && sum.sponsorIncome > 0 && sum.runningCost === RUNNING_COST);
+  assert.ok(sum.prize > 0 && sum.sponsorIncome > 0 && sum.runningCost === runningCostFor(CALENDAR[0]));   // §Phase-6: per-track running cost (round 0)
   assert.ok(sum.salaries >= 0);
   assert.equal(sum.net, sum.prize + sum.grant + sum.supply + sum.sponsorIncome - sum.runningCost - sum.salaries - sum.bonuses - sum.upkeep - sum.loanPay);
   assert.equal(c.money, before + sum.net + (sum.eventDelta || 0));   // a rare one-off money event is booked outside the race ledger

@@ -23,7 +23,7 @@ import * as resultUI from "./ui/result_career.js";
 import * as directorCreate from "./ui/director_create.js";
 import * as preseasonUI from "./ui/preseason.js";
 import { botchMult } from "./directors.js";
-import { newCareer, newSeason, currentRound, isSeasonOver, applyResult, advanceRound, chooseTitleSponsor, constructorStandings, takeLoan, acceptAcquisition, declineAcquisition, setDriverTraining, resolveDriverRequest } from "./career.js";
+import { newCareer, newSeason, currentRound, isSeasonOver, applyResult, advanceRound, chooseTitleSponsor, constructorStandings, takeLoan, requestBoardFunds, acceptAcquisition, declineAcquisition, setDriverTraining, resolveDriverRequest } from "./career.js";
 const applyBoost = (car, b) => b ? { ...car, power: Math.min(1.2, car.power + b), aero: Math.min(1.2, car.aero + b) } : car;   // living-grid rival bump
 import { pushNews } from "./news.js";
 import { careerTrack } from "./track_build.js";
@@ -275,6 +275,9 @@ function onCommand(cmd) {
       break;
     case "career_loan":
       if (ctx.career) { takeLoan(ctx.career, +cmd.amount || 0); saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
+    case "career_funds":   // §Phase-6: request a one-per-season board cash injection (cash now, confidence cost)
+      if (ctx.career) { requestBoardFunds(ctx.career, +cmd.amount || 0); saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
     case "career_sign_sponsor":
       if (ctx.career && ctx.career.sponsorOffer) { ctx.career.sponsors = [...(ctx.career.sponsors || []), ctx.career.sponsorOffer]; ctx.career.sponsorOffer = null; saveCareer(ctx.career); publishCareer(); rerender(); }

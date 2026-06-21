@@ -36,7 +36,7 @@ export function pointsFor(career, i) {
 // prize money ($k) by race-finish position — a simple per-race payout (M2 deepens income).
 export const PRIZE = [1200, 1000, 850, 720, 620, 540, 470, 410, 360, 320, 280, 250, 220, 200, 180, 160, 150, 140, 130, 120, 110, 100];
 
-export const CAREER_V = 33;           // career save schema version
+export const CAREER_V = 34;           // career save schema version
 export const REG_RESET = 0.5;         // each season's regulation change trims everyone's car development
 export const RUNNING_COST = 800;      // $k per-race operating cost (M5 facilities refine it)
 // §Phase-6 — solvency + the board ultimatum that make money & confidence BITE (career.board.ultimatum is null-safe/additive).
@@ -62,6 +62,18 @@ export function takeLoan(career, amount) {
   career.money += amount;
   career.loan = { borrowed: amount, total, remaining: total, perRace: Math.ceil(total / LOAN_RACES) };
   return true;
+}
+// §Phase-6 — request funds from the board: cash NOW with no repayment, but the board's confidence drops
+// (they don't like bailing you out). Once per season. Unlike a loan (bank debt), this trades money for
+// JOB SECURITY — leaning on it when desperate can tip you into the ultimatum. Returns the cash drawn (0 if denied).
+export const BOARD_FUNDS = { max: 4000, confPer1M: 0.05 };   // up to $4M; −0.05 board confidence per $1M drawn
+export function requestBoardFunds(career, amount) {
+  if (!career || career.boardFundsUsed || !(amount > 0)) return 0;
+  const amt = Math.min(BOARD_FUNDS.max, Math.round(amount));
+  career.money += amt;
+  career.boardFundsUsed = true;
+  if (career.board) career.board.confidence = Math.max(0, (career.board.confidence ?? 0.5) - BOARD_FUNDS.confPer1M * (amt / 1000));
+  return amt;
 }
 
 // the season calendar: each round picks a real circuit shape (a track_shapes.js key) for the
@@ -95,6 +107,15 @@ export const CALENDAR = [
   { name: "Гран-при Абу-Даби",          shape: "Яс-Марина",    laps: 58, lt: 88.5,  pit: 24.2, df: 0.48, pw: 0.59, ot: 0.42, sc: 0.40, wet: 0.05 },
 ];
 
+// §Phase-6 — per-track running-cost scaling. A longer race weekend burns more operating budget; the
+// factor is the round's lap count vs the calendar mean, so the SEASON TOTAL is unchanged (mean-neutral)
+// — it only redistributes the flat RUNNING_COST across the calendar (a long Grand Prix bites harder).
+const CAL_MEAN_LAPS = CALENDAR.reduce((a, r) => a + (r.laps || 0), 0) / CALENDAR.length;
+export function runningCostFor(round) {
+  const laps = (round && round.laps) || CAL_MEAN_LAPS;
+  return Math.round(RUNNING_COST * (laps / CAL_MEAN_LAPS));
+}
+
 function allDrivers() { return TEAMS.flatMap(t => t.drivers.map(d => ({ abbrev: d.abbrev, team: t.name }))); }
 
 // a fresh career. teamIdx = which TEAMS entry the players manage; seed reserved for AI RNG.
@@ -120,7 +141,7 @@ export function newCareer({ teamIdx = 0, seed = 1, coop = false, directors = [],
     chassis: neutralChassis(),                                      // Phase 4: pre-season chassis design (supplier ritual → character traits)
     mechChem: { p1: CHEM_START, p2: CHEM_START },                   // §Phase-5: per-car race-mechanic chemistry (gates the in-race perks)
     pu: { pool: PU_POOL, used: 1, wear: 0, penalty: 0 }, aiPu: {},   // E4 PU season allocation · E9 AI PU pools
-    capSpent: 0, loan: null, seasonPayout: null, sponsorOffer: null,
+    capSpent: 0, loan: null, seasonPayout: null, sponsorOffer: null, boardFundsUsed: false,   // §Phase-6: once-per-season board cash injection
     backer: backerFor(TEAMS[teamIdx].name),    // funding archetype (works/independent + grant + PU)
     puParts: { power: 0, ers: 0, eff: 0, rel: 0 }, puProject: null, puProgram: null,   // engine program (Phase B / P3)
     puTokens: PU_TOKENS_PER_SEASON,                                            // P3: homologation tokens (engine dev limit)
@@ -227,13 +248,14 @@ export function applyResult(career, classification, raceInfo = {}) {
   const loanPay = (career.loan && career.loan.remaining > 0) ? Math.min(career.loan.perRace, career.loan.remaining) : 0;
   const grant = career.backer ? Math.round((career.backer.grant || 0) / CALENDAR.length) : 0;   // parent/owner funding floor (per race)
   const supply = career.backer ? (career.backer.puMaker ? SUPPLY_INCOME : -Math.round(SUPPLY_FEE * supplyFeeMult(career))) : 0;   // PU-maker sells (+) / customer buys (−, cheaper on last-year spec, P4)
-  const net = prize + grant + supply + sponsorIncome - RUNNING_COST - salaries - bonuses - up - loanPay;
+  const runCost = runningCostFor(CALENDAR[career.round]);   // §Phase-6: per-track running cost (mean-neutral over the season)
+  const net = prize + grant + supply + sponsorIncome - runCost - salaries - bonuses - up - loanPay;
   career.money += net;
   if (bonuses > 0) pushNews(career, `Выплачены контрактные бонусы пилотам: $${(bonuses / 1000).toFixed(2)}M.`);
   if (career.loan) { career.loan.remaining -= loanPay; if (career.loan.remaining <= 0.5) { career.loan = null; pushNews(career, "Кредит полностью погашен."); } }
   const summary = {
     round: career.round, gp: CALENDAR[career.round].name, podium, bestPos,
-    prize, grant, supply, sponsorIncome, runningCost: RUNNING_COST, salaries, bonuses, upkeep: up, loanPay, net, money: career.money,
+    prize, grant, supply, sponsorIncome, runningCost: runCost, salaries, bonuses, upkeep: up, loanPay, net, money: career.money,
     classification: classification.map((c, i) => ({ pos: i + 1, abbrev: c.abbrev, team: c.team, retired: !!c.retired })),
   };
   career.board.confidence = Math.max(0, Math.min(1, (career.board.confidence ?? 0.5) + confidenceDelta(bestPos, career.board.targetPos)));
@@ -537,6 +559,10 @@ export function migrate(career) {
   if (career.v < 33) {                 // §Phase-5: mechanic↔driver chemistry (gates the in-race perks)
     if (career.mechChem == null) career.mechChem = { p1: CHEM_START, p2: CHEM_START };
     career.v = 33;
+  }
+  if (career.v < 34) {                 // §Phase-6: once-per-season board cash-injection flag
+    career.boardFundsUsed = career.boardFundsUsed || false;
+    career.v = 34;
   }
   // names of dynamically-added drivers (academy promotions, retirement rookies) live on the driver
   // object, but DRIVER_NAME is rebuilt from the static roster each load — repopulate it so the UI
