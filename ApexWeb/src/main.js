@@ -493,6 +493,7 @@ function raceSnapshot() {
       inPit: c.pitTimer > 0,
       miniColors: c.player ? c.miniColors : undefined, sectorTimes: c.player ? c.sectorTimes : undefined,
       parts: c.player ? c.parts : undefined, partFail: c.player ? c._partFail : undefined,   // §Phase-2 part condition (HUD)
+      feedback: (c.player && c.attrs) ? c.attrs.race_iq : undefined,   // §Phase-5: driver Feedback → trustworthiness of the tyre-life readout
     })),
   };
 }

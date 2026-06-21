@@ -10,6 +10,7 @@ import * as screen3d from "./race3d_screen.js";
 import { TRACK_SHAPES } from "../track_shapes.js";
 import { effectiveTrack } from "../track_store.js";
 import { pitLaneSample, advancePitPhase } from "../pitlane.js";
+import { tyreWindowReadout } from "../drivers.js";
 
 // MM 5-step pace ladder (most aggressive → most conservative) and the engine ladder incl. the burst modes.
 const PACE = ["attack", "push", "balanced", "conserve", "backup"], ENGINE = ["save", "standard", "push", "overtake", "superovertake"];
@@ -374,7 +375,7 @@ function updateHud(root, ctx, snap) {
   if (comp) {
     const rate = me.tyreAge > 0 ? me.wear / me.tyreAge : comp.wear;
     if (me.wear >= comp.cliff) win = ` · <span style="color:#ff6b3b">🧨 за обрывом</span>`;
-    else if (rate > 0) { const n = Math.floor((comp.cliff - me.wear) / rate); win = ` · <span style="color:${n <= 3 ? "#e7c84b" : "var(--muted)"}" title="кругов до обрыва резины при текущем темпе">~${n} кр до обрыва</span>`; }
+    else if (rate > 0) { const n = Math.floor((comp.cliff - me.wear) / rate); win = ` · <span style="color:${n <= 3 ? "#e7c84b" : "var(--muted)"}" title="кругов до обрыва резины при текущем темпе (точность зависит от Feedback пилота)">${tyreWindowReadout(n, me.feedback)}</span>`; }
   }
   $("#d-tyrelabel").innerHTML = `Резина ${tyreIcon(me.tyre, 22)} <span style="text-transform:capitalize">${me.tyre}</span>${cold}${hot} · ${me.tyreAge} кр${win}`;
   const COLORS = { p: "#b14aef", g: "#3ddc84", y: "#e7c84b" };

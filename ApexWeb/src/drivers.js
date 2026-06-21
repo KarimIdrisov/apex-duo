@@ -5,6 +5,18 @@ import { TEAMS } from "./data.js";
 import { driverAttrs, attrDrift, assignTraits, traitBias, ATTR_KEYS } from "./team.js";
 import { mix32 } from "./rng.js";
 
+// §Phase-5 — driver Feedback (the race_iq stat) gates how TRUSTWORTHY the in-race tyre-life readout is.
+// A high-feedback driver reports a tight "~N laps to the cliff"; a low-feedback driver's window is fuzzy
+// (a wider ± band), so you can't fully trust it — managing a weak-feedback driver means more guesswork.
+// Pure & UI-free: returns the display string for `n` laps remaining to the tyre cliff. n>=0.
+export function tyreWindowReadout(n, feedback) {
+  const fb = Math.max(0, Math.min(1, feedback == null ? 0.7 : feedback));
+  const spread = Math.round((1 - fb) * 4);                 // 0 (sharp, top feedback) … 4 (vague)
+  if (spread <= 0) return `~${n} кр до обрыва`;
+  const half = Math.ceil(spread / 2);
+  return `~${Math.max(0, n - half)}–${n + half} кр до обрыва`;
+}
+
 // approximate 2026 driver ages (abbrev -> age).
 export const DRIVER_AGE = {
   NOR: 26, PIA: 25, ANT: 19, RUS: 28, VER: 28, HAD: 19, LEC: 28, HAM: 41, SAI: 31, ALB: 30,

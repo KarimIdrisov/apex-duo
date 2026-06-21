@@ -1,7 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { TEAMS } from "../src/data.js";
-import { DRIVER_AGE, initDrivers, developDrivers, updateMorale, moraleMod, salaryFor, reSign, tickDriverRace } from "../src/drivers.js";
+import { DRIVER_AGE, initDrivers, developDrivers, updateMorale, moraleMod, salaryFor, reSign, tickDriverRace, tyreWindowReadout } from "../src/drivers.js";
+
+test("§Phase-5 tyreWindowReadout: high Feedback is sharp, low Feedback is a fuzzy band", () => {
+  assert.equal(tyreWindowReadout(8, 1.0), "~8 кр до обрыва", "top feedback → exact estimate");
+  const vague = tyreWindowReadout(8, 0.2);
+  assert.ok(/~\d+.\d+ кр/.test(vague), "low feedback → a range band");
+  // the band widens as feedback drops
+  const width = fb => { const m = tyreWindowReadout(10, fb).match(/~(\d+).(\d+) кр/); return m ? (+m[2] - +m[1]) : 0; };
+  assert.ok(width(0.2) >= width(0.6) && width(0.6) >= width(1.0), "lower feedback → wider band");
+  assert.equal(width(1.0), 0, "top feedback has no band");
+  assert.equal(tyreWindowReadout(8, undefined), tyreWindowReadout(8, 0.7), "null feedback defaults sensibly");
+});
 
 test("initDrivers builds a record per grid driver with age/overall/morale/contract/salary", () => {
   const d = initDrivers();
