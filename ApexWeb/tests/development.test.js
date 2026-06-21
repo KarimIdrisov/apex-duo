@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { TEAMS } from "../src/data.js";
-import { maxProjects, playerSlotCap } from "../src/development.js";
+import { maxProjects, playerSlotCap, PART_CEILING, effCeiling, knownTier, knownBonus, knownStrength } from "../src/development.js";
 import { PARTS, PART_CONTRIB, PROJECT_SIZE, partsToDeltas, effectiveCar, startProject, tickDevelopment,
   corrQuality, forecastRange, miscorrChance, eraEmphasis, regEra, revertPart, regressedParts,
   PU_PARTS, PU_CONTRIB, puToDeltas, startPUProject, puTokensLeft, PU_TOKEN_COST, PU_TOKENS_PER_SEASON,
@@ -82,6 +82,25 @@ test("§Phase-4 per-area designer expertise tilts the forecast (engine designer 
   assert.ok(forecastRange(mk("powertrain"), "pu", "medium").mid > forecastRange(mk(null), "pu", "medium").mid, "engine designer beats a generalist on the power part");
   // a generalist designer (default specialty) leaves the forecast byte-identical to the bare default
   assert.equal(forecastRange(mk(null), "pu", "medium").mid, forecastRange(fakeCareer(), "pu", "medium").mid, "generalist = byte-identical default");
+});
+
+test("§Phase-4 item 4: Known Components raise a developed part's ceiling on a strong team; neutral = factory ceiling", () => {
+  // weak team / fresh part → tier 0, no bonus, factory ceiling (byte-identical)
+  const weak = fakeCareer({ staff: { designer: 0.6, facilities: { design: 0, sim: 0 } } });
+  assert.equal(knownStrength(weak, "floor"), 0);
+  assert.equal(knownTier(weak, "floor"), 0);
+  assert.equal(knownBonus(weak, "floor"), 0);
+  assert.equal(effCeiling(weak, "floor"), PART_CEILING, "weak team / undeveloped part = factory ceiling");
+  // strong team (design office + simulator + top designer) + a well-developed part → a known tier above the ceiling
+  const strong = fakeCareer({ staff: { designer: 0.97, facilities: { design: 5, sim: 5 } }, parts: { McLaren: { floor: 0.30 } } });
+  assert.ok(knownTier(strong, "floor") >= 1, "a developed part on a strong team becomes a known component");
+  assert.ok(effCeiling(strong, "floor") > PART_CEILING, "known components let you build above the factory ceiling");
+  // you must build the part up first — knowledge unlocks with development, not for free
+  const barely = fakeCareer({ staff: { designer: 0.97, facilities: { design: 5, sim: 5 } }, parts: { McLaren: { floor: 0.02 } } });
+  assert.equal(knownTier(barely, "floor"), 0, "a lightly-developed part stays tier 0 even on a strong team");
+  // Improvability (item 4a) compounds the known-component ceiling gain (base + max addition, §5.5)
+  const impHi = fakeCareer({ staff: { designer: 0.97, facilities: { design: 5, sim: 5 } }, parts: { McLaren: { floor: 0.30 } }, chassis: { improv: 0.9 } });
+  assert.ok(knownBonus(impHi, "floor") > knownBonus(strong, "floor"), "high Improvability boosts the known-component bonus");
 });
 
 // --- P2: regression + free revert ---

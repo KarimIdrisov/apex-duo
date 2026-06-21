@@ -7,7 +7,7 @@ import { evaluateObjectives, regArcNote } from "../board.js";
 import { objectiveLabel } from "../sponsors.js";
 import { PARTS, PART_LABEL, PROJECT_SIZE, effectiveCar, effectiveCarPU, PU_PARTS, PU_LABEL, PU_PROGRAM, SUPPLY_INCOME, SUPPLY_FEE, APPROACH, maxProjects, PART_CEILING, CONCEPT, aiConcept,
   forecastRange, regressedParts, puTokensLeft, PU_TOKEN_COST, PU_TOKENS_PER_SEASON, eraNote, PU_SUPPLY_SPEC,
-  DEV_AREAS, INTENSITY, bestPartForArea, fieldAvg } from "../development.js";
+  DEV_AREAS, INTENSITY, bestPartForArea, fieldAvg, knownTier, KNOWN_TIERS } from "../development.js";
 import { availableDrivers, signCost, freeAgent, interest, signCostAt, buyout, rivalInterest, CLAUSE } from "../market.js";
 import { availableJuniors, scoutBand, scoutOf, signCostJunior, programTier, programSlots, programDevRate,
   upgradeCost, TIER_MAX, TIER_LABEL, superlicensePts, eligible, SL_GATE, SERIES, SERIES_LABEL, SERIES_UP,
@@ -182,7 +182,7 @@ export function render(root, ctx) {
       : devBtn("devbtn", `data-k="${pk}" data-sz="${devSize}" data-ap="${devApproach}"`, can);
     const revert = regressed ? `<button class="revertbtn" data-k="${pk}" style="margin-top:4px;padding:3px 9px;border-radius:6px;background:var(--bad);color:#fff;font-size:10px;font-weight:700">↩ откатить</button>` : "";
     return `<div style="display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-top:1px solid var(--border)">
-        <div style="flex:1;min-width:0"><div style="display:flex;justify-content:space-between;font-size:13px"><span style="font-weight:600">${PART_LABEL[pk]}${regressed ? ' <span style="color:var(--bad);font-size:10px">↓ хуже</span>' : ""}</span><span style="color:var(--muted);font-size:11px">ур.${(lvl * 100).toFixed(0)} · зрел.${mat.toFixed(0)}%</span></div>${barEl(mat, "var(--muted)", 4)}${fcLine}</div>
+        <div style="flex:1;min-width:0"><div style="display:flex;justify-content:space-between;font-size:13px"><span style="font-weight:600">${PART_LABEL[pk]}${regressed ? ' <span style="color:var(--bad);font-size:10px">↓ хуже</span>' : ""}${knownTier(c, pk) > 0 ? ` <span title="Известный компонент — конструктор строит выше заводского потолка" style="font-size:10px;color:var(--good)">★${KNOWN_TIERS[knownTier(c, pk)]}</span>` : ""}</span><span style="color:var(--muted);font-size:11px">ур.${(lvl * 100).toFixed(0)} · зрел.${mat.toFixed(0)}%</span></div>${barEl(mat, "var(--muted)", 4)}${fcLine}</div>
         <div style="flex:none;width:165px;text-align:right">${action}${revert}</div></div>`; };
   const unprovenLine = (c.unproven || []).length ? `<p class="label" style="color:var(--warn);margin:10px 0 0">⚠ Необкатанные: ${(c.unproven || []).map(u => `${PART_LABEL[u.part]} (${u.racesLeft})`).join(", ")} — риск отказа в гонке</p>` : "";
   const eb = eraNote(c.season || 1);

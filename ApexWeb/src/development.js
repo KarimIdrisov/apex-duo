@@ -62,10 +62,45 @@ export const CEIL_IMPROV_SPAN = 0.16;   // Improvability swings the effective pe
 export const CHASSIS_TYRE_SPAN = 0.10;  // Tyre-Wear trait nudges the tyre indicator ±0.05 (kinder/harsher on rubber)
 export const CHASSIS_FUEL_SPAN = 0.10;  // Fuel-Consumption trait nudges the fuel indicator ±0.05 (stint length)
 export const CHASSIS_HEAT_SPAN = 0.50;  // Tyre-Heating trait scales the in-race overheat target ×0.75..1.25 (cooler/hotter)
-// effective dev ceiling for THIS career's parts: Improvability raises/lowers the headroom for the season.
-export function effCeiling(career) {
-  const imp = (career && career.chassis && typeof career.chassis.improv === "number") ? career.chassis.improv : 0.5;
-  return PART_CEILING + (imp - 0.5) * CEIL_IMPROV_SPAN;
+function improvOf(career) { return (career && career.chassis && typeof career.chassis.improv === "number") ? career.chassis.improv : 0.5; }
+// effective dev ceiling for a part: factory PART_CEILING + Improvability headroom (chassis, item 4a) +
+// the lead designer's KNOWN-COMPONENT bonus for that part (item 4). Pass a `part` for the known bonus.
+export function effCeiling(career, part) {
+  return PART_CEILING + (improvOf(career) - 0.5) * CEIL_IMPROV_SPAN + (part ? knownBonus(career, part) : 0);
+}
+
+// --- Phase 4 item 4: Known Components (masterplan §5.5). The lead designer "knows" each part to a TIER
+// (Average→Legendary); a higher tier raises that part's effective ceiling ABOVE the factory PART_CEILING —
+// you build beyond the HQ limit on the strength of the designer's knowledge. The tier is gated by
+// infrastructure (design office + simulator) and the chief designer (rating + area focus) and is UNLOCKED
+// by the part's own development (you only "know" a component once you've built it up), so it kicks in only
+// late, for a well-developed part on a well-resourced team. Tier 0 / weak team / lightly-developed part →
+// ZERO bonus, so fresh careers, the career corridor, and the (parts-free) sim balance stay byte-identical. ---
+export const KNOWN_TIERS = ["Серийный", "Продвинутый", "Топовый", "Эпический", "Легендарный"];   // Average→Legendary
+export const KNOWN_MAX = KNOWN_TIERS.length - 1;   // 4
+export const KNOWN_TIER_CEIL = 0.022;              // per-tier ceiling lift (base); the MAX portion scales with Improvability
+function partLevelOf(career, part) { const tn = teamNameOf(career); return (career && career.parts && career.parts[tn] && career.parts[tn][part]) || 0; }
+function areaOfPart(part) { return Object.keys(PART_CONTRIB[part] || {}).sort((a, b) => (PART_CONTRIB[part][b] || 0) - (PART_CONTRIB[part][a] || 0))[0]; }
+// 0..1 R&D "knowledge" for a part group: design office + simulator + chief-designer rating + area expertise.
+export function knownStrength(career, part) {
+  const st = career && career.staff; if (!st) return 0;
+  const fac = st.facilities || {};
+  const design = (fac.design || 0) / 5, sim = (fac.sim || 0) / 5, designer = st.designer || 0.6;
+  const focus = designerFocus(st, areaOfPart(part));                 // >1 in the designer's specialty area
+  return Math.max(0, Math.min(1, 0.30 * design + 0.20 * sim + 1.2 * (designer - 0.6) + 0.6 * (focus - 1)));
+}
+// the known-component tier (0..KNOWN_MAX) for a part: knowledge strength × how far the part is developed
+// toward the base ceiling (uses PART_CEILING, not effCeiling — no circularity). Deterministic integer.
+export function knownTier(career, part) {
+  if (!PARTS.includes(part)) return 0;
+  const progress = Math.min(1, partLevelOf(career, part) / PART_CEILING);
+  return Math.min(KNOWN_MAX, Math.floor(KNOWN_MAX * knownStrength(career, part) * progress + 1e-9));
+}
+// ceiling bonus from known components: per-tier base lift + a MAX-addition portion gated by Improvability
+// (item 4a) — so a high-Improvability chassis turns known components into a bigger ceiling gain (§5.5 base-vs-max).
+export function knownBonus(career, part) {
+  const tier = knownTier(career, part);
+  return tier ? tier * KNOWN_TIER_CEIL * (1 + (improvOf(career) - 0.5)) : 0;
 }
 // per-race chassis-trait deltas applied to the player's effective car (tyre/fuel indicators + a heat
 // scalar that survives composeCar and feeds the sim's overheat target). null when there is no chassis.
@@ -144,7 +179,7 @@ export function forecastRange(career, part, size, approachKey = "balanced") {
   const ap = APPROACH[approachKey] || APPROACH.balanced;
   const level = (career && career.parts && career.parts[teamNameOf(career)] && career.parts[teamNameOf(career)][part]) || 0;
   const areaKey = Object.keys(PART_CONTRIB[part] || {}).sort((a, b) => (PART_CONTRIB[part][b] || 0) - (PART_CONTRIB[part][a] || 0))[0];
-  const mid = spec.gain * ap.gainK * maturityFactor(level, effCeiling(career)) * eraEmphasis((career && career.season) || 1, part) * devMult(career && career.staff) * (1 + academyDevBonus(career)) * designerFocus(career && career.staff, areaKey);
+  const mid = spec.gain * ap.gainK * maturityFactor(level, effCeiling(career, part)) * eraEmphasis((career && career.season) || 1, part) * devMult(career && career.staff) * (1 + academyDevBonus(career)) * designerFocus(career && career.staff, areaKey);
   const cq = corrQuality(career, part);
   const width = mid * (0.55 - 0.30 * cq);
   return { low: Math.max(0, mid - width / 2), mid, high: mid + width / 2, corrQuality: cq, miscorr: miscorrChance(career, part, approachKey) };
@@ -387,7 +422,7 @@ export function bestPartForArea(career, indicator) {
     if (pk === "pu") continue;                                  // engine → ДВС tab
     const contrib = (PART_CONTRIB[pk] || {})[indicator] || 0;
     if (contrib <= 0 || active.has(pk)) continue;
-    const score = contrib * maturityFactor(parts[pk] || 0, effCeiling(career));     // diminishing returns toward the (Improvability-scaled) ceiling
+    const score = contrib * maturityFactor(parts[pk] || 0, effCeiling(career, pk));     // diminishing returns toward the (Improvability + known-component) ceiling
     if (score > bestScore) { bestScore = score; best = pk; }
   }
   return best;
@@ -452,7 +487,7 @@ export function tickDevelopment(career, days = 14) {
     const ap = APPROACH[p.approach] || APPROACH.balanced;
     const level = myParts[p.part] || 0;
     // intended gain (P5 era emphasis tilts which parts develop fastest this era).
-    const intended = p.gain * ap.gainK * out.mult * maturityFactor(level, effCeiling(career)) * eraEmphasis(career.season || 1, p.part) * devMult(career.staff) * (1 + academyDevBonus(career));
+    const intended = p.gain * ap.gainK * out.mult * maturityFactor(level, effCeiling(career, p.part)) * eraEmphasis(career.season || 1, p.part) * devMult(career.staff) * (1 + academyDevBonus(career));
     const areaKey = Object.keys(PART_CONTRIB[p.part] || {}).sort((a, b) => PART_CONTRIB[p.part][b] - PART_CONTRIB[p.part][a])[0];
     const dirGain = devGainMult(career, areaKey) * designerFocus(career.staff, areaKey);   // co-director area perk × chief-designer area expertise (engine designer ≠ wing designer)
     // P1/P2: correlation roll — did the part match the simulation? A miss under-delivers vs forecast; a
