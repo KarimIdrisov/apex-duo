@@ -17,15 +17,29 @@ const STAFF_STEP = 0.06;
 
 const clamp01 = v => Math.max(0, Math.min(1, v));
 
+// §Phase-5 — staff have an AGE and a POTENTIAL ceiling: a young staffer can grow well above their current
+// rating, a veteran is near their peak. This is the "buy proven-but-expensive vs young-cheap-with-upside"
+// decision. Growth is applied OFF-SEASON only (tickStaffDevelopment in newSeason), so the in-season dev
+// corridor is byte-identical — ratings are static across a season.
+export const STAFF_AGE_MIN = 30, STAFF_AGE_MAX = 56, STAFF_PEAK_AGE = 50;
+// seeded { age, potential } for a staffer of a given rating (deterministic). Younger ⇒ more headroom.
+export function staffGrowth(rating, seed) {
+  const s = seed >>> 0;
+  const age = STAFF_AGE_MIN + Math.floor((mix32(s) / 4294967296) * (STAFF_AGE_MAX - STAFF_AGE_MIN));
+  const youth = Math.max(0, Math.min(1, (STAFF_PEAK_AGE - age) / (STAFF_PEAK_AGE - STAFF_AGE_MIN)));   // 1 young → 0 at peak
+  const potential = clamp01(rating + youth * 0.20 * (mix32((s ^ 0x9e3779b9) >>> 0) / 4294967296));     // up to +0.20 for the youngest
+  return { age, potential };
+}
+
 // initial staff/facilities seeded from the team facility strength (0..1).
 export function initStaff(teamFacility, seed) {
   const f = teamFacility ?? 0.75;
   const r = mix32((Math.round(f * 1000) + (seed >>> 0) * 7919) >>> 0) / 4294967296;
   const base = clamp01(f + (r - 0.5) * 0.06);
   const lv = Math.max(0, Math.min(FAC_MAX, Math.round(f * 3)));
-  const dft = () => ({ name: "—", specialty: null, rating: base, salary: salaryForStaff(base), contractSeasons: 3 });   // default in-house staff
+  const dft = (ri) => { const g = staffGrowth(base, (seed >>> 0) + ri * 7919); return { name: "—", specialty: null, rating: base, salary: salaryForStaff(base), contractSeasons: 3, age: g.age, potential: g.potential }; };   // default in-house staff
   return { designer: base, strategist: base, pitCrew: base, fatigue: 0, facilities: { design: lv, pit: lv, factory: lv, sim: lv, tunnel: lv, staffctr: lv },
-    people: { designer: dft(), strategist: dft(), pitCrew: dft() } };
+    people: { designer: dft(0), strategist: dft(1), pitCrew: dft(2) } };
 }
 
 // staff fatigue (Phase 4): calendar density wears the crew down — tight turnarounds (back-to-backs,
@@ -153,7 +167,7 @@ export function salaryForStaff(rating) { return Math.round(40 + Math.pow(Math.ma
 export function staffMarket(seed) {
   const s = seed >>> 0;
   return STAFF_MARKET_POOL
-    .map(p => ({ ...p, salary: salaryForStaff(p.rating), _o: mix32((s * 2654435761 + p.id.charCodeAt(0) * 131 + p.id.charCodeAt(1)) >>> 0) }))
+    .map(p => ({ ...p, salary: salaryForStaff(p.rating), ...staffGrowth(p.rating, (s + p.id.charCodeAt(0) * 131 + p.id.charCodeAt(1)) >>> 0), _o: mix32((s * 2654435761 + p.id.charCodeAt(0) * 131 + p.id.charCodeAt(1)) >>> 0) }))
     .sort((a, b) => a._o - b._o)
     .map(({ _o, ...p }) => p);
 }
@@ -197,7 +211,8 @@ function genStaffer(name, role, rating, seed) {
   const r = mix32((seed >>> 0) + name.charCodeAt(0) * 131 + name.length) / 4294967296;
   const specs = ROLE_SPECS[role] || [];
   const specialty = (r < 0.62 && specs.length) ? specs[Math.floor(r * 997) % specs.length] : null;   // ~62% are specialists
-  return { name, role, specialty, rating: clamp01(rating), salary: salaryForStaff(rating), contractSeasons: 1 + (Math.floor(r * 7) % 3) };
+  const g = staffGrowth(clamp01(rating), (seed >>> 0) + name.length * 2654435761);
+  return { name, role, specialty, rating: clamp01(rating), salary: salaryForStaff(rating), contractSeasons: 1 + (Math.floor(r * 7) % 3), age: g.age, potential: g.potential };
 }
 
 // named staff for every team, ratings scaled by team facility strength. Stored on the career so poaching
@@ -276,6 +291,27 @@ export function tickStaffTrain(career) {
     spent += STAFF_TRAIN_COST;
   }
   return spent;
+}
+
+// §Phase-5 — off-season staff development: each hired staffer drifts toward their POTENTIAL (faster when
+// young), ages a year, and gently declines past the peak age. Called from career.newSeason only, so
+// in-season ratings (and the dev corridor) are unchanged. Mirrors the driver-development curve.
+export function tickStaffDevelopment(career) {
+  const st = career && career.staff; if (!st || !st.people) return;
+  for (const role of STAFF_ROLES) {
+    const p = st.people[role]; if (!p) continue;
+    p.age = (p.age || 42) + 1;
+    const pot = (p.potential != null) ? p.potential : (st[role] || p.rating || 0.6);
+    const cur = (st[role] != null) ? st[role] : (p.rating || 0.6);
+    let next = cur;
+    if (p.age <= STAFF_PEAK_AGE && cur < pot) {
+      const youth = Math.max(0, Math.min(1, (STAFF_PEAK_AGE - p.age) / (STAFF_PEAK_AGE - STAFF_AGE_MIN)));
+      next = clamp01(cur + (pot - cur) * (0.18 + 0.30 * youth));          // grow toward potential, faster young
+    } else if (p.age > STAFF_PEAK_AGE) {
+      next = clamp01(cur - 0.008 * (p.age - STAFF_PEAK_AGE));             // gentle post-peak decline
+    }
+    st[role] = next; p.rating = next; p.salary = salaryForStaff(next);
+  }
 }
 
 // --- T4: facility upgrades as timed construction projects ---

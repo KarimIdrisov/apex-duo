@@ -9,7 +9,7 @@ import { neutralChassis } from "./chassis.js";
 import { gapDays, offseasonDays } from "./season_dates.js";
 import { initDrivers, developDrivers, retirePass, updateMorale, tickDriverRace, makeDriverRequest, maybeGainTrait, zeroDriverStats, salaryFor, DRIVER_NAME } from "./drivers.js";
 import { driverAttrs, assignTraits, TRAITS, overallToStars } from "./team.js";
-import { initStaff, upkeep, salaryForStaff, applyCalendarLoad, initTeamStaff, tickStaffTrain, tickFacility, FAC_LABEL, STAFF_ROLES, ROLE_LABEL, simDriverBoost } from "./staff.js";
+import { initStaff, upkeep, salaryForStaff, applyCalendarLoad, initTeamStaff, tickStaffTrain, tickStaffDevelopment, tickFacility, FAC_LABEL, STAFF_ROLES, ROLE_LABEL, simDriverBoost, staffGrowth } from "./staff.js";
 import { mix32 } from "./rng.js";
 import { aiChurn } from "./market.js";
 import { developAcademy } from "./academy.js";
@@ -35,7 +35,7 @@ export function pointsFor(career, i) {
 // prize money ($k) by race-finish position — a simple per-race payout (M2 deepens income).
 export const PRIZE = [1200, 1000, 850, 720, 620, 540, 470, 410, 360, 320, 280, 250, 220, 200, 180, 160, 150, 140, 130, 120, 110, 100];
 
-export const CAREER_V = 31;           // career save schema version
+export const CAREER_V = 32;           // career save schema version
 export const REG_RESET = 0.5;         // each season's regulation change trims everyone's car development
 export const RUNNING_COST = 800;      // $k per-race operating cost (M5 facilities refine it)
 // §Phase-6 — solvency + the board ultimatum that make money & confidence BITE (career.board.ultimatum is null-safe/additive).
@@ -526,6 +526,11 @@ export function migrate(career) {
     if (f) { if (f.tunnel == null) f.tunnel = f.factory || 0; if (f.staffctr == null) f.staffctr = f.factory || 0; }
     career.v = 31;
   }
+  if (career.v < 32) {                 // §Phase-5: staff age + potential (buy-vs-grow) — backfill from rating
+    const ppl = career.staff && career.staff.people;
+    if (ppl) for (const role in ppl) { const p = ppl[role]; if (p && (p.age == null || p.potential == null)) { const g = staffGrowth(p.rating || 0.6, (career.seed || 1) + role.charCodeAt(0)); if (p.age == null) p.age = g.age; if (p.potential == null) p.potential = Math.max(p.rating || 0, g.potential); } }
+    career.v = 32;
+  }
   // names of dynamically-added drivers (academy promotions, retirement rookies) live on the driver
   // object, but DRIVER_NAME is rebuilt from the static roster each load — repopulate it so the UI
   // (which often resolves DRIVER_NAME[abbrev]) shows their real names across reloads.
@@ -759,6 +764,7 @@ export function newSeason(career) {
   aiChurn(fresh, (fresh.seed >>> 0) + fresh.season * 2246822519);   // deterministic AI silly-season
   fresh.staff = JSON.parse(JSON.stringify(career.staff || initStaff((TEAMS[career.teamIdx] || TEAMS[0]).facility, career.seed || 1)));
   fresh.staff.fatigue = 0;                    // the winter break fully rests the crew
+  tickStaffDevelopment(fresh);                // §Phase-5: off-season staff growth toward potential (in-season ratings unchanged → corridor byte-identical)
   fresh.pitCrew = JSON.parse(JSON.stringify(career.pitCrew || initPitCrew((TEAMS[career.teamIdx] || TEAMS[0]).facility, career.seed || 1)));
   { const pcn = tickOffseasonPitCrew(fresh.pitCrew, (fresh.seed >>> 0) + fresh.season * 7321);   // PIT: winter rest + chemistry + injuries
     for (const n of pcn) pushNews(fresh, n); }

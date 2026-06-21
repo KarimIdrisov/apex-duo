@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { STAFF_ROLES, FACILITIES, FAC_MAX, initStaff, composePersonnel, devMult, upkeep, upgradeStaff, upgradeFacility, STAFF_UPGRADE_COST, simDriverBoost, designerFocus, DESIGNER_FOCUS, tickStaffTrain } from "../src/staff.js";
+import { STAFF_ROLES, FACILITIES, FAC_MAX, initStaff, composePersonnel, devMult, upkeep, upgradeStaff, upgradeFacility, STAFF_UPGRADE_COST, simDriverBoost, designerFocus, DESIGNER_FOCUS, tickStaffTrain, staffGrowth, tickStaffDevelopment, STAFF_PEAK_AGE } from "../src/staff.js";
 
 test("§Phase-5 Simulator (HQ building) speeds driver development; null-safe for old saves", () => {
   assert.equal(simDriverBoost(null), 1);
@@ -40,6 +40,28 @@ test("§Phase-5 R&D building tree: Wind Tunnel + Staff Centre present, seeded, a
   const w0 = withCtr.staff.designer, n0 = noCtr.staff.designer;
   tickStaffTrain(withCtr); tickStaffTrain(noCtr);
   assert.ok((withCtr.staff.designer - w0) > (noCtr.staff.designer - n0), "the Staff Centre speeds training");
+});
+
+test("§Phase-5 staff potential + age + off-season growth (buy-vs-grow)", () => {
+  const g = staffGrowth(0.7, 12345);
+  assert.deepEqual(staffGrowth(0.7, 12345), g, "deterministic");
+  assert.ok(g.potential >= 0.7 && g.age >= 30, "potential is a ceiling ≥ rating; aged");
+  // starting staff carry age + potential
+  const s = initStaff(0.8, 1);
+  for (const role of STAFF_ROLES) assert.ok(s.people[role].age > 0 && s.people[role].potential >= s.people[role].rating);
+  // off-season growth: a young below-potential staffer rises toward potential and ages; a veteran does not
+  const career = { staff: { designer: 0.7, strategist: 0.7, pitCrew: 0.7, people: {
+    designer:   { rating: 0.7, age: 32, potential: 0.9 },   // young + headroom → grows
+    strategist: { rating: 0.7, age: 32, potential: 0.7 },   // at potential → flat
+    pitCrew:    { rating: 0.7, age: 52, potential: 0.95 } } } };  // past peak → no growth despite headroom
+  tickStaffDevelopment(career);
+  assert.ok(career.staff.designer > 0.7, "young + headroom grows");
+  assert.equal(career.staff.people.designer.age, 33, "ages a year");
+  assert.equal(career.staff.strategist, 0.7, "at potential → no growth");
+  assert.ok(career.staff.pitCrew <= 0.7, "past peak age → no growth (plateau/decline)");
+  // the hire market surfaces potential + age for the buy-vs-grow decision
+  assert.ok(staffMarket(7).every(p => p.age >= 30 && p.potential >= p.rating), "market staff carry age + potential");
+  assert.ok(STAFF_PEAK_AGE > 30);
 });
 
 test("initStaff seeds ratings + facility levels from the team facility strength", () => {
