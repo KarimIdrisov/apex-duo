@@ -10,7 +10,11 @@ export const PERKS = {
   cooldown: { key: "cooldown", label: "Холодный расчёт", chemReq: 0.45, oneShot: true, desc: "сразу вернуть температуру шин в рабочее окно" },
   tyresave: { key: "tyresave", label: "Бережём резину",  chemReq: 0.55, laps: 5, wearMult: 0.70, desc: "−30% износа шин на 5 кругов" },
   fuelsave: { key: "fuelsave", label: "Топливный план",  chemReq: 0.55, laps: 6, fuelMult: 0.82, desc: "−18% расхода топлива на 6 кругов" },
+  coast:    { key: "coast",    label: "Накатом",          chemReq: 0.55, laps: 4, fuelMult: 0.65, paceBonus: -0.08, desc: "lift-and-coast: −35% топлива на 4 круга (чуть медленнее)" },
   pushnow:  { key: "pushnow",  label: "Прорыв",           chemReq: 0.70, laps: 3, paceBonus: 0.18, wearMult: 1.15, desc: "+темп на 3 круга (ценой износа)" },
+  qualilap: { key: "qualilap", label: "Боевой круг",      chemReq: 0.65, laps: 1, paceBonus: 0.38, wearMult: 1.40, desc: "один максимально быстрый круг (жжёт резину)" },
+  longrun:  { key: "longrun",  label: "Длинный стинт",    chemReq: 0.70, laps: 8, wearMult: 0.55, desc: "−45% износа шин на 8 кругов" },
+  splash:   { key: "splash",   label: "Ва-банк",          chemReq: 0.80, laps: 2, paceBonus: 0.22, wearMult: 1.20, fuelMult: 1.25, desc: "максимальная атака 2 круга (топливо + резина)" },
 };
 export const PERK_KEYS = Object.keys(PERKS);
 export const CHEM_START = 0.5;        // a mechanic's starting chemistry with a driver
