@@ -1,6 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ATTR_KEYS, driverAttrs, genPersonnel } from "../src/team.js";
+import { ATTR_KEYS, driverAttrs, genPersonnel, peakArchetype, peakOverall } from "../src/team.js";
+
+test("§Phase-3 peak-age archetype: deterministic ±2 offset; a late peak rises past the normal peak", () => {
+  assert.equal(peakArchetype("VER"), peakArchetype("VER"), "deterministic");
+  assert.ok([-2, 0, 2].includes(peakArchetype("HAM")));
+  const age = ATTR_PEAK.pace + 1;   // just past the normal pace peak → normal declines, a late peak still rises
+  assert.ok(attrDrift("pace", age, +2) > attrDrift("pace", age, 0), "late archetype still improving past the normal peak");
+});
+
+test("§Phase-3 peakOverall: a teenager has headroom; a veteran is at/over peak", () => {
+  assert.ok(peakOverall({ attrs: driverAttrs("X", 0.7), age: 19, peakAge: 0 }) > 0.7, "young → growth headroom");
+  assert.ok(peakOverall({ attrs: driverAttrs("X", 0.7), age: 37, peakAge: 0 }) <= 0.7 + 1e-6, "veteran → no headroom");
+});
 
 test("driverAttrs returns all 14 attrs in [0,1], deterministic, skill attrs centered near overall", () => {
   const a = driverAttrs("LEC", 0.90), b = driverAttrs("LEC", 0.90);

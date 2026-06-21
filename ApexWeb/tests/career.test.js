@@ -18,6 +18,26 @@ test("§Phase-6 requestBoardFunds: cash now, confidence cost, once per season", 
   assert.equal(requestBoardFunds(newCareer({ teamIdx: 0, seed: 1 }), -5), 0, "rejects a non-positive request");
 });
 
+test("§Phase-6 seasonAwards: MotS = the constructor that most beat its tier", () => {
+  const c = newCareer({ teamIdx: 0, seed: 1 });
+  const back = TEAMS[10].name;                 // weakest tier
+  c.teamPts[back] = 9999;                       // a back-marker leading the constructors = big over-performance
+  const aw = seasonAwards(c);
+  assert.equal(aw.mots, back, "the over-performing back-marker is Move of the Season");
+  assert.ok(aw.motsOver > 0);
+});
+
+test("§Phase-3 under-valuing a driver (paid far less than teammate) costs morale vs equal pay", () => {
+  const mk = gap => {
+    const c = newCareer({ teamIdx: 0, seed: 1 });
+    const [a, b] = Object.keys(c.drivers).filter(ab => c.drivers[ab].teamIdx === 0);
+    c.drivers[a].salary = 100; c.drivers[b].salary = gap ? 1000 : 100;
+    applyResult(c, TEAMS.flatMap(t => t.drivers.map(d => ({ abbrev: d.abbrev, team: t.name, retired: false }))));
+    return c.drivers[a].morale;
+  };
+  assert.ok(mk(true) < mk(false), "an under-valued driver ends with lower morale than an equal-pay control");
+});
+
 test("§Phase-6 runningCostFor scales with race length; mean-neutral over the calendar", () => {
   assert.ok(runningCostFor({ laps: 78 }) > runningCostFor({ laps: 44 }), "a longer race costs more to run");
   const total = CALENDAR.reduce((a, r) => a + runningCostFor(r), 0), flat = CALENDAR.length * RUNNING_COST;

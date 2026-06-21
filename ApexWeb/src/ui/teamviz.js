@@ -3,7 +3,18 @@
 // (driverSkillTip/staffSkillTip + attachPersonTips). Pure UI; reads data.js/team.js/staff.js
 // (read-only). No sim/network state.
 import { TEAMS, TEAM_LOGO } from "../data.js";
-import { driverAttrs, ATTR_KEYS, TRAITS, overallToStars } from "../team.js";
+import { driverAttrs, ATTR_KEYS, TRAITS, overallToStars, peakOverall, peakArchetype } from "../team.js";
+
+// §Phase-3 — current stars + faint GHOST stars up to the driver's projected peak overall (their
+// peak-potential, shown on the senior card). A veteran past peak shows no ghost; a young driver shows
+// the growth headroom. `age` may be a string from the DOM dataset.
+function peakGhostStars(abbrev, overall, age, col) {
+  const peak = peakOverall({ attrs: driverAttrs(abbrev, Number(overall)), age: Number(age), peakAge: peakArchetype(abbrev) });
+  const curS = overallToStars(Number(overall)), peakS = overallToStars(peak);
+  if (peakS - curS < 0.5) return "";
+  let g = ""; for (let s = curS + 0.5; s <= peakS + 1e-9; s += 0.5) g += `<span style="color:${col};opacity:.3">★</span>`;
+  return `<span title="потенциал к пику ~${Math.round(peak * 100)} OVR">${g}</span>`;
+}
 
 // §Phase-3 — MM-style 0..5 star rating (full ★ / half ⯨ / empty ☆) from an overall, in the team colour.
 export function starsHtml(overall, color = "#e7c84b") {
@@ -142,7 +153,7 @@ export function driverSkillTip(abbrev, overall, team, name, age) {
     +   `<div style="font-size:11px;color:#A1A1AA">${team} · ${age} лет</div></div>`
     + `<div style="text-align:right"><div style="font-size:10px;color:#A1A1AA">OVR</div>`
     +   `<div style="font-weight:800;font-size:20px;color:${col}">${Math.round(Number(overall) * 100)}</div>`
-    +   `<div style="margin-top:1px">${starsHtml(overall, col)}</div></div></div>`
+    +   `<div style="margin-top:1px">${starsHtml(overall, col)}${peakGhostStars(abbrev, overall, age, col)}</div></div></div>`
     + `<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px">${bars}</div>`;
 }
 

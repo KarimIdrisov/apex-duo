@@ -2,7 +2,7 @@
 // (G1–G4: season stats, training focus, form, requests, trait development.)
 // All meta→sim influence flows through the driver's overall (-> driverAttrs) and moraleMod (-> setupBonus).
 import { TEAMS } from "./data.js";
-import { driverAttrs, attrDrift, assignTraits, traitBias, ATTR_KEYS } from "./team.js";
+import { driverAttrs, attrDrift, assignTraits, traitBias, ATTR_KEYS, peakArchetype } from "./team.js";
 import { mix32 } from "./rng.js";
 
 // §Phase-5 — driver Feedback (the race_iq stat) gates how TRUSTWORTHY the in-race tyre-life readout is.
@@ -85,6 +85,7 @@ export function initDrivers() {
       traits: assignTraits(dr.abbrev),                  // D5: identity + development bias
       training: null, status: "equal", form: 0.5,       // G2 training focus · G3 #1/equal status + short-term form
       stats: zeroDriverStats(), request: null,          // G1 season stats · G3 pending driver ask
+      peakAge: peakArchetype(dr.abbrev),                // §Phase-3: early/normal/late peak-age archetype
     };
   }));
   return d;
@@ -100,7 +101,7 @@ export function developDrivers(drivers) {
       const focus = new Set(trainingAttrs(dr.training));   // G2: winter training bonus on the focused attrs
       let sum = 0;
       for (const k of ATTR_KEYS) {
-        let nv = dr.attrs[k] + attrDrift(k, dr.age) + traitBias(dr.traits, k) + (focus.has(k) ? TRAIN_WINTER : 0);
+        let nv = dr.attrs[k] + attrDrift(k, dr.age, dr.peakAge || 0) + traitBias(dr.traits, k) + (focus.has(k) ? TRAIN_WINTER : 0);
         nv = clamp01(nv);
         sum += nv - dr.attrs[k]; dr.attrs[k] = nv;
       }

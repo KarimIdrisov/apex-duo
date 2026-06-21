@@ -66,12 +66,34 @@ export const ATTR_PEAK = {
   pace: 25, quali: 25, starts: 24, aggression: 26, smoothness: 31, fitness: 26,
   overtaking: 28, consistency: 30, defending: 30, composure: 32, discipline: 32, tyre: 33, wet: 33, race_iq: 35,
 };
+// §Phase-3 — per-driver peak-age ARCHETYPE: some drivers peak EARLY (burn bright, fade young), some LATE
+// (long careers), most NORMAL. A deterministic ±2-year offset on every attribute's peak age, salted by
+// abbreviation. Stored on the driver record (dr.peakAge) and threaded into attrDrift.
+export function peakArchetype(abbrev) {
+  const s = String(abbrev || "");
+  const r = mix32(((s.charCodeAt(0) || 65) * 2654435761 + (s.charCodeAt(1) || 90) * 131 + s.length) >>> 0) / 4294967296;
+  return r < 0.30 ? -2 : (r > 0.70 ? 2 : 0);   // ~30% early peak, ~30% late peak, ~40% normal
+}
 // one season of drift for an attribute at a given age (rise below peak, decline above; bounded ±0.025).
-export function attrDrift(key, age) {
-  const peak = ATTR_PEAK[key] ?? 28;
+// `peakOffset` shifts the attr's peak age for early/late-peaking drivers (§Phase-3 archetype).
+export function attrDrift(key, age, peakOffset = 0) {
+  const peak = (ATTR_PEAK[key] ?? 28) + peakOffset;
   const d = peak - age;                       // >0 improving, <0 declining
   const rate = d >= 0 ? 0.010 : 0.008;        // skills are gained a touch faster than they fade
   return Math.max(-0.025, Math.min(0.025, d * rate * 0.25));
+}
+// §Phase-3 — projected PEAK overall: walk the attrs forward applying only growth until every attr is past
+// its (archetype-shifted) peak. For a young driver this is their ghost peak-potential (shown as ghost stars
+// on the senior card); for a veteran past peak it ≈ their current overall. Pure, deterministic.
+export function peakOverall(dr) {
+  if (!dr || !dr.attrs || dr.age == null) return dr ? (dr.overall || 0) : 0;
+  const off = dr.peakAge || 0, a = { ...dr.attrs };
+  for (let age = dr.age; age < 38; age++) {
+    let rising = false;
+    for (const k of ATTR_KEYS) { const dd = attrDrift(k, age, off); if (dd > 0) { a[k] = Math.min(0.999, a[k] + dd); rising = true; } }
+    if (!rising) break;
+  }
+  return overallFromAttrs(a);
 }
 
 // explicit driver traits (RU labels) — bias which attrs develop, surfaced in the paddock.

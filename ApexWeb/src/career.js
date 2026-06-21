@@ -9,7 +9,7 @@ import { neutralChassis } from "./chassis.js";
 import { CHEM_START, chemAfterRace } from "./perks.js";
 import { gapDays, offseasonDays } from "./season_dates.js";
 import { initDrivers, developDrivers, retirePass, updateMorale, tickDriverRace, makeDriverRequest, maybeGainTrait, zeroDriverStats, salaryFor, DRIVER_NAME } from "./drivers.js";
-import { driverAttrs, assignTraits, TRAITS, overallToStars } from "./team.js";
+import { driverAttrs, assignTraits, TRAITS, overallToStars, peakArchetype } from "./team.js";
 import { initStaff, upkeep, salaryForStaff, applyCalendarLoad, initTeamStaff, tickStaffTrain, tickStaffDevelopment, tickFacility, FAC_LABEL, STAFF_ROLES, ROLE_LABEL, simDriverBoost, staffGrowth } from "./staff.js";
 import { mix32 } from "./rng.js";
 import { aiChurn } from "./market.js";
@@ -36,7 +36,7 @@ export function pointsFor(career, i) {
 // prize money ($k) by race-finish position — a simple per-race payout (M2 deepens income).
 export const PRIZE = [1200, 1000, 850, 720, 620, 540, 470, 410, 360, 320, 280, 250, 220, 200, 180, 160, 150, 140, 130, 120, 110, 100];
 
-export const CAREER_V = 34;           // career save schema version
+export const CAREER_V = 35;           // career save schema version
 export const REG_RESET = 0.5;         // each season's regulation change trims everyone's car development
 export const RUNNING_COST = 800;      // $k per-race operating cost (M5 facilities refine it)
 // §Phase-6 — solvency + the board ultimatum that make money & confidence BITE (career.board.ultimatum is null-safe/additive).
@@ -240,6 +240,11 @@ export function applyResult(career, classification, raceInfo = {}) {
       }
       const req = makeDriverRequest(r.dr, r.abbrev);
       if (req && !r.dr._reqNewsed) { pushNews(career, `💬 ${req.text}`); r.dr._reqNewsed = true; }
+    }
+    if (pair) {   // §Phase-3: an under-valued driver (paid far less than the teammate) takes a small morale hit
+      const [a, b] = playerRes;
+      const under = a.dr.salary < b.dr.salary * 0.8 ? a.dr : (b.dr.salary < a.dr.salary * 0.8 ? b.dr : null);
+      if (under) under.morale = Math.max(0, (under.morale ?? 0.6) - 0.015);
     }
   }
   tickRacePitCrew(career.pitCrew);          // PIT: a race weekend tires the crew (+ trains it if enrolled)
@@ -564,6 +569,10 @@ export function migrate(career) {
     career.boardFundsUsed = career.boardFundsUsed || false;
     career.v = 34;
   }
+  if (career.v < 35) {                 // §Phase-3: per-driver peak-age archetype (early/normal/late)
+    for (const ab in (career.drivers || {})) { const dr = career.drivers[ab]; if (dr && dr.peakAge == null) dr.peakAge = peakArchetype(ab); }
+    career.v = 35;
+  }
   // names of dynamically-added drivers (academy promotions, retirement rookies) live on the driver
   // object, but DRIVER_NAME is rebuilt from the static roster each load — repopulate it so the UI
   // (which often resolves DRIVER_NAME[abbrev]) shows their real names across reloads.
@@ -690,10 +699,19 @@ export function seasonAwards(career) {
     if (dr && dr.fromAcademy && pts > bestRookiePts) { bestRookiePts = pts; rookie = ab; }
   }
   const nm = ab => (career.drivers[ab] && career.drivers[ab].name) || ab;
+  // "Move of the Season" (MotS) at the team level — the constructor that most BEAT its tier expectation
+  // (a back-marker that climbs the order is the season's standout, MM-style). Tier = strength rank (0 best).
+  let mots = null, bestOver = -1e9;
+  for (const s of constructorStandings(career)) {
+    const tier = TEAMS.findIndex(t => t.name === s.team);
+    const over = (tier + 1) - s.pos;   // finished higher than the tier baseline → positive overperformance
+    if (over > bestOver) { bestOver = over; mots = s.team; }
+  }
   return {
     champion: champ ? champ.abbrev : null, championName: champ ? nm(champ.abbrev) : null,
     dots, dotsName: dots ? nm(dots) : null, dotsPts: dots ? (career.driverPts[dots] || 0) : 0,
     rookie, rookieName: rookie ? nm(rookie) : null, rookiePts: rookie ? bestRookiePts : 0,
+    mots, motsOver: mots ? Math.max(0, bestOver) : 0,   // §Phase-6: constructor that most over-performed its tier
   };
 }
 
@@ -726,6 +744,7 @@ export function newSeason(career) {
   const aw = seasonAwards(career); fresh.lastAwards = aw;
   if (aw.dots) pushNews(fresh, `🏆 Пилот сезона ${career.season}: ${aw.dotsName} (${aw.dotsPts} очк. — лучший результат относительно машины).`);
   if (aw.rookie) pushNews(fresh, `🌟 Новичок сезона: ${aw.rookieName}.`);
+  if (aw.mots && aw.motsOver > 0) pushNews(fresh, `📈 Прорыв сезона: «${aw.mots}» — финиш выше уровня команды на ${aw.motsOver} ${aw.motsOver === 1 ? "позицию" : "позиции"}.`);
   // deep-copy carried state so the prior season's career object stays immutable
   fresh.parts = JSON.parse(JSON.stringify(career.parts || {}));     // part development carries over (regs reset below)
   fresh.devSpentThisSeason = 0;
