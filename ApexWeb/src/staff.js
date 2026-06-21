@@ -11,6 +11,18 @@ export const FACILITIES = ["design", "pit", "factory", "sim", "tunnel", "staffct
 export const FAC_LABEL = { design: "КБ", pit: "Пит-бокс", factory: "Завод", sim: "Симулятор", tunnel: "Аэротруба", staffctr: "Кадровый центр" };
 export const FAC_MAX = 5;
 
+// §Phase-5 — building PREREQUISITE tree: an advanced R&D building can't outrun its base. To raise it to
+// level N, the base building must be at least N−1 (so you can't max a Wind Tunnel on a weak КБ). The
+// three base buildings (design/pit/factory) have no prerequisite. Corridor-neutral (gates WHEN you can
+// upgrade, not the effect); a seeded team — all facilities at the same level — can always step up by one.
+export const FAC_PREREQ = { sim: "design", tunnel: "design", staffctr: "factory" };
+export function facPrereqMet(staff, which) {
+  const base = FAC_PREREQ[which];
+  if (!base || !staff || !staff.facilities) return true;
+  const target = (staff.facilities[which] || 0) + 1;        // the level we'd be upgrading TO
+  return (staff.facilities[base] || 0) >= target - 1;        // the base must be within one level of it
+}
+
 export const STAFF_UPGRADE_COST = 2500;   // $k to raise a staff rating one step
 export const FAC_UPGRADE_BASE = 3500;     // $k base for a facility level (×(level+1))
 const STAFF_STEP = 0.06;
@@ -106,6 +118,7 @@ export function upgradeStaff(career, role) {
 // upgrade a facility one level (cost scales with the next level). Returns true if applied.
 export function upgradeFacility(career, which) {
   if (!FACILITIES.includes(which) || !career.staff) return false;
+  if (!facPrereqMet(career.staff, which)) return false;     // §Phase-5: base building must keep pace
   const lvl = career.staff.facilities[which];
   if (lvl >= FAC_MAX) return false;
   const cost = FAC_UPGRADE_BASE * (lvl + 1);
@@ -321,6 +334,7 @@ export function tickStaffDevelopment(career) {
 export const FAC_BUILD_DAYS = { 1: 40, 2: 55, 3: 75, 4: 100, 5: 130 };   // days to build the Nth level
 export function startFacilityProject(career, which) {
   if (!FACILITIES.includes(which) || !career.staff || career.facilityProject) return false;
+  if (!facPrereqMet(career.staff, which)) return false;     // §Phase-5: base building must keep pace
   const lvl = career.staff.facilities[which];
   if (lvl >= FAC_MAX) return false;
   const cost = FAC_UPGRADE_BASE * (lvl + 1);

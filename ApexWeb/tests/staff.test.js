@@ -1,6 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { STAFF_ROLES, FACILITIES, FAC_MAX, initStaff, composePersonnel, devMult, upkeep, upgradeStaff, upgradeFacility, STAFF_UPGRADE_COST, simDriverBoost, designerFocus, DESIGNER_FOCUS, tickStaffTrain, staffGrowth, tickStaffDevelopment, STAFF_PEAK_AGE, FACTORY_DEV } from "../src/staff.js";
+import { STAFF_ROLES, FACILITIES, FAC_MAX, initStaff, composePersonnel, devMult, upkeep, upgradeStaff, upgradeFacility, STAFF_UPGRADE_COST, simDriverBoost, designerFocus, DESIGNER_FOCUS, tickStaffTrain, staffGrowth, tickStaffDevelopment, STAFF_PEAK_AGE, FACTORY_DEV, facPrereqMet } from "../src/staff.js";
+
+test("§Phase-5 building prerequisite tree: an advanced building can't outrun its base", () => {
+  assert.equal(facPrereqMet({ facilities: { design: 0 } }, "design"), true, "base buildings have no prereq");
+  assert.equal(facPrereqMet({ facilities: { design: 0, tunnel: 0 } }, "tunnel"), true, "L0→L1 ok with design 0");
+  assert.equal(facPrereqMet({ facilities: { design: 1, tunnel: 2 } }, "tunnel"), false, "tunnel L2→L3 needs design ≥ 2");
+  assert.equal(facPrereqMet({ facilities: { design: 2, tunnel: 2 } }, "tunnel"), true, "design 2 unlocks tunnel L3");
+  const c = { money: 1e6, staff: { facilities: { design: 1, pit: 1, factory: 1, sim: 1, tunnel: 3, staffctr: 1 } } };
+  assert.equal(upgradeFacility(c, "tunnel"), false, "can't upgrade the tunnel past the design office");
+  assert.equal(upgradeFacility(c, "design"), true, "the base design office upgrades freely");
+});
 
 test("§Phase-5 factory feeds development speed (devMult rises with the factory, bounded)", () => {
   const mk = factory => ({ designer: 0.8, facilities: { design: 3, factory }, fatigue: 0, people: {} });

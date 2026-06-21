@@ -13,7 +13,7 @@ import { availableJuniors, scoutBand, scoutOf, signCostJunior, programTier, prog
   upgradeCost, TIER_MAX, TIER_LABEL, superlicensePts, eligible, SL_GATE, SERIES, SERIES_LABEL, SERIES_UP,
   ARCHETYPE, loanTeams, SCOUT_STEP_FEE, EXTEND_FEE, extendCost, LOAN_FEE, JUNIOR_POOL, PERSONA, rivalCourting } from "../academy.js";
 import { DRIVER_NAME, TRAINING, moraleReason, ageTrend } from "../drivers.js";
-import { STAFF_ROLES, ROLE_LABEL, FACILITIES, FAC_LABEL, FAC_MAX, STAFF_UPGRADE_COST, FAC_UPGRADE_BASE, upkeep, staffMarket, SPECIALTIES, salaryForStaff, composePersonnel, devMult, staffSalaries, staffMarketAll, staffHireFee } from "../staff.js";
+import { STAFF_ROLES, ROLE_LABEL, FACILITIES, FAC_LABEL, FAC_MAX, STAFF_UPGRADE_COST, FAC_UPGRADE_BASE, upkeep, staffMarket, SPECIALTIES, salaryForStaff, composePersonnel, devMult, staffSalaries, staffMarketAll, staffHireFee, facPrereqMet, FAC_PREREQ } from "../staff.js";
 import { TEAM_LOGO, TEAMS, DRIVER_INFO } from "../data.js";
 import { composePitCrew, effSkill, PIT_ROLES, ROLE_LABEL as PIT_ROLE_LABEL, pitCrewMarket, PRACTICE_FEE, RECRUIT_FEE } from "../pitcrew.js";
 import { bcard, bchip, bbar, meterRow, bkpi, bkpiStrip, fatigueCol } from "./kit.js";
@@ -327,11 +327,13 @@ export function render(root, ctx) {
         <div style="display:flex;gap:6px;margin-top:7px"><button class="trainstaff" data-role="${rk}" style="flex:1;padding:5px;border-radius:7px;border:1px solid ${trainOn(rk) ? "var(--accent)" : "var(--border)"};background:${trainOn(rk) ? "var(--accent)" : "transparent"};color:${trainOn(rk) ? "#fff" : "var(--ink)"};font-size:11px;font-weight:600">${trainOn(rk) ? "🎓 обучение ✓" : "🎓 обучать"}</button>${upBtn("ready stf", `data-kind="staff" data-key="${rk}"`, can, `+ ${m$(cost)}`)}</div></div>`; };
   const facBuilding = which => c.facilityProject && c.facilityProject.which === which ? c.facilityProject : null;
   const facCard = fk => { const lvl = st.facilities[fk] || 0, cost = FAC_UPGRADE_BASE * (lvl + 1); const bp = facBuilding(fk); const busy = !!c.facilityProject;
-    const can = lvl < FAC_MAX && c.money >= cost && !busy;
+    const prereqOk = facPrereqMet(st, fk);
+    const can = lvl < FAC_MAX && c.money >= cost && !busy && prereqOk;
     const affects = fk === "design" ? "ускоряет разработку и стратегию" : fk === "pit" ? "ускоряет пит-стопы" : fk === "sim" ? "ускоряет развитие пилотов" : fk === "tunnel" ? "качество аэро-деталей (known components)" : fk === "staffctr" ? "ускоряет обучение штата" : `слотов разработки ${1 + Math.floor(lvl / 2)} · содержание`;
     const action = lvl >= FAC_MAX ? `<span style="font-size:11px;color:var(--muted)">максимум</span>`
       : bp ? `<span style="font-size:11px;color:var(--accent)">🏗 ${devEta(c, bp)}</span>`
       : busy ? `<span style="font-size:11px;color:var(--muted)">идёт другая стройка</span>`
+      : !prereqOk ? `<span style="font-size:11px;color:var(--warn)">🔒 нужно «${FAC_LABEL[FAC_PREREQ[fk]]}» ур.${lvl + 1}</span>`
       : upBtn("ready stf", `data-kind="facility" data-key="${fk}"`, can, `Строить ${m$(cost)}`);
     return `<div style="background:var(--content2);border:1px solid var(--border);border-radius:var(--r-md);padding:11px 12px">
         <div style="display:flex;justify-content:space-between;align-items:baseline"><b style="font-size:13px">${FAC_LABEL[fk]}</b><span style="font-size:12px;color:var(--muted)">ур. <b style="color:var(--ink)">${lvl}</b>/${FAC_MAX}</span></div>
