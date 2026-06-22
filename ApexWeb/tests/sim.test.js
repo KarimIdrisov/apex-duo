@@ -75,6 +75,32 @@ test("§Phase-3 #1 double-stack: a lead teammate makes the co-running support ca
   assert.ok(stackDelta < 3.5, `but only ~pitStackWait, not unbounded (stackDelta=${stackDelta.toFixed(2)})`);
 });
 
+test("§Phase-6 lobby start type: rolling keeps grid order (smaller launch shuffle); no-opts == standing", () => {
+  const launchSpread = opts => {
+    const r = new Race(field(), TRACK, 5, 0.85, opts);
+    r.step();   // first step runs _standingStart → populates c._launch
+    const ls = r.cars.map(c => c._launch || 0);
+    return Math.max(...ls) - Math.min(...ls);
+  };
+  const standing = launchSpread({ startType: "standing" });
+  const rolling = launchSpread({ startType: "rolling" });
+  assert.ok(rolling < standing * 0.5, `rolling shuffle is much smaller (rolling=${rolling.toFixed(3)} standing=${standing.toFixed(3)})`);
+  assert.equal(launchSpread(undefined), standing, "no opts == standing start (byte-identical default)");
+});
+
+test("§Phase-6 lobby caution regime: 'none' (mult 0) blocks every caution; the realistic regime can deploy one", () => {
+  const none = new Race(field(), TRACK, 1, 0.85, { cautionMult: 0 });
+  const real = new Race(field(), TRACK, 1, 0.85, { cautionMult: 1 });
+  let realDeployed = false;
+  for (let lap = 1; lap <= 60; lap++) {                 // simulate many incident-driven caution rolls (no stepping)
+    none._tryCaution(none._keyRng(0, lap, 3), true);
+    real._tryCaution(real._keyRng(0, lap, 3), true);
+    if (real.scEverActive) realDeployed = true;
+  }
+  assert.equal(none.scEverActive, false, "'none' regime never deploys a safety car");
+  assert.ok(realDeployed, "the realistic regime deploys at least one caution over many incidents");
+});
+
 test("push is faster than conserve, all else equal", () => {
   const f = field();
   const r = new Race(f, TRACK, 1);

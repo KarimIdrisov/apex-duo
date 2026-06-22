@@ -125,6 +125,24 @@ export const EVENT = {
   vscMinLaps:  2,     // a VSC clears faster than a full SC (2 vs 3 leader-laps)
   vscPitMult:  0.78,  // pit-loss under VSC: cheaper than green (1.0) but pricier than a full SC (0.55)
   pitStackWait: 2.6,  // §Phase-3: extra s a #1 (lead) teammate forces on a co-running car when both are in the box — the crew serves the lead first (double-stack priority). Only fires on an explicit lead↔non-lead asymmetry, so equal/equal fields (AI, harness) are byte-identical.
+  rollingLaunchK: 0.30,  // §Phase-6 lobby: a rolling start keeps grid order — the launch shuffle (and bog-down chance) shrink to 30% of a standing start. Default standing (×1) → byte-identical.
+};
+
+// §Phase-6 — lobby ruleset presets (the "MM-faithful options" layer). All default to the FIRST key, which
+// reproduces current behaviour exactly → a fresh field / old save / harness stays byte-identical.
+export const RACE_LENGTH = {     // race-distance preset: scales every round's lap count
+  full:   { label: "100% — полная дистанция", mult: 1 },
+  half:   { label: "50% — короткая",          mult: 0.5 },
+  sprint: { label: "25% — спринт",            mult: 0.25 },
+};
+export const START_TYPE = {      // standing (off the line, full launch shuffle) vs rolling (grid order kept)
+  standing: { label: "Со старта (standing)" },
+  rolling:  { label: "С хода (rolling)" },
+};
+export const CAUTION_REGIME = {  // safety-car frequency: scales the caution probability (0 = never)
+  realistic: { label: "Реалистичный", mult: 1 },
+  none:      { label: "Без машин безопасности", mult: 0 },
+  frequent:  { label: "Частые жёлтые", mult: 2 },
 };
 
 // live safety cars (race depth): cautions emerge from real on-track incidents instead of one

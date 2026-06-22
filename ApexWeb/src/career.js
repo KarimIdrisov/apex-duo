@@ -1,6 +1,6 @@
 // ApexWeb/src/career.js — pure career/season state: calendar, standings, prize money, board
 // objective. No UI, no I/O. M1 evolves only meta state (the sim is untouched). Deterministic.
-import { TEAMS } from "./data.js";
+import { TEAMS, RACE_LENGTH, CAUTION_REGIME } from "./data.js";
 import { backerFor } from "./backers.js";
 import { suitorOffer, parentPullout, moneyEvent, gridChurn } from "./team_events.js";
 import { defaultSponsors, titleOffers, evaluateSponsor, replacementSponsor } from "./sponsors.js";
@@ -36,7 +36,7 @@ export function pointsFor(career, i) {
 // prize money ($k) by race-finish position — a simple per-race payout (M2 deepens income).
 export const PRIZE = [1200, 1000, 850, 720, 620, 540, 470, 410, 360, 320, 280, 250, 220, 200, 180, 160, 150, 140, 130, 120, 110, 100];
 
-export const CAREER_V = 38;           // career save schema version
+export const CAREER_V = 39;           // career save schema version
 export const REG_RESET = 0.5;         // each season's regulation change trims everyone's car development
 export const RUNNING_COST = 800;      // $k per-race operating cost (M5 facilities refine it)
 export const PAY_DRIVER_INCOME = 320; // §Phase-3 $k/race a pay driver brings (sponsorship) — funds a weak-but-paid seat
@@ -120,7 +120,7 @@ export function runningCostFor(round) {
 function allDrivers() { return TEAMS.flatMap(t => t.drivers.map(d => ({ abbrev: d.abbrev, team: t.name }))); }
 
 // a fresh career. teamIdx = which TEAMS entry the players manage; seed reserved for AI RNG.
-export function newCareer({ teamIdx = 0, seed = 1, coop = false, directors = [], scoring = "standard" } = {}) {
+export function newCareer({ teamIdx = 0, seed = 1, coop = false, directors = [], scoring = "standard", raceLength = "full", startType = "standing", cautionRegime = "realistic" } = {}) {
   const driverPts = {}, teamPts = {};
   for (const d of allDrivers()) driverPts[d.abbrev] = 0;
   for (const t of TEAMS) teamPts[t.name] = 0;
@@ -135,6 +135,7 @@ export function newCareer({ teamIdx = 0, seed = 1, coop = false, directors = [],
     parts: {}, projects: [], unproven: [], devSpentThisSeason: 0,   // E1: parallel projects + run-in debts
     directors, rewardMult: 1,                                      // career-start: co-directors + season-ambition reward scaler
     scoring,                                                        // §Phase-6: selected points system (ruleset option)
+    raceLength, startType, cautionRegime,                           // §Phase-6 lobby: race-distance / start-type / caution-regime presets (neutral defaults → byte-identical)
     partsPrev: {},                                                  // P2: previous-spec snapshots for free revert
     devFocus: 0, nextCar: {},                                       // F1: this/next-year development split
 
@@ -164,6 +165,17 @@ export function newCareer({ teamIdx = 0, seed = 1, coop = false, directors = [],
 
 export function currentRound(career) { return CALENDAR[career.round]; }
 export function isSeasonOver(career) { return career.round >= CALENDAR.length; }
+
+// §Phase-6 lobby — resolve a career's selected ruleset presets into the scalars the track build + sim read.
+// Missing fields (old saves, quick race) fall back to the neutral first key → byte-identical.
+export function raceRules(career) {
+  const c = career || {};
+  return {
+    lengthMult: (RACE_LENGTH[c.raceLength] || RACE_LENGTH.full).mult,
+    startType: c.startType || "standing",
+    cautionMult: (CAUTION_REGIME[c.cautionRegime] || CAUTION_REGIME.realistic).mult,
+  };
+}
 
 // award points + book the race ledger (prize + sponsor income − running cost). classification =
 // finishing order [{abbrev, team, retired}] (index 0 = winner). Mutates career; returns a summary.
@@ -591,6 +603,12 @@ export function migrate(career) {
     if (!career.negStrikes) career.negStrikes = {};
     career.v = 38;
   }
+  if (career.v < 39) {                 // §Phase-6 lobby: race-length / start-type / caution-regime presets
+    if (!career.raceLength) career.raceLength = "full";
+    if (!career.startType) career.startType = "standing";
+    if (!career.cautionRegime) career.cautionRegime = "realistic";
+    career.v = 39;
+  }
   // names of dynamically-added drivers (academy promotions, retirement rookies) live on the driver
   // object, but DRIVER_NAME is rebuilt from the static roster each load — repopulate it so the UI
   // (which often resolves DRIVER_NAME[abbrev]) shows their real names across reloads.
@@ -765,7 +783,8 @@ export function boardOutcome(career) {
 }
 // start a new season: reset round + points, keep team + money + seed, bump the season number.
 export function newSeason(career) {
-  const fresh = newCareer({ teamIdx: career.teamIdx, seed: career.seed, coop: career.coop, scoring: career.scoring });
+  const fresh = newCareer({ teamIdx: career.teamIdx, seed: career.seed, coop: career.coop, scoring: career.scoring,
+    raceLength: career.raceLength, startType: career.startType, cautionRegime: career.cautionRegime });   // §Phase-6: lobby presets carry across seasons
   fresh.season = career.season + 1;
   fresh.money = career.money;
   // §Phase-6 — announce last season's awards (Driver of the Season relative to machinery + top rookie).

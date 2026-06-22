@@ -25,7 +25,10 @@ const NEUTRAL_ATTRS = Object.fromEntries(ATTR_KEYS.map(k => [k, 0.5]));
 const A = c => c.attrs || NEUTRAL_ATTRS;   // attribute accessor with a neutral fallback
 
 export class Race {
-  constructor(field, track, seed, difficulty = 0.85) {
+  constructor(field, track, seed, difficulty = 0.85, opts = {}) {
+    // §Phase-6 lobby rules (neutral defaults → byte-identical for every existing caller):
+    this.startType = opts.startType || "standing";   // "standing" | "rolling"
+    this.cautionMult = opts.cautionMult ?? 1;         // scales caution probability (0 = no safety cars)
     this.track = track;
     this.rng = new RNG(seed);
     this.erng = new RNG(mix32(seed));
@@ -258,12 +261,15 @@ export class Race {
   // + reaction, measured against the field mean so only the SPREAD moves positions. The grid
   // (quali order) is otherwise respected; a rare bog-down gives the occasional big drop.
   _standingStart() {
+    // §Phase-6 lobby: a rolling start keeps grid order — shrink the launch shuffle + bog-down odds (×rollK).
+    // rollK = 1 for a standing start, so the erng draw order/count is untouched → byte-identical.
+    const rollK = this.startType === "rolling" ? EVENT.rollingLaunchK : 1;
     let mean = 0; for (const c of this.cars) mean += A(c).starts; mean /= this.cars.length;
     for (const c of this.cars) {
       let launch = (mean - A(c).starts) * EVENT.startLaunch + this.erng.noise(EVENT.startReact);  // s lost (good starter < 0)
-      launch = Math.max(-EVENT.startCap, Math.min(EVENT.startCap, launch));
+      launch = Math.max(-EVENT.startCap, Math.min(EVENT.startCap, launch)) * rollK;
       const composed = 1 - ATTRW.composure * (A(c).composure - 0.5) * 2;   // a composed driver bogs down less often (§18.7)
-      if (this.erng.unit() < EVENT.startP * composed) {        // rare bog-down / anti-stall
+      if (this.erng.unit() < EVENT.startP * composed * rollK) {        // rare bog-down / anti-stall
         launch += EVENT.startLoss;
         if (this.erng.unit() < EVENT.startDnf) { c.retired = true; this._emit({ type: "incident", lap: 0, a: c.idx, abbr: c.abbrev, dnf: true }); this._tryCaution(this._keyRng(c.idx, 0, 3), true); }
       }
@@ -583,7 +589,8 @@ export class Race {
   // scActive/vscActive (the existing lifecycle bunches, cheapens pits and retracts after scMinLaps).
   _tryCaution(rng, wasDNF) {
     if (this.scActive || this.vscActive || this._cautionsDone >= INCIDENT.maxCautions) return;
-    const kind = cautionFromIncident(rng, this.track.sc, wasDNF, EVENT.vscShare, INCIDENT);
+    if (this.cautionMult <= 0) return;   // §Phase-6 lobby: "no safety cars" regime
+    const kind = cautionFromIncident(rng, this.track.sc * this.cautionMult, wasDNF, EVENT.vscShare, INCIDENT);
     if (!kind) return;
     this._cautionsDone += 1;
     this.scEverActive = true;

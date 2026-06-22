@@ -23,7 +23,7 @@ import * as resultUI from "./ui/result_career.js";
 import * as directorCreate from "./ui/director_create.js";
 import * as preseasonUI from "./ui/preseason.js";
 import { botchMult } from "./directors.js";
-import { newCareer, newSeason, currentRound, isSeasonOver, applyResult, advanceRound, chooseTitleSponsor, constructorStandings, takeLoan, requestBoardFunds, acceptAcquisition, declineAcquisition, setDriverTraining, resolveDriverRequest } from "./career.js";
+import { newCareer, newSeason, currentRound, isSeasonOver, applyResult, advanceRound, chooseTitleSponsor, constructorStandings, takeLoan, requestBoardFunds, acceptAcquisition, declineAcquisition, setDriverTraining, resolveDriverRequest, raceRules } from "./career.js";
 const applyBoost = (car, b) => b ? { ...car, power: Math.min(1.2, car.power + b), aero: Math.min(1.2, car.aero + b) } : car;   // living-grid rival bump
 import { pushNews } from "./news.js";
 import { careerTrack } from "./track_build.js";
@@ -365,7 +365,8 @@ function startRaceHost() {
   ctx.track = ctx.track || defaultRaceTrack();
   // host picks the race seed once; the sim run stays fully deterministic from it
   if (ctx.seed == null) ctx.seed = 1000 + Math.floor(Math.random() * 100000);
-  ctx.race = new Race(field, ctx.track, ctx.seed, ctx.difficulty ?? DIFFICULTY.normal.ai);
+  const rules = raceRules(ctx.career);   // §Phase-6 lobby: start-type + caution-regime (track already length-scaled in loadRoundTrack)
+  ctx.race = new Race(field, ctx.track, ctx.seed, ctx.difficulty ?? DIFFICULTY.normal.ai, { startType: rules.startType, cautionMult: rules.cautionMult });
   ctx.trackName = ctx.trackName || pickTrack(ctx.seed);   // keep a quick-race's edited circuit; else seed-pick the visual (3D + minimap)
   // apply the quali grid as the start order (fastest quali -> P1), spread by slot
   // starting grid comes from the quali session (P1..P22); fall back to a one-shot grid if quali was skipped
@@ -636,7 +637,10 @@ function publishCareer() {
 // configure ctx for the career's current round (track visual + sim track) before a weekend.
 function loadRoundTrack() {
   const round = currentRound(ctx.career);
-  ctx.track = careerTrack(round);
+  let t = careerTrack(round);
+  const lm = raceRules(ctx.career).lengthMult;   // §Phase-6 lobby: scale the round to the race-distance preset (HUD + sim share ctx.track)
+  if (lm && lm !== 1) t = { ...t, laps: Math.max(5, Math.round(t.laps * lm)) };
+  ctx.track = t;
   ctx.trackName = round.shape;
 }
 // reset the per-weekend scratch so the next round starts clean.
@@ -660,7 +664,8 @@ function beginDirectorCreate(teamIdx, coop) {
 }
 // director-create confirmed → create the career (with the chosen specialties) → pre-season.
 function onDirectorsDone() {
-  ctx.career = newCareer({ teamIdx: ctx.teamIdx, seed: ctx._careerSeed, coop: !!ctx.coop, directors: ctx.pendingDirectors || [], scoring: ctx.ruleset || "standard" });
+  ctx.career = newCareer({ teamIdx: ctx.teamIdx, seed: ctx._careerSeed, coop: !!ctx.coop, directors: ctx.pendingDirectors || [], scoring: ctx.ruleset || "standard",
+    raceLength: ctx.raceLength || "full", startType: ctx.startTypeSel || "standing", cautionRegime: ctx.cautionRegime || "realistic" });   // §Phase-6 lobby presets
   ctx.atDirectorCreate = false; ctx.atPreseason = true; ctx._preBudget0 = null;
   rerender();
 }

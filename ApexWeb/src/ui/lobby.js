@@ -1,5 +1,5 @@
 // ApexWeb/src/ui/lobby.js
-import { TEAMS, TEAM_LOGO, DIFFICULTY } from "../data.js";
+import { TEAMS, TEAM_LOGO, DIFFICULTY, RACE_LENGTH, START_TYPE, CAUTION_REGIME } from "../data.js";
 import { teamColor, teamInk, carImgSrc } from "./teamviz.js";
 import { hostGame, joinGame, startSolo, startCareerSolo, hostCareer, continueCareer, deleteCareerSave } from "../main.js";
 import { loadCareer } from "../career_store.js";
@@ -24,6 +24,11 @@ export function render(root, ctx) {
   const diffOpts = Object.entries(DIFFICULTY).map(([k,d])=>`<option value="${k}" ${k===ctx.diffKey?"selected":""}>${d.label}</option>`).join("");
   ctx.ruleset = ctx.ruleset || "standard";
   const scoreOpts = Object.entries(SCORING).map(([k,s])=>`<option value="${k}" ${k===ctx.ruleset?"selected":""}>${s.label}</option>`).join("");
+  // §Phase-6 lobby ruleset presets (career): race distance, start type, caution regime
+  ctx.raceLength = ctx.raceLength || "full"; ctx.startTypeSel = ctx.startTypeSel || "standing"; ctx.cautionRegime = ctx.cautionRegime || "realistic";
+  const lenOpts = Object.entries(RACE_LENGTH).map(([k,s])=>`<option value="${k}" ${k===ctx.raceLength?"selected":""}>${s.label}</option>`).join("");
+  const startOpts = Object.entries(START_TYPE).map(([k,s])=>`<option value="${k}" ${k===ctx.startTypeSel?"selected":""}>${s.label}</option>`).join("");
+  const cautOpts = Object.entries(CAUTION_REGIME).map(([k,s])=>`<option value="${k}" ${k===ctx.cautionRegime?"selected":""}>${s.label}</option>`).join("");
   const saved = loadCareer();
   const TOTAL = 23;
   const resumeHtml = saved ? `
@@ -48,6 +53,15 @@ export function render(root, ctx) {
       <p class="label">Система очков (карьера)</p>
       <select id="ruleset" style="width:100%;padding:8px">${scoreOpts}</select>
       <div style="height:10px"></div>
+      <p class="label">Дистанция гонки (карьера)</p>
+      <select id="racelen" style="width:100%;padding:8px">${lenOpts}</select>
+      <div style="height:10px"></div>
+      <p class="label">Тип старта (карьера)</p>
+      <select id="starttype" style="width:100%;padding:8px">${startOpts}</select>
+      <div style="height:10px"></div>
+      <p class="label">Машины безопасности (карьера)</p>
+      <select id="caution" style="width:100%;padding:8px">${cautOpts}</select>
+      <div style="height:10px"></div>
       <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><input type="checkbox" id="career"> Карьера (сезон, 23 этапа)</label>
       <button class="primary" id="host">Создать комнату</button>
       <div style="height:8px"></div>
@@ -68,6 +82,9 @@ export function render(root, ctx) {
     ctx.difficulty = DIFFICULTY[ctx.diffKey].ai;
   };
   root.querySelector("#ruleset").onchange = e => { ctx.ruleset = e.target.value; };
+  root.querySelector("#racelen").onchange = e => { ctx.raceLength = e.target.value; };
+  root.querySelector("#starttype").onchange = e => { ctx.startTypeSel = e.target.value; };
+  root.querySelector("#caution").onchange = e => { ctx.cautionRegime = e.target.value; };
   root.querySelector("#host").onclick = async (e) => {
     e.target.disabled = true; e.target.textContent = "Создаём комнату…";
     if (root.querySelector("#career").checked) hostCareer(ctx.teamIdx);   // career begins when the partner joins

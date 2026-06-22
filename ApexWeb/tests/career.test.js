@@ -221,7 +221,7 @@ test("engine co-director (Моторист) spares the player PU — less wear p
 });
 
 // --- M2 finances + sponsors ---
-import { CAREER_V, migrate, chooseTitleSponsor, RUNNING_COST } from "../src/career.js";
+import { CAREER_V, migrate, chooseTitleSponsor, RUNNING_COST, raceRules } from "../src/career.js";
 
 test("newCareer carries sponsors + title offers + costCap flag at v2", () => {
   const c = newCareer({ teamIdx: 4, seed: 2 });
@@ -260,6 +260,20 @@ test("migrate upgrades a v1 save to v2 (adds sponsors)", () => {
   assert.equal(up.v, CAREER_V);
   assert.ok(up.sponsors.length >= 1);
   assert.equal(up.costCap, false);
+});
+
+test("§Phase-6 lobby presets: raceRules maps to sim scalars; defaults neutral; v39 migration backfills", () => {
+  const def = raceRules(null);                              // quick race / old save → neutral
+  assert.equal(def.lengthMult, 1); assert.equal(def.startType, "standing"); assert.equal(def.cautionMult, 1);
+  const r = raceRules({ raceLength: "sprint", startType: "rolling", cautionRegime: "none" });
+  assert.equal(r.lengthMult, 0.25); assert.equal(r.startType, "rolling"); assert.equal(r.cautionMult, 0);
+  const c = newCareer({ teamIdx: 0, seed: 1, raceLength: "half", startType: "rolling", cautionRegime: "frequent" });
+  assert.equal(c.raceLength, "half"); assert.equal(c.cautionRegime, "frequent");
+  assert.equal(raceRules(c).lengthMult, 0.5); assert.equal(raceRules(c).cautionMult, 2);
+  const old = { v: 38, teamIdx: 0, seed: 1, season: 1, round: 0, money: 0, driverPts: {}, teamPts: {}, board: { targetPos: 3 }, negStrikes: {}, history: [], done: false };
+  const up = migrate(old);
+  assert.equal(up.v, CAREER_V);
+  assert.equal(up.raceLength, "full"); assert.equal(up.startType, "standing"); assert.equal(up.cautionRegime, "realistic");
 });
 
 // --- M3 car development ---
