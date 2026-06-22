@@ -419,6 +419,9 @@ function buildField() {
       idx: idx++, name: d.name, abbrev: d.abbrev, skill: overall,
       car: composeCar(ctx.career ? (isPlayerTeam ? applyRaceMods(effectiveCarPU(t.car, ctx.career.parts[t.name], ctx.career.puParts), ctx.career, ctx.track) : applyBoost(applyConceptBias(effectiveCar(t.car, ctx.career.parts[t.name]), aiConcept(t.name)), (ctx.career.gridBoost || {})[t.name])) : t.car), color: t.color, team: t.name, isPlayer: isPlayerTeam, player,
       attrs: (dr && dr.attrs) ? dr.attrs : driverAttrs(d.abbrev, overall),
+      // §Phase-3 car-confidence: freshly-fitted (unproven) parts leave the car not-yet-bedded-in → a small early pace hit that recovers; an adaptable (consistent + race-smart) driver settles faster. AI / non-career = settled (1).
+      partConfidence: (ctx.career && isPlayerTeam) ? Math.max(0.7, 1 - 0.05 * ((ctx.career.unproven || []).length)) : 1,
+      adaptability: (dr && dr.attrs) ? Math.max(0, Math.min(1, ((dr.attrs.consistency || 0.7) + (dr.attrs.race_iq || 0.7)) / 2)) : 0.7,
       personnel: (ctx.career && isPlayerTeam) ? pcPersonnel(composePersonnel(ctx.career.staff), ctx.career.pitCrew) : genPersonnel(t.facility, ti),
       pitCrew: (ctx.career && isPlayerTeam && ctx.career.pitCrew) ? (() => { const pc = composePitCrew(ctx.career.pitCrew), bm = botchMult(ctx.career); return { botchChance: pc.botchChance * bm, disasterChance: pc.disasterChance * bm }; })() : null,   // mechanic co-director (Гл. механик) trims botch/disaster (botchMult < 1)
 

@@ -54,6 +54,7 @@ export class Race {
       _dirtyWear: 0, _dirtyPace: 0, _blueDelay: 0, _blueBudget: 0, _blueLast: -1, _creditVs: -1, _launch: 0,
       order: "none", _orderBit: false, _orderLaps: 0, _inFight: false,
       parts: initParts(), _brakeLimp: 0, _partFail: null, _dnfPart: null,   // §Phase-2 in-race part condition; _partFail = failed brake (limp); _dnfPart = the critical part that retired the car
+      _conf: f.partConfidence ?? 1, _adapt: f.adaptability ?? 0.7,   // §Phase-3 car-confidence: a freshly-changed car (unproven parts) starts <1 and costs pace until bedded in; adaptability speeds recovery. Default 1 = settled → byte-identical.
     }));
     // field-mean car performance ((power+aero)/2), fixed for the race — the anchor the
     // absolute car-pace term is measured against, so a better-than-average car is faster (§18.1).
@@ -135,6 +136,7 @@ export class Race {
     s += weightTerm(c.fuel);            // heavy tank = slower (eases as fuel burns)
     s += c.setupBonus;                                           // <=0, faster when set well
     if (c._perk) s -= c._perk.paceBonus;                         // §Phase-5: an active "pushnow" mechanic perk (default perk = none → 0)
+    s += (1 - (c._conf ?? 1)) * 0.6;                             // §Phase-3 car-confidence: a not-yet-bedded-in car (unproven parts) costs pace; 0 when settled (default)
     s += this.rng.noise(0.06) * (1.3 - ATTRW.noise * A(c).consistency);      // consistency steadies the lap
     s += c._dirtyPace || 0;                                                   // dirty-air pace loss (set by _resolveCombat, §18.11)
     s += c._brakeLimp || 0;                                                   // limping with a failed non-critical part (§Phase-2)
@@ -216,6 +218,7 @@ export class Race {
         c.fuel -= burnFor(c.engine, c.car.fuel) * smooth * (c._perk ? c._perk.fuelMult : 1);
         c.tyreAge += 1;
         if (c._perk && --c._perk.lapsLeft <= 0) c._perk = null;          // §Phase-5: the perk's few-lap window expires
+        if (c._conf < 1) c._conf = Math.min(1, c._conf + 0.04 * (0.5 + (c._adapt ?? 0.7)));   // §Phase-3: confidence recovers each lap, faster for an adaptable driver
         this._serveLapEnd(c); // phase 3: pit + DNF (finishers handled in order())
       }
     }

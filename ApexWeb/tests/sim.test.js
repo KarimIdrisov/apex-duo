@@ -50,6 +50,20 @@ test("push is faster than conserve, all else equal", () => {
   assert.ok(r.cars[0].avgLap < r.cars[1].avgLap, "push should average faster");
 });
 
+test("§Phase-3 car-confidence: an unbedded car (fresh parts) is slower early, then recovers", () => {
+  function avgAfter(conf) {
+    const r = new Race(field(), TRACK, 4242);
+    r.cars[0].car = { ...r.cars[0].car, rel: 1 };
+    r.cars[0]._conf = conf;                                   // simulate freshly-fitted parts
+    let g = 0; while (r.cars[0].lap < 3 && g++ < 60000) r.step();
+    return r.cars[0].avgLap;
+  }
+  assert.ok(avgAfter(0.7) > avgAfter(1.0), "low confidence costs pace over the opening laps");
+  const r = new Race(field(), TRACK, 1); r.cars[0]._conf = 0.7;
+  let g = 0; while (r.cars[0].lap < 6 && g++ < 60000) r.step();
+  assert.ok(r.cars[0]._conf > 0.7, "confidence recovers over the race");
+});
+
 test("§Phase-5 mechanic perk: deployPerk applies a bounded effect, once per race", () => {
   function wearAfter(deploy) {
     const r = new Race(field(), TRACK, 4242);
