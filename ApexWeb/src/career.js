@@ -36,7 +36,7 @@ export function pointsFor(career, i) {
 // prize money ($k) by race-finish position — a simple per-race payout (M2 deepens income).
 export const PRIZE = [1200, 1000, 850, 720, 620, 540, 470, 410, 360, 320, 280, 250, 220, 200, 180, 160, 150, 140, 130, 120, 110, 100];
 
-export const CAREER_V = 37;           // career save schema version
+export const CAREER_V = 38;           // career save schema version
 export const REG_RESET = 0.5;         // each season's regulation change trims everyone's car development
 export const RUNNING_COST = 800;      // $k per-race operating cost (M5 facilities refine it)
 export const PAY_DRIVER_INCOME = 320; // §Phase-3 $k/race a pay driver brings (sponsorship) — funds a weak-but-paid seat
@@ -156,6 +156,7 @@ export function newCareer({ teamIdx = 0, seed = 1, coop = false, directors = [],
     staffTrain: {}, facilityProject: null, _myTeamName: TEAMS[teamIdx].name,                  // T3 training · T4 construction
     pitCrew: initPitCrew(TEAMS[teamIdx].facility, s),                                          // PIT: managed pit crew
     academy: [], academyTier: 0, scoutData: {}, lastFeeder: null, rivalJuniors: [], graduates: [],   // D: junior pipeline
+    negStrikes: {},                                                                                   // §Phase-3: transfer-talk patience (flat refusals → lockout this window; resets each season)
     news: [],
     lastResult: null, history: [], done: false,
   };
@@ -585,6 +586,10 @@ export function migrate(career) {
     const ppl = career.staff && career.staff.people;
     if (ppl) for (const role in ppl) { const p = ppl[role]; if (p && p.loyalty == null) p.loyalty = 0.5; }
     career.v = 37;
+  }
+  if (career.v < 38) {                 // §Phase-3: transfer-negotiation patience / lockout counter
+    if (!career.negStrikes) career.negStrikes = {};
+    career.v = 38;
   }
   // names of dynamically-added drivers (academy promotions, retirement rookies) live on the driver
   // object, but DRIVER_NAME is rebuilt from the static roster each load — repopulate it so the UI

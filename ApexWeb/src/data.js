@@ -124,6 +124,7 @@ export const EVENT = {
   vscPaceMult: 1.22,  // everyone laps at 122% under the VSC (milder than the full SC's 140%)
   vscMinLaps:  2,     // a VSC clears faster than a full SC (2 vs 3 leader-laps)
   vscPitMult:  0.78,  // pit-loss under VSC: cheaper than green (1.0) but pricier than a full SC (0.55)
+  pitStackWait: 2.6,  // §Phase-3: extra s a #1 (lead) teammate forces on a co-running car when both are in the box — the crew serves the lead first (double-stack priority). Only fires on an explicit lead↔non-lead asymmetry, so equal/equal fields (AI, harness) are byte-identical.
 };
 
 // live safety cars (race depth): cautions emerge from real on-track incidents instead of one

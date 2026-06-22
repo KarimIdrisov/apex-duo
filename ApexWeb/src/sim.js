@@ -42,6 +42,8 @@ export class Race {
       idx: i, name: f.name, abbrev: f.abbrev, skill: f.skill, car: f.car,
       attrs: f.attrs ?? null, personnel: f.personnel ?? null, pitCrew: f.pitCrew ?? null, rival: f.rival ?? null,
       color: f.color, team: f.team, isPlayer: !!f.isPlayer, player: f.player ?? null,
+      driverStatus: f.driverStatus ?? null,   // §Phase-3: "lead" (#1) / "support" / "equal"(null) — gates double-stack pit priority
+
       setup: f.setup ?? [0.5, 0.5, 0.5], setupBonus: f.setupBonus ?? 0,
       lap: 0, lapFrac: 0, lapTimeAccum: 0, lastLap: 0, totalTime: 0,
       avgLap: 0, _lapSum: 0, _lapN: 0,
@@ -507,6 +509,16 @@ export class Race {
         }
         if (repaired) pitLoss += repaired;
         c._brakeLimp = 0; c._partFail = null;
+      }
+      // §Phase-3: #1 double-stack priority. If this car is NOT the team's #1 but its lead teammate is
+      // still being serviced in the box right now, the crew finishes the lead first → this car waits.
+      // Pure lead↔non-lead asymmetry, so equal/equal teams (AI, harness, fresh saves) are byte-identical.
+      if (c.driverStatus !== "lead") {
+        for (const tm of this.cars) {
+          if (tm !== c && tm.team === c.team && tm.driverStatus === "lead" && tm.pitTimer > 0) {
+            pitLoss += Math.min(tm.pitTimer, EVENT.pitStackWait); break;
+          }
+        }
       }
       c.pitStops += 1;
       c.pitTimer = pitLoss;   // sit stationary in the box for pitLoss s — drained in step() (race time passes, rivals gain, the out-lap shows it). Replaces the old lapFrac subtraction that got clamped to ~0.

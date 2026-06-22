@@ -31,7 +31,7 @@ import { effectiveCar, effectiveCarPU, applyRaceMods, applyConceptBias, aiConcep
 import { moraleMod, reSign, DRIVER_NAME } from "./drivers.js";
 import { composePersonnel, upgradeStaff, startFacilityProject, hireFromMarket, staffMarketAll, reSignStaff } from "./staff.js";
 import { composePitCrew, practicePitStops, recruitMember, toggleTraining, pitCrewMarket, PRACTICE_FEE, RECRUIT_FEE } from "./pitcrew.js";
-import { signDriver, negotiateSign, applyCounter } from "./market.js";
+import { signDriver, negotiateSign, applyCounter, NEG } from "./market.js";
 import { signJunior, promoteJunior, scoutProspect, setRole, loanJunior, extendJunior, upgradeProgram } from "./academy.js";
 import { saveCareer, loadCareer, hasCareer, clearCareer } from "./career_store.js";
 
@@ -223,7 +223,16 @@ function onCommand(cmd) {
           pushNews(ctx.career, `💬 Агент ${cmd.inAbbrev}: ${r.counter.label}.`);
         } else {
           ctx.career.negotiation = null;
-          pushNews(ctx.career, r.ok ? `Трансфер: ${cmd.inAbbrev} подписан (${cmd.length || 2} сез).` : `Трансфер ${cmd.inAbbrev} сорвался: ${r.reason}.`);
+          let msg;
+          if (r.ok) msg = `Трансфер: ${cmd.inAbbrev} подписан (${cmd.length || 2} сез).`;
+          else if (r.reason === "lockout") msg = `🚫 ${cmd.inAbbrev} прекратил переговоры — слишком много отказов (до конца окна).`;
+          else if (r.reason === "отказ") msg = r.locked
+            ? `🚫 ${cmd.inAbbrev} ответил отказом и закрыл переговоры до конца окна.`
+            : `${cmd.inAbbrev} отклонил предложение (отказ ${r.strikes}/${NEG.lockAt}).`;
+          else if (r.reason === "перебили") msg = `Трансфер ${cmd.inAbbrev} сорвался: его перебил соперник.`;
+          else if (r.reason === "деньги") msg = `Недостаточно средств на трансфер ${cmd.inAbbrev}.`;
+          else msg = `Трансфер ${cmd.inAbbrev} сорвался: ${r.reason}.`;
+          pushNews(ctx.career, msg);
         }
         saveCareer(ctx.career); publishCareer(); rerender();
       }
@@ -429,6 +438,7 @@ function buildField() {
       partConfidence: (ctx.career && isPlayerTeam) ? Math.max(0.7, 1 - 0.05 * ((ctx.career.unproven || []).length)) : 1,
       adaptability: (dr && dr.attrs) ? Math.max(0, Math.min(1, ((dr.attrs.consistency || 0.7) + (dr.attrs.race_iq || 0.7)) / 2)) : 0.7,
       fuelMargin: (ctx.career && isPlayerTeam) ? ctx.career.fuelLoad : undefined,   // §Phase-1: player's chosen start fuel load (undefined → tuned default)
+      driverStatus: dr ? (dr.status || null) : null,   // §Phase-3: #1/equal status → in-sim double-stack pit priority (only "lead" changes behaviour)
       personnel: (ctx.career && isPlayerTeam) ? pcPersonnel(composePersonnel(ctx.career.staff), ctx.career.pitCrew) : genPersonnel(t.facility, ti),
       pitCrew: (ctx.career && isPlayerTeam && ctx.career.pitCrew) ? (() => { const pc = composePitCrew(ctx.career.pitCrew), bm = botchMult(ctx.career); return { botchChance: pc.botchChance * bm, disasterChance: pc.disasterChance * bm }; })() : null,   // mechanic co-director (Гл. механик) trims botch/disaster (botchMult < 1)
 

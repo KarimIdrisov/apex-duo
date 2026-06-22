@@ -70,7 +70,8 @@ test("aiChurn swaps AI drivers deterministically, never touches the player team,
 });
 
 // --- D4 contracts & negotiation ---
-import { freeAgent, buyout, signCost, willJoin, negotiateSign } from "../src/market.js";
+import { freeAgent, buyout, signCost, willJoin, negotiateSign, negLocked, negStrikes, NEG } from "../src/market.js";
+import { newSeason } from "../src/career.js";
 
 test("buyout: contracted drivers cost extra to prise; free agents are free to take", () => {
   assert.ok(buyout({ salary: 500, contractSeasons: 2 }) > 0);
@@ -101,4 +102,32 @@ test("negotiateSign: broke -> reason 'деньги'", () => {
   const c = { teamIdx: 0, money: 1, drivers: initDrivers(), seed: 1 };
   const out = Object.keys(c.drivers).find(a => c.drivers[a].teamIdx === 0);
   assert.equal(negotiateSign(c, "VER", out, { teamStrength: 1.0, seed: 1 }).ok, false);
+});
+
+test("§Phase-3 negotiation lockout: repeated flat refusals lock the driver out; force bypasses; new season resets", () => {
+  const fresh = () => ({ teamIdx: 0, money: 1e7, drivers: initDrivers(), seed: 1, negStrikes: {} });
+  // find a seed that yields a flat "отказ" — probe on throwaway careers so a stray success can't corrupt state
+  let seed = 0;
+  for (; seed < 300; seed++) {
+    const t = fresh(); const o = Object.keys(t.drivers).find(a => t.drivers[a].teamIdx === 0);
+    if (negotiateSign(t, availableDrivers(t)[0].abbrev, o, { teamStrength: 0.05, seed }).reason === "отказ") break;
+  }
+  const c = fresh();
+  const out = Object.keys(c.drivers).find(a => c.drivers[a].teamIdx === 0);
+  const inAb = availableDrivers(c)[0].abbrev;     // the best rival star — a weak team makes him balk
+  const r = negotiateSign(c, inAb, out, { teamStrength: 0.05, seed });
+  assert.equal(r.reason, "отказ");
+  assert.equal(negStrikes(c, inAb), 1, "first flat refusal = 1 strike");
+  assert.equal(r.locked, false);
+  negotiateSign(c, inAb, out, { teamStrength: 0.05, seed });        // 2nd strike
+  const r3 = negotiateSign(c, inAb, out, { teamStrength: 0.05, seed });  // 3rd → reaches the cap
+  assert.equal(negStrikes(c, inAb), NEG.lockAt);
+  assert.ok(negLocked(c, inAb) && r3.locked, "the cap of flat refusals locks the driver out");
+  const r4 = negotiateSign(c, inAb, out, { teamStrength: 0.05, seed });  // further talks are blocked
+  assert.equal(r4.reason, "lockout");
+  // a forced re-sign (accepted counter terms) ignores the lockout
+  assert.notEqual(negotiateSign(c, inAb, out, { teamStrength: 0.05, seed, force: true }).reason, "lockout");
+  // patience refreshes next season (newCareer default carries through newSeason)
+  const full = newCareer({ teamIdx: 0, seed: 1 }); full.negStrikes = { ABC: NEG.lockAt };
+  assert.deepEqual(newSeason(full).negStrikes, {}, "a new season clears all strikes");
 });

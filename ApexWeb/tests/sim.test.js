@@ -43,6 +43,38 @@ test("§Phase-1 fuel-load lever: a lean start carries less fuel; omitting it is 
   assert.equal(r.cars[2].fuel, startFuel(TRACK), "no margin set → exactly the tuned default");
 });
 
+test("§Phase-3 #1 double-stack: a lead teammate makes the co-running support car wait; equal/equal does not", () => {
+  // Two identical same-team cars forced to pit together. We let the race settle, then crown whichever
+  // car is actually AHEAD as the #1 (so it reaches the box first) and accumulate each car's stationary
+  // box time. The equal/equal baseline shares identical physics (status changes nothing but the stack),
+  // so the natural arrival offset cancels and the delta isolates the priority wait.
+  function boxTimes(prioritise) {
+    const f = field();
+    const idCar = { ...f[0].car, rel: 1 };           // identical, fully reliable cars (kill random DNF)
+    f[0].car = idCar; f[1].car = idCar;
+    f[1].attrs = f[0].attrs; f[1].skill = f[0].skill;
+    f[0].player = "p1"; f[1].player = "p2";          // player-controlled → no AI auto-pit interference
+    const r = new Race(f, TRACK, 99);
+    for (let i = 0; i < 3000; i++) r.step();          // settle into the race (~9 laps) so an order forms
+    const aheadIsCar0 = r.cars[0].pos < r.cars[1].pos;
+    const ahead = aheadIsCar0 ? 0 : 1, behind = aheadIsCar0 ? 1 : 0;
+    if (prioritise) { r.cars[ahead].driverStatus = "lead"; r.cars[behind].driverStatus = null; }  // crown the leader #1
+    r.requestPit(0, "medium"); r.requestPit(1, "medium");
+    let tAhead = 0, tBehind = 0, guard = 0;
+    while ((r.cars[0].pitStops < 1 || r.cars[1].pitStops < 1 || r.cars[0].pitTimer > 0 || r.cars[1].pitTimer > 0) && guard++ < 80000) {
+      r.step();
+      if (r.cars[ahead].pitTimer > 0) tAhead += STEP;
+      if (r.cars[behind].pitTimer > 0) tBehind += STEP;
+    }
+    return tBehind - tAhead;   // how much longer the following car sat in the box
+  }
+  const withPriority = boxTimes(true);   // leader is #1 → follower waits for the box to clear
+  const baseline = boxTimes(false);      // both equal → no priority
+  const stackDelta = withPriority - baseline;
+  assert.ok(stackDelta > 1.5, `support should wait behind the #1 (stackDelta=${stackDelta.toFixed(2)})`);
+  assert.ok(stackDelta < 3.5, `but only ~pitStackWait, not unbounded (stackDelta=${stackDelta.toFixed(2)})`);
+});
+
 test("push is faster than conserve, all else equal", () => {
   const f = field();
   const r = new Race(f, TRACK, 1);

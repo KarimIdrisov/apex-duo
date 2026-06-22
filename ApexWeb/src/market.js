@@ -122,13 +122,21 @@ export function applyCounter(opts, counter) {
   return o;
 }
 
+// §Phase-3 — negotiation patience: a driver flatly refused too many times this window loses patience and
+// locks the player out of further talks (strikes reset each season / on a successful signing). A constructive
+// counter does NOT cost patience; only a flat "отказ" does. The lockout never blocks a forced re-sign.
+export const NEG = { lockAt: 3 };   // the 3rd flat refusal (after 2 strikes) locks the driver out for the window
+export function negStrikes(career, abbrev) { return (career.negStrikes && career.negStrikes[abbrev]) || 0; }
+export function negLocked(career, abbrev) { return negStrikes(career, abbrev) >= NEG.lockAt; }
+
 // negotiate a signing: swap inAbbrev in for outAbbrev (the player's).
 // opts = { teamStrength, seed, length, clauses, force?, feeMult? }.
-// Returns { ok, reason, counter? }. reason: "деньги" | "отказ" | "counter" | "перебили" | "ошибка".
+// Returns { ok, reason, counter? }. reason: "деньги" | "отказ" | "counter" | "перебили" | "lockout" | "ошибка".
 export function negotiateSign(career, inAbbrev, outAbbrev, opts = {}) {
   const inDr = career.drivers[inAbbrev], outDr = career.drivers[outAbbrev];
   if (!inDr || !outDr) return { ok: false, reason: "ошибка" };
   if (inDr.teamIdx === career.teamIdx || outDr.teamIdx !== career.teamIdx) return { ok: false, reason: "ошибка" };
+  if (!opts.force && negLocked(career, inAbbrev)) return { ok: false, reason: "lockout" };   // out of patience this window
   const length = Math.max(1, Math.min(3, opts.length || 2));
   const clauses = opts.clauses || null;
   const signBonus = Math.max(0, Math.round(opts.signBonus || 0));         // §Phase-3: signing-bonus sweetener
@@ -140,7 +148,9 @@ export function negotiateSign(career, inAbbrev, outAbbrev, opts = {}) {
   if (!opts.force && roll >= accept) {
     // borderline? the agent counters with a demand the player can accept; otherwise a flat refusal.
     if (roll < accept + COUNTER_MARGIN) return { ok: false, reason: "counter", counter: buildCounter(inDr, opts, seed) };
-    return { ok: false, reason: "отказ" };
+    career.negStrikes = career.negStrikes || {};                       // a flat refusal costs the driver's patience
+    career.negStrikes[inAbbrev] = negStrikes(career, inAbbrev) + 1;
+    return { ok: false, reason: "отказ", strikes: career.negStrikes[inAbbrev], locked: negLocked(career, inAbbrev) };
   }
   if (!opts.force && (mix32((seed * 40503 + 777) >>> 0) / 4294967296) < 0.15) return { ok: false, reason: "перебили" };  // a rival outbid
   career.money -= cost;
@@ -151,6 +161,7 @@ export function negotiateSign(career, inAbbrev, outAbbrev, opts = {}) {
   inDr.contractSeasons = length; inDr.morale = Math.min(1, (inDr.morale ?? 0.6) + 0.1);
   inDr.clauses = built;
   if (built.guaranteedLead) { inDr.status = "lead"; if (outDr) outDr.status = "equal"; }   // #1 guarantee
+  if (career.negStrikes) delete career.negStrikes[inAbbrev];   // a deal closed → patience reset for this driver
   return { ok: true, cost };
 }
 
