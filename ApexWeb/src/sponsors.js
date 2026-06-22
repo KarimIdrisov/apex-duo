@@ -54,9 +54,13 @@ export function titleOffers(teamIdx, seed) {
   });
 }
 
+// §Phase-6 — per-weekend single-bonus PICK: the player nominates ONE sponsor to "chase" each race; if its
+// objective is met its bonus pays out boosted (×FOCUS_MULT). A focused MISS stings happiness a touch more
+// (you promised them the weekend). Default (no focus, e.g. the balance harness) → ×1 → byte-identical.
+export const FOCUS_MULT = 1.5;
 // evaluate a sponsor against a race result for the player team.
-// ctx = { bestPos:int, points:int, beat:Set<teamName> }
-export function evaluateSponsor(sp, ctx) {
+// ctx = { bestPos:int, points:int, beat:Set<teamName> }; focused = this sponsor is the weekend's pick.
+export function evaluateSponsor(sp, ctx, focused = false) {
   let met = false;
   switch (sp.objective.type) {
     case OBJ.PODIUM: met = ctx.bestPos <= 3; break;
@@ -64,5 +68,6 @@ export function evaluateSponsor(sp, ctx) {
     case OBJ.POINTS: met = ctx.points >= sp.objective.param; break;
     case OBJ.BEAT: met = ctx.beat.has(sp.objective.param); break;
   }
-  return { met, payout: sp.retainer + (met ? sp.bonus : 0), dHappiness: met ? 0.06 : -0.05 };
+  const bonus = met ? sp.bonus * (focused ? FOCUS_MULT : 1) : 0;
+  return { met, payout: sp.retainer + bonus, dHappiness: met ? 0.06 : (focused ? -0.08 : -0.05) };
 }

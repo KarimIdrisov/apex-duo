@@ -137,7 +137,10 @@ export function render(root, ctx) {
     return `<div style="background:var(--content2);border-radius:var(--r-md);padding:10px 12px;margin-bottom:8px">
       <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-weight:700">${s.kind === "title" ? "★ " : ""}${s.name}${risk ? ` <span style="color:var(--bad);font-size:11px;font-weight:700">под угрозой</span>` : ""}</span><span style="font-size:12px;color:var(--muted)">${objectiveLabel(s.objective)}</span></div>
       <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:2px"><span>довольство ${hp}%</span><span>ретейнер ${m$(s.retainer)} · бонус ${m$(s.bonus)}</span></div>
-      ${barEl(hp, hc, 6)}</div>`; };
+      ${barEl(hp, hc, 6)}
+      <div style="margin-top:5px">${c.bonusFocus === s.name
+        ? `<span style="font-size:11px;color:var(--good);font-weight:700">★ фокус уикенда (бонус ×1.5)</span>`
+        : `<button class="focussp" data-name="${s.name}" style="font-size:11px;padding:2px 8px">сделать фокусом уикенда</button>`}</div></div>`; };
   const offerCard = c.sponsorOffer ? `<div style="border:2px solid var(--accent);border-radius:var(--r-md);padding:10px 12px;margin-top:6px">
       <div style="display:flex;justify-content:space-between"><span style="font-weight:700">Новое предложение: ${c.sponsorOffer.name}</span><span style="font-size:12px;color:var(--muted)">${objectiveLabel(c.sponsorOffer.objective)}</span></div>
       <div style="font-size:12px;color:var(--muted);margin:4px 0">ретейнер ${m$(c.sponsorOffer.retainer)} · бонус ${m$(c.sponsorOffer.bonus)}</div>
@@ -757,6 +760,7 @@ export function render(root, ctx) {
   root.querySelectorAll("button.acadup").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_academy_upgrade", player: ctx.myPlayer }); });
   root.querySelectorAll("button.loanbtn").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_loan", player: ctx.myPlayer, amount: +b.dataset.amt }); });
   root.querySelectorAll("button.fundsbtn").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_funds", player: ctx.myPlayer, amount: +b.dataset.amt }); });
+  root.querySelectorAll("button.focussp").forEach(b => b.onclick = () => ctx.send({ cmd: "set_bonus_focus", name: b.dataset.name }));
   const ssp = root.querySelector("button.signsponsor"); if (ssp) ssp.onclick = () => { ssp.disabled = true; ctx.send({ cmd: "career_sign_sponsor", player: ctx.myPlayer }); };
   const akeep = root.querySelector("button.acq-keep"); if (akeep) akeep.onclick = () => { akeep.disabled = true; ctx.send({ cmd: "career_acquire_accept", player: ctx.myPlayer, rebrand: false }); };
   const areb = root.querySelector("button.acq-rebrand"); if (areb) areb.onclick = () => { areb.disabled = true; ctx.send({ cmd: "career_acquire_accept", player: ctx.myPlayer, rebrand: true }); };

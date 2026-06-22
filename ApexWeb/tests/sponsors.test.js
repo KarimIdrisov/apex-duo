@@ -1,6 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { OBJ, defaultSponsors, titleOffers, evaluateSponsor, objectiveLabel } from "../src/sponsors.js";
+import { OBJ, defaultSponsors, titleOffers, evaluateSponsor, objectiveLabel, FOCUS_MULT } from "../src/sponsors.js";
+
+test("§Phase-6 weekend bonus focus: a focused sponsor's met bonus is boosted; default unchanged", () => {
+  const sp = { retainer: 100, bonus: 200, objective: { type: OBJ.PODIUM }, happiness: 0.6 };
+  const hit = { bestPos: 1, points: 25, beat: new Set() };
+  assert.equal(evaluateSponsor(sp, hit, false).payout, 300, "default: retainer + bonus");
+  assert.equal(evaluateSponsor(sp, hit, true).payout, 100 + 200 * FOCUS_MULT, "focused: bonus boosted");
+  const miss = { bestPos: 10, points: 0, beat: new Set() };
+  assert.ok(evaluateSponsor(sp, miss, true).dHappiness < evaluateSponsor(sp, miss, false).dHappiness, "a focused miss stings happiness more");
+});
 
 test("defaultSponsors: 1 title + 2 secondary, deterministic, happiness seeded", () => {
   const a = defaultSponsors(0, 5), b = defaultSponsors(0, 5);

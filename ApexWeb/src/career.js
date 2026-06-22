@@ -188,7 +188,7 @@ export function applyResult(career, classification, raceInfo = {}) {
   const sCtx = { bestPos, points: teamPts, beat };
   let sponsorIncome = 0;
   for (const sp of (career.sponsors || [])) {
-    const r = evaluateSponsor(sp, sCtx);
+    const r = evaluateSponsor(sp, sCtx, !!career.bonusFocus && sp.name === career.bonusFocus);   // §Phase-6: the weekend's focused sponsor pays a boosted bonus
     sponsorIncome += r.payout;
     sp.happiness = Math.max(0, Math.min(1, sp.happiness + r.dHappiness));
   }

@@ -279,6 +279,9 @@ function onCommand(cmd) {
     case "career_funds":   // §Phase-6: request a one-per-season board cash injection (cash now, confidence cost)
       if (ctx.career) { requestBoardFunds(ctx.career, +cmd.amount || 0); saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
+    case "set_bonus_focus":   // §Phase-6: nominate the weekend's focused sponsor (boosted bonus)
+      if (ctx.career) { ctx.career.bonusFocus = (ctx.career.bonusFocus === cmd.name) ? null : cmd.name; saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
     case "career_sign_sponsor":
       if (ctx.career && ctx.career.sponsorOffer) { ctx.career.sponsors = [...(ctx.career.sponsors || []), ctx.career.sponsorOffer]; ctx.career.sponsorOffer = null; saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
