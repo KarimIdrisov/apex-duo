@@ -1,6 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { STAFF_ROLES, FACILITIES, FAC_MAX, initStaff, composePersonnel, devMult, upkeep, upgradeStaff, upgradeFacility, STAFF_UPGRADE_COST, simDriverBoost, designerFocus, DESIGNER_FOCUS, tickStaffTrain, staffGrowth, tickStaffDevelopment, STAFF_PEAK_AGE, FACTORY_DEV, facPrereqMet } from "../src/staff.js";
+import { STAFF_ROLES, FACILITIES, FAC_MAX, initStaff, composePersonnel, devMult, upkeep, upgradeStaff, upgradeFacility, STAFF_UPGRADE_COST, simDriverBoost, designerFocus, DESIGNER_FOCUS, tickStaffTrain, staffGrowth, tickStaffDevelopment, STAFF_PEAK_AGE, FACTORY_DEV, facPrereqMet, staffHireFee } from "../src/staff.js";
+
+test("§Phase-5 staff loyalty: seeded, grows while employed, raises the poach fee (not free agents)", () => {
+  const g = staffGrowth(0.8, 1);
+  assert.ok(g.loyalty >= 0.3 && g.loyalty <= 0.7, "seeded 0.3..0.7");
+  assert.ok(staffHireFee({ rating: 0.8, team: "Ferrari", loyalty: 0.9 }) > staffHireFee({ rating: 0.8, team: "Ferrari", loyalty: 0.2 }), "a loyal rival staffer costs more to poach");
+  assert.equal(staffHireFee({ rating: 0.8, team: null, loyalty: 0.9 }), staffHireFee({ rating: 0.8, team: null, loyalty: 0 }), "loyalty doesn't apply to a free agent");
+  const mk = () => ({ rating: 0.7, age: 40, potential: 0.7, loyalty: 0.5 });
+  const career = { staff: { designer: 0.7, strategist: 0.7, pitCrew: 0.7, people: { designer: mk(), strategist: mk(), pitCrew: mk() } } };
+  tickStaffDevelopment(career);
+  assert.ok(career.staff.people.designer.loyalty > 0.5, "loyalty grows each season employed");
+});
 
 test("§Phase-5 building prerequisite tree: an advanced building can't outrun its base", () => {
   assert.equal(facPrereqMet({ facilities: { design: 0 } }, "design"), true, "base buildings have no prereq");

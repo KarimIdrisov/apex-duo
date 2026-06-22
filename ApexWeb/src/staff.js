@@ -34,13 +34,16 @@ const clamp01 = v => Math.max(0, Math.min(1, v));
 // decision. Growth is applied OFF-SEASON only (tickStaffDevelopment in newSeason), so the in-season dev
 // corridor is byte-identical — ratings are static across a season.
 export const STAFF_AGE_MIN = 30, STAFF_AGE_MAX = 56, STAFF_PEAK_AGE = 50;
-// seeded { age, potential } for a staffer of a given rating (deterministic). Younger ⇒ more headroom.
+// seeded { age, potential, loyalty } for a staffer of a given rating (deterministic). Younger ⇒ more
+// headroom. §Phase-5 loyalty (0.3..0.7 seeded, grows while employed) — a loyal rival staffer costs more
+// to prise away (negotiation texture, see staffHireFee), so retaining your own is the cheaper play.
 export function staffGrowth(rating, seed) {
   const s = seed >>> 0;
   const age = STAFF_AGE_MIN + Math.floor((mix32(s) / 4294967296) * (STAFF_AGE_MAX - STAFF_AGE_MIN));
   const youth = Math.max(0, Math.min(1, (STAFF_PEAK_AGE - age) / (STAFF_PEAK_AGE - STAFF_AGE_MIN)));   // 1 young → 0 at peak
   const potential = clamp01(rating + youth * 0.20 * (mix32((s ^ 0x9e3779b9) >>> 0) / 4294967296));     // up to +0.20 for the youngest
-  return { age, potential };
+  const loyalty = 0.3 + 0.4 * (mix32((s ^ 0x85ebca6b) >>> 0) / 4294967296);                            // 0.3..0.7
+  return { age, potential, loyalty };
 }
 
 // initial staff/facilities seeded from the team facility strength (0..1).
@@ -260,7 +263,9 @@ export function staffMarketAll(career, seed) {
 }
 
 // poach fee — a free agent costs ~8 races of wage; prying someone from a rival adds a ~60% premium.
-export function staffHireFee(person) { return Math.round(salaryForStaff(person.rating) * (person.team ? 12.8 : 8)); }
+// §Phase-5: poaching a RIVAL's staffer costs a ~60% premium, scaled further by their loyalty (a loyal
+// staffer doesn't want to leave). A free agent (no team) is a flat hire — loyalty doesn't apply.
+export function staffHireFee(person) { return Math.round(salaryForStaff(person.rating) * (person.team ? 12.8 * (1 + (person.loyalty || 0) * 0.5) : 8)); }
 
 // hire from the market. Free agent → straight hire. Rival → poach: the rival loses the person (replaced
 // by a weaker stand-in) and takes a small competitiveness hit (negative gridBoost). Returns true on success.
@@ -327,6 +332,7 @@ export function tickStaffDevelopment(career) {
       next = clamp01(cur - 0.008 * (p.age - STAFF_PEAK_AGE));             // gentle post-peak decline
     }
     st[role] = next; p.rating = next; p.salary = salaryForStaff(next);
+    p.loyalty = Math.min(1, (p.loyalty ?? 0.5) + 0.07);   // §Phase-5: a kept staffer grows more loyal each season (harder/dearer for rivals to poach)
   }
 }
 
