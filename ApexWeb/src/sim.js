@@ -46,7 +46,7 @@ export class Race {
       lap: 0, lapFrac: 0, lapTimeAccum: 0, lastLap: 0, totalTime: 0,
       avgLap: 0, _lapSum: 0, _lapN: 0,
       tyre: f.startTyre ?? "medium", wear: 0, tyreAge: 0, tyreTemp: TYRE.gridTemp,
-      fuel: startFuel(track), engine: "standard",
+      fuel: startFuel(track, f.fuelMargin), engine: "standard",   // §Phase-1: player can set a leaner/heavier start fuel load (f.fuelMargin; undefined → tuned default)
       pace: "balanced",
       retired: false, pitPending: null, pos: i + 1, startPos: i + 1,
       pitStops: 0, pitTimer: 0, penaltyTimer: 0,

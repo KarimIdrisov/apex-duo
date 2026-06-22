@@ -9,6 +9,14 @@ test("startFuel covers the race plus margin", () => {
   assert.ok(f < TRACK.laps * 1.5, "but not wildly over");
 });
 
+test("startFuel: explicit margin scales the load; null/undefined → tuned default (byte-identical)", () => {
+  assert.equal(startFuel(TRACK, undefined), startFuel(TRACK)); // AI/harness path unchanged
+  assert.equal(startFuel(TRACK, null), startFuel(TRACK));      // null also = default
+  assert.equal(startFuel(TRACK, 0.02), TRACK.laps * 1.02);     // lean: lighter tank
+  assert.equal(startFuel(TRACK, 0.12), TRACK.laps * 1.12);     // safe: heavier tank
+  assert.ok(startFuel(TRACK, 0.02) < startFuel(TRACK, 0.12));  // lean carries less than safe
+});
+
 test("push burns more than standard than save; car.fuel improves economy", () => {
   assert.ok(burnFor("push", 1) > burnFor("standard", 1));
   assert.ok(burnFor("standard", 1) > burnFor("save", 1));

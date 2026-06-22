@@ -251,8 +251,14 @@ export function render(root, ctx) {
   const focusSeg = `<div style="display:flex;gap:6px">${FOCUS_OPTS.map(([f, l]) => `<button class="devfocus" data-f="${f}" style="flex:1;padding:8px 6px;border-radius:8px;border:1px solid ${focusOn(f) ? "var(--accent)" : "var(--border)"};background:${focusOn(f) ? "var(--accent)" : "transparent"};color:${focusOn(f) ? "#fff" : "var(--ink)"};font-size:11px;font-weight:600">${l}</button>`).join("")}</div>`;
   const bankedTot = c.nextCar ? Object.values(c.nextCar).reduce((a, b) => a + b, 0) : 0;
   const bankedLine = bankedTot > 0.0005 ? `<p class="label" style="opacity:.8;margin-top:4px">📦 Задел на след. год: +${(bankedTot * 100).toFixed(1)} — реализуется на старте сезона</p>` : "";
+  // §Phase-1: pre-race fuel-load strategy. Lean = lighter & faster but risks running dry; Safe = heavy & slow.
+  // Empty string ("") = tuned default (byte-identical to the AI / harness).
+  const FUEL_OPTS = [["0.02", "Облегчённый", "−вес, риск сухого бака"], ["", "Стандарт", "сбалансированно"], ["0.12", "С запасом", "тяжелее, но надёжно"]];
+  const fuelOn = v => (v === "" ? (c.fuelLoad == null) : Math.abs((c.fuelLoad ?? -9) - parseFloat(v)) < 0.001);
+  const fuelSeg = `<div style="display:flex;gap:6px">${FUEL_OPTS.map(([v, l, h]) => `<button class="fuelload" data-fl="${v}" style="flex:1;padding:8px 6px;border-radius:8px;border:1px solid ${fuelOn(v) ? "var(--accent)" : "var(--border)"};background:${fuelOn(v) ? "var(--accent)" : "transparent"};color:${fuelOn(v) ? "#fff" : "var(--ink)"};font-size:11px;font-weight:600;text-align:center"><b>${l}</b><br><span style="font-size:10px;opacity:.8;font-weight:400">${h}</span></button>`).join("")}</div>`;
   const strategyView = me ? `<div class="bcard" style="--spine:var(--bc)"><p class="bcard-title">Концепт болида${(c.round === 0 || c.done) ? " · смена бесплатна (предсезон)" : " · смена в сезоне $3.5M"}</p>${conceptCards}
-      <p class="label" style="margin-top:16px">Фокус разработки: текущая ↔ будущая машина</p>${focusSeg}${bankedLine}</div>` : "";
+      <p class="label" style="margin-top:16px">Фокус разработки: текущая ↔ будущая машина</p>${focusSeg}${bankedLine}
+      <p class="label" style="margin-top:16px">Топливо на старт гонки</p>${fuelSeg}</div>` : "";
   const carTabBar = `<div class="seg" style="margin-bottom:12px">${[["chassis", "Шасси"], ["engine", "ДВС"], ["strategy", "Стратегия"]].map(([k, l]) => `<button class="cartab${k === carTab ? " on" : ""}" data-ct="${k}">${l}</button>`).join("")}</div>`;
   // P6: a pending shared decision awaiting the co-director's sign-off (co-op only).
   const prop = c.proposal;
@@ -728,6 +734,7 @@ export function render(root, ctx) {
   root.querySelectorAll("button.devmode").forEach(b => b.onclick = () => { ctx._devMode = b.dataset.m; render(root, ctx); });
   root.querySelectorAll("button.conceptbtn").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_concept", player: ctx.myPlayer, concept: b.dataset.c }); });
   root.querySelectorAll("button.devfocus").forEach(b => b.onclick = () => { ctx.send({ cmd: "career_devfocus", player: ctx.myPlayer, focus: +b.dataset.f }); });
+  root.querySelectorAll("button.fuelload").forEach(b => b.onclick = () => { ctx.send({ cmd: "set_fuel_load", value: b.dataset.fl === "" ? null : parseFloat(b.dataset.fl) }); });
   root.querySelectorAll("button.pubtn").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_pu_project", player: ctx.myPlayer, part: b.dataset.k, size: b.dataset.sz }); });
   root.querySelectorAll("button.puprog").forEach(b => b.onclick = () => { b.disabled = true; ctx.send({ cmd: "career_pu_program", player: ctx.myPlayer, kind: b.dataset.kind }); });
   root.querySelectorAll("button.pucontract").forEach(b => b.onclick = () => { ctx.send({ cmd: "career_pu_contract", player: ctx.myPlayer, spec: b.dataset.k }); });

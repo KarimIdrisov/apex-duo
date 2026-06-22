@@ -282,6 +282,9 @@ function onCommand(cmd) {
     case "set_bonus_focus":   // §Phase-6: nominate the weekend's focused sponsor (boosted bonus)
       if (ctx.career) { ctx.career.bonusFocus = (ctx.career.bonusFocus === cmd.name) ? null : cmd.name; saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
+    case "set_fuel_load":   // §Phase-1: pre-race fuel-load strategy (leaner = faster + risk dry / heavier = safe)
+      if (ctx.career) { ctx.career.fuelLoad = cmd.value; saveCareer(ctx.career); publishCareer(); rerender(); }
+      break;
     case "career_sign_sponsor":
       if (ctx.career && ctx.career.sponsorOffer) { ctx.career.sponsors = [...(ctx.career.sponsors || []), ctx.career.sponsorOffer]; ctx.career.sponsorOffer = null; saveCareer(ctx.career); publishCareer(); rerender(); }
       break;
@@ -425,6 +428,7 @@ function buildField() {
       // §Phase-3 car-confidence: freshly-fitted (unproven) parts leave the car not-yet-bedded-in → a small early pace hit that recovers; an adaptable (consistent + race-smart) driver settles faster. AI / non-career = settled (1).
       partConfidence: (ctx.career && isPlayerTeam) ? Math.max(0.7, 1 - 0.05 * ((ctx.career.unproven || []).length)) : 1,
       adaptability: (dr && dr.attrs) ? Math.max(0, Math.min(1, ((dr.attrs.consistency || 0.7) + (dr.attrs.race_iq || 0.7)) / 2)) : 0.7,
+      fuelMargin: (ctx.career && isPlayerTeam) ? ctx.career.fuelLoad : undefined,   // §Phase-1: player's chosen start fuel load (undefined → tuned default)
       personnel: (ctx.career && isPlayerTeam) ? pcPersonnel(composePersonnel(ctx.career.staff), ctx.career.pitCrew) : genPersonnel(t.facility, ti),
       pitCrew: (ctx.career && isPlayerTeam && ctx.career.pitCrew) ? (() => { const pc = composePitCrew(ctx.career.pitCrew), bm = botchMult(ctx.career); return { botchChance: pc.botchChance * bm, disasterChance: pc.disasterChance * bm }; })() : null,   // mechanic co-director (Гл. механик) trims botch/disaster (botchMult < 1)
 

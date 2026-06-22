@@ -139,6 +139,7 @@ export function newCareer({ teamIdx = 0, seed = 1, coop = false, directors = [],
     devFocus: 0, nextCar: {},                                       // F1: this/next-year development split
 
     concept: "balanced",                                            // E3 car concept
+    fuelLoad: null,                                                 // §Phase-1: pre-race fuel-load strategy (null = tuned default; lean/safe set in paddock)
     chassis: neutralChassis(),                                      // Phase 4: pre-season chassis design (supplier ritual → character traits)
     mechChem: { p1: CHEM_START, p2: CHEM_START },                   // §Phase-5: per-car race-mechanic chemistry (gates the in-race perks)
     pu: { pool: PU_POOL, used: 1, wear: 0, penalty: 0 }, aiPu: {},   // E4 PU season allocation · E9 AI PU pools

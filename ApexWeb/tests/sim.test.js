@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { Race } from "../src/sim.js";
 import { TEAMS, TRACK, STEP, SKILL_K, INCIDENT } from "../src/data.js";
 import { driverAttrs } from "../src/team.js";
+import { startFuel } from "../src/fuel.js";
 
 function field() {
   // flat field: every team's two drivers, no players yet
@@ -30,6 +31,16 @@ test("a car records laps and lap times in a sane range", () => {
   assert.ok(c.lap >= 1, "should have completed at least one lap");
   // clean Barcelona lap ~ 78-86s for the fastest cars
   assert.ok(c.lastLap > 70 && c.lastLap < 95, `lastLap=${c.lastLap}`);
+});
+
+test("§Phase-1 fuel-load lever: a lean start carries less fuel; omitting it is byte-identical to default", () => {
+  const f = field();
+  f[0].fuelMargin = 0.02;  // lean
+  f[1].fuelMargin = 0.12;  // safe (heavier)
+  // f[2] leaves fuelMargin undefined → tuned default
+  const r = new Race(f, TRACK, 7);
+  assert.ok(r.cars[0].fuel < r.cars[1].fuel, "lean tank carries less than safe");
+  assert.equal(r.cars[2].fuel, startFuel(TRACK), "no margin set → exactly the tuned default");
 });
 
 test("push is faster than conserve, all else equal", () => {
